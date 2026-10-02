@@ -1,0 +1,53 @@
+# 서버의 ~/plaza/compose.yaml (deploy/vm-up.sh 가 릴리스 폴더에서 복사한다).
+# 호스트 쪽은 127.0.0.1 에만 연다(ssh 터널용). 공개 입구는 같은 호스트의 리버스 프록시(nginx 컨테이너)가
+# 도메인 server 블록(deploy/nginx-plaza.conf.template)에서 PLAZA_EDGE_NET 을 건너 plaza_web:8765 로 넘긴다.
+name: plaza
+services:
+  web:
+    image: plaza-web:${PLAZA_RELEASE:?릴리스 판번호가 없다}
+    container_name: plaza_web
+    restart: unless-stopped
+    ports: ["127.0.0.1:18765:8765"]
+    environment:
+      PLAZA_DB: /data/plaza.db
+      PLAZA_SECRET_FILE: /run/plaza-secret/secret
+      PLAZA_OPERATORS_FILE: /run/plaza-config/operators.json
+      # 검색엔진 소유 확인(선택). 파일이 없으면 아무것도 안 붙는다. 고치면 재시작 없이 반영된다
+      PLAZA_SITE_VERIFY_FILE: /run/plaza-config/site_verification.json
+      PLAZA_DATA_DIR: /data/public
+      PLAZA_BASE_URL: ${PLAZA_BASE_URL:?자기 주소가 없다}
+      # 대표 주소(검색·공유용). 비우면 PLAZA_BASE_URL. 도메인을 옮길 때 이것만 먼저 새 이름으로 둔다
+      PLAZA_SITE_URL: ${PLAZA_SITE_URL:-}
+      PLAZA_PUBLIC_CACHE_S: "60"
+      # 속도 제한 키. 앞단 nginx 가 CDN 대역에서 온 요청만 realip 로 풀고, CF-Connecting-IP 를
+      # 늘 자기 값($remote_addr)으로 덮어 넘긴다. 밖에서 이 헤더를 꾸며 넣어도 서버까지 안 닿는다.
+      # 앞단이 그렇게 덮어쓰지 않는 구성이면 "0" 으로 둘 것(헤더를 꾸며 속도 제한을 피할 수 있게 된다)
+      PLAZA_TRUST_CF: "${PLAZA_TRUST_CF:-1}"
+    volumes:
+      - plaza_data:/data
+      - ./secret:/run/plaza-secret:ro,z
+      - ./config:/run/plaza-config:ro,z
+      - ./backups:/backups:z
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8765/api/v1/characters', timeout=5).read()"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks: [plaza_net, edge]
+
+volumes:
+  plaza_data:
+    name: plaza_data
+
+networks:
+  plaza_net:
+    name: plaza_net
+  # 리버스 프록시 컨테이너가 붙어 있는 네트워크에 plaza_web 만 끼운다(프록시 쪽 compose 는 안 고친다).
+  # 이름은 서버 .env 의 PLAZA_EDGE_NET. 이 네트워크가 없으면 compose up 이 멈춘다
+  edge:
+    name: ${PLAZA_EDGE_NET:?입구 프록시 네트워크 이름이 없다}
+    external: true

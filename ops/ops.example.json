@@ -1,0 +1,19 @@
+{
+  "_note": "ops/ 잡 설정 예시. ~/.config/ai-smallvillage/ops.json (또는 PLAZA_OPS_CONFIG) 로 복사해 고친다. 리포에 커밋하지 않는다",
+  "domain": "plaza.example.com",
+  "cert_label": "site",
+  "extra_cert_domains": {},
+  "extra_cert_lineages": [],
+  "vm_host": "deploy@203.0.113.10",
+  "vm_key": "~/.ssh/plaza_vm_ed25519",
+  "remote_dir": "~/plaza",
+  "certbot_container": "certbot",
+  "nginx_container": "nginx",
+  "certbot_volume": "certbot_conf",
+  "cert_archive_name": "certs.tar.gz",
+  "backup_dest": "~/backups/plaza",
+  "state_dir": "~/.local/state/plaza-ops",
+  "telegram_cred_file": "~/.config/ai-smallvillage/telegram.json",
+  "backup_log_hint": "",
+  "status_note": "문턱은 ops/plaza_ops_status.py 머리말"
+}

@@ -1,0 +1,156 @@
+{
+ "rule": "새 에이전트 = pool 순서에서 assigned 에 없는 첫 캐릭터",
+ "pool": [
+  {
+   "id": "merchant",
+   "name": "상인",
+   "file": "out/merchant.png"
+  },
+  {
+   "id": "philosopher",
+   "name": "철학자",
+   "file": "out/philosopher.png"
+  },
+  {
+   "id": "scholar",
+   "name": "학자",
+   "file": "out/scholar.png"
+  },
+  {
+   "id": "messenger",
+   "name": "전령",
+   "file": "out/messenger.png"
+  },
+  {
+   "id": "robot",
+   "name": "로봇",
+   "file": "out/robot.png"
+  },
+  {
+   "id": "gardener",
+   "name": "정원사",
+   "file": "out/gardener.png"
+  },
+  {
+   "id": "scribe",
+   "name": "필경사",
+   "file": "out/scribe.png"
+  },
+  {
+   "id": "watchman",
+   "name": "야경꾼",
+   "file": "out/watchman.png"
+  },
+  {
+   "id": "chef",
+   "name": "요리사",
+   "file": "out/chef.png"
+  },
+  {
+   "id": "engineer",
+   "name": "기술자",
+   "file": "out/engineer.png"
+  },
+  {
+   "id": "detective",
+   "name": "탐정",
+   "file": "out/detective.png"
+  },
+  {
+   "id": "painter",
+   "name": "화가",
+   "file": "out/painter.png"
+  },
+  {
+   "id": "musician",
+   "name": "악사",
+   "file": "out/musician.png"
+  },
+  {
+   "id": "cat",
+   "name": "고양이 헬멧",
+   "file": "out/cat.png"
+  },
+  {
+   "id": "astronomer",
+   "name": "천문학자",
+   "file": "out/astronomer.png"
+  },
+  {
+   "id": "doctor",
+   "name": "의사",
+   "file": "out/doctor.png"
+  },
+  {
+   "id": "barista",
+   "name": "바리스타",
+   "file": "out/barista.png"
+  },
+  {
+   "id": "fisher",
+   "name": "낚시꾼",
+   "file": "out/fisher.png"
+  },
+  {
+   "id": "magician",
+   "name": "마법사",
+   "file": "out/magician.png"
+  },
+  {
+   "id": "knight",
+   "name": "기사",
+   "file": "out/knight.png"
+  },
+  {
+   "id": "pilot",
+   "name": "비행사",
+   "file": "out/pilot.png"
+  },
+  {
+   "id": "firefighter",
+   "name": "소방관",
+   "file": "out/firefighter.png"
+  },
+  {
+   "id": "tailor",
+   "name": "재단사",
+   "file": "out/tailor.png"
+  },
+  {
+   "id": "photographer",
+   "name": "사진가",
+   "file": "out/photographer.png"
+  },
+  {
+   "id": "rainwalker",
+   "name": "비옷 산책가",
+   "file": "out/rainwalker.png"
+  },
+  {
+   "id": "bunny",
+   "name": "토끼 헬멧",
+   "file": "out/bunny.png"
+  },
+  {
+   "id": "puppy",
+   "name": "강아지 헬멧",
+   "file": "out/puppy.png"
+  },
+  {
+   "id": "athlete",
+   "name": "운동선수",
+   "file": "out/athlete.png"
+  },
+  {
+   "id": "penguin",
+   "name": "펭귄 헬멧",
+   "file": "out/penguin.png"
+  },
+  {
+   "id": "juggler",
+   "name": "저글러",
+   "file": "out/juggler.png"
+  }
+ ],
+ "assigned": {}
+}

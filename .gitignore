@@ -1,0 +1,28 @@
+# 광장 원자료(멤버 글·신원)와 비밀은 이 리포에 넣지 않는다
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+snapshot*.json
+# 예외: 3단계 판정에 쓴 시험 에이전트 데이터(지어낸 이름·글, server/tests/stage3_data.py 가 만듦)
+!docs/stage3/data/snapshot.json
+agora_snapshots/
+agora_notif_snapshot*.json
+*.dump
+*.sql
+.env
+.env.*
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+credentials*
+
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+
+# 운영 설정(리포 밖에 둔다. 예시는 ops/ops.example.json)
+ops.json

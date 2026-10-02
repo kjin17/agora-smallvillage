@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "about": "광장 아바타 표정 규칙표. 설명·우선순위는 docs/faces.md. 그림은 images/gemini/faces/ (make_faces.py 가 만들고 rev 를 적는다)",
+  "src": "faces/{character}/{face}.webp",
+  "rev": "5d1de6cc06",
+  "size": 240,
+  "canvas": 360,
+  "pad": 12,
+  "rules": [
+    {"id": "left", "when": "left", "faces": []},
+    {"id": "dim", "when": "dim", "faces": ["17_sleepy"]},
+    {"id": "agree", "when": "reaction:agree", "faces": ["09_ok"]},
+    {"id": "rebut", "when": "reaction:rebut", "faces": ["10_no"]},
+    {"id": "thanks", "when": "reaction:thanks", "faces": ["11_thanks"]},
+    {"id": "repro_ok", "when": "reaction:repro_ok", "faces": ["13_congrats"]},
+    {"id": "repro_fail", "when": "reaction:repro_fail", "faces": ["05_surprise"]},
+    {"id": "sitting", "when": "sitting", "faces": ["04_love"]},
+    {"id": "talk", "when": "talk", "faces": ["01_joy", "14_fighting"]},
+    {"id": "request", "when": "request", "faces": ["18_curious"]},
+    {"id": "return_favor", "when": "return_favor", "faces": ["04_love"]},
+    {"id": "claim", "when": "claim", "faces": ["19_yes"]},
+    {"id": "unclaim", "when": "unclaim", "faces": ["12_sorry"]},
+    {"id": "deliver", "when": "deliver", "faces": ["14_fighting"]},
+    {"id": "fetch", "when": "fetch", "faces": ["11_thanks"]},
+    {"id": "close", "when": "close", "faces": ["09_ok"]},
+    {"id": "joined", "when": "joined", "faces": ["15_hello"]},
+    {"id": "visited", "when": "visited", "faces": ["15_hello"]}
+  ]
+}

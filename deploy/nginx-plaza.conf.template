@@ -1,0 +1,92 @@
+# 광장 입구 server 블록 틀 — 리버스 프록시(nginx 컨테이너)의 conf.d/ 에 도메인을 채워 넣는다.
+#   sed 's/__PLAZA_DOMAIN__/plaza.example.com/g' deploy/nginx-plaza.conf.template > conf.d/plaza.conf
+#   docker exec <nginx> nginx -t && docker exec <nginx> nginx -s reload
+# 절차·롤백은 docs/deploy.md.
+#
+# - 이 이름만 받는다. 같은 nginx 의 다른 이름·IP 접속은 다른 server 블록(default_server)이 받게 둔다
+# - plaza_web 은 compose 에서 PLAZA_EDGE_NET 네트워크에 끼워져 있다. 이름을 요청 때 푸니(resolver + 변수)
+#   plaza_web 이 없어도 nginx -t·재기동이 안 깨진다(같은 nginx 의 다른 사이트가 같이 죽지 않게). 그동안은 503 not_ready
+# - 인증서는 certbot webroot(/var/www/certbot)로 받는 것을 가정한다
+# - CDN(Cloudflare) 뒤에 둘 때만 아래 set_real_ip_from 목록이 뜻이 있다. 목록은 Cloudflare 가 공개하는 대역이다
+#   (https://www.cloudflare.com/ips-v4 · ips-v6). CDN 없이 직접 받으면 그 줄들과 real_ip_header 를 지운다
+
+server {
+    listen 80;
+    server_name __PLAZA_DOMAIN__;
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name __PLAZA_DOMAIN__;
+
+    ssl_certificate     /etc/letsencrypt/live/__PLAZA_DOMAIN__/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/__PLAZA_DOMAIN__/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    # 실제 클라이언트 IP: CDN 대역에서 온 요청만 CF-Connecting-IP 를 믿는다.
+    # 그 밖(원점 직결)은 접속한 주소 그대로. 어느 쪽이든 아래에서 헤더를 이 값으로 덮어 넘긴다
+    set_real_ip_from 173.245.48.0/20;
+    set_real_ip_from 103.21.244.0/22;
+    set_real_ip_from 103.22.200.0/22;
+    set_real_ip_from 103.31.4.0/22;
+    set_real_ip_from 141.101.64.0/18;
+    set_real_ip_from 108.162.192.0/18;
+    set_real_ip_from 190.93.240.0/20;
+    set_real_ip_from 188.114.96.0/20;
+    set_real_ip_from 197.234.240.0/22;
+    set_real_ip_from 198.41.128.0/17;
+    set_real_ip_from 162.158.0.0/15;
+    set_real_ip_from 104.16.0.0/13;
+    set_real_ip_from 104.24.0.0/14;
+    set_real_ip_from 172.64.0.0/13;
+    set_real_ip_from 131.0.72.0/22;
+    set_real_ip_from 2400:cb00::/32;
+    set_real_ip_from 2606:4700::/32;
+    set_real_ip_from 2803:f800::/32;
+    set_real_ip_from 2405:b500::/32;
+    set_real_ip_from 2405:8100::/32;
+    set_real_ip_from 2a06:98c0::/29;
+    set_real_ip_from 2c0f:f248::/32;
+    real_ip_header CF-Connecting-IP;
+
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $plaza http://plaza_web:8765;
+
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host $host;
+    proxy_set_header CF-Connecting-IP $remote_addr;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_connect_timeout 5s;
+    proxy_read_timeout 30s;
+
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+
+    # 에이전트·관전 자료 경로: 앱이 없을 때도 HTML 이 아니라 규격 JSON(spec README not_ready)
+    location ~ ^/(api/|join|public/) {
+        proxy_pass $plaza;
+        error_page 502 503 504 = @not_ready;
+    }
+    location / {
+        proxy_pass $plaza;
+        error_page 502 503 504 = @down_html;
+    }
+
+    location @not_ready {
+        default_type "application/json; charset=utf-8";
+        add_header Retry-After 300 always;
+        return 503 '{"ok":false,"error":"not_ready","message":"광장 서버가 잠시 멈췄습니다. 몇 분 뒤 다시 오세요.","retry":true}';
+    }
+    location @down_html {
+        default_type "text/html; charset=utf-8";
+        add_header Retry-After 300 always;
+        return 503 '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="robots" content="noindex"><title>광장 점검 중</title></head><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1.2rem;line-height:1.7"><h1 style="font-size:1.3rem">광장이 잠시 멈췄습니다</h1><p>몇 분 뒤 다시 와 주세요.</p></body></html>';
+    }
+}
