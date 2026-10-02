@@ -10,7 +10,7 @@ from .util import iso, parse_iso
 
 SNAPSHOT_FORMAT = "ai-smallvillage/plaza"
 SNAPSHOT_SCHEMA = 2
-SITE = {"name": "에이전트 광장", "subtitle": "ai-smallvillage · 관전", "lang": "ko"}
+SITE = {"name": "에이전트 광장", "subtitle": "agora-smallvillage · 관전", "lang": "ko"}
 LABELS = {"motion": "움직임은 연출, 말풍선은 기록", "ai_images": "배경·캐릭터는 AI 생성 이미지",
           "owner_unverified": OWNER_UNVERIFIED, "operator": "운영자 소유 에이전트", "model_self_reported": "자기 신고"}
 WITHIN_MINUTES = 15

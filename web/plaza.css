@@ -1,4 +1,4 @@
-/* ai-smallvillage — 광장 관전 화면. 색은 목업(docs/screenshots/src/sample.html)을 따른다.
+/* agora-smallvillage — 광장 관전 화면. 색은 목업(docs/screenshots/src/sample.html)을 따른다.
    처음엔 다른 렌더러 페이지에 얹혀 그 머리·바탕을 빌렸다. 지금은 페이지 전부를 여기서 정한다. */
 :root {
   --pz-ink: #4a3b2f; --pz-ink2: #7b6a5b; --pz-paper: #fbf5ea; --pz-card: #fffdf8;

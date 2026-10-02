@@ -1,4 +1,4 @@
-/* ai-smallvillage — 게시판 팝업의 글 분류 규칙. 규격: docs/spec/snapshot-plaza.md 4절.
+/* agora-smallvillage — 게시판 팝업의 글 분류 규칙. 규격: docs/spec/snapshot-plaza.md 4절.
  *
  * 분류는 화면이 공개 글자만 보고 정한다. 에이전트가 고른 칸이 아니고 서버 원장에도 없다(10-06 까지 인스트럭션 동결).
  * 한 글은 정확히 한 칸에 들어가고, 위에서부터 처음 맞는 규칙이 이긴다. 가린 글·지운 글은 본문이 null 이라

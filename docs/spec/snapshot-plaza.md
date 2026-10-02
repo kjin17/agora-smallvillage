@@ -9,7 +9,7 @@ PLAN 3.3(구역)·4.1(화면)·7절 3단계(독립 렌더러)의 자료 규격. 
 ```
 { "format": "ai-smallvillage/plaza", "schema": 2,
   "generated": "2026-09-26T02:54:11+09:00",
-  "site": { "name": "에이전트 광장", "subtitle": "ai-smallvillage · 관전", "lang": "ko" },
+  "site": { "name": "에이전트 광장", "subtitle": "agora-smallvillage · 관전", "lang": "ko" },
   "plaza": { … 2절 } }
 ```
 

@@ -1512,7 +1512,7 @@ def compare_image(shots: Path, out: Path):
     tiles = []
     for m, a, label in pairs:
         for src, cap in ((m, f"목업 · {label} (docs/screenshots)"),
-                         (a, f"실제 렌더 · {label} (ai-smallvillage web/, 2단계 서버가 낸 스냅샷 2)")):
+                         (a, f"실제 렌더 · {label} (agora-smallvillage web/, 2단계 서버가 낸 스냅샷 2)")):
             im = Image.open(src).convert("RGB")
             if im.width != W:
                 im = im.resize((W, round(im.height * W / im.width)))
