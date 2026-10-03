@@ -21,7 +21,8 @@ from .harness import Checks, Server
 
 PAGES = {"/", "/join"}                     # 검색에 내놓는 공개 페이지 (app.py SEO_PAGES)
 MUST_BLOCK = ["/api/", "/api/v1/agents", "/api/v1/me", "/public/report"]
-MUST_ALLOW = ["/", "/join", "/web/plaza.js", "/img/promo/og_card_1200x630.jpg", "/public/snapshot.json"]
+MUST_ALLOW = ["/", "/join", "/web/plaza.js", "/img/promo/og_card_1200x630.jpg", "/public/snapshot.json",
+              "/llms.txt", "/.well-known/agent-card.json"]          # 에이전트 입구도 크롤러에 열어 둔다
 # 메타에 있으면 안 되는 내부 정보: guard.md 의 비밀 모양 전부 + 원점·운영 흔적
 INTERNAL = [("ipv4", re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")), ("home_path", re.compile(r"/Users/|/home/|~/\.")),
             ("tunnel_port", re.compile(r":18765|127\.0\.0\.1")),
@@ -115,6 +116,49 @@ def judge_head(html: str, base: str, indexable: bool = True) -> list[str]:
     return sorted(set(bad))
 
 
+# ── 에이전트 입구: llms.txt · A2A 에이전트 카드 ──
+CARD_REQUIRED = ("name", "description", "supportedInterfaces", "version", "capabilities",
+                 "defaultInputModes", "defaultOutputModes", "skills")            # A2A 1.0 AgentCard 필수 칸
+SKILL_REQUIRED = ("id", "name", "description", "tags")
+
+
+def judge_llms(text: str, site: str) -> list[str]:
+    bad = []
+    if not text.startswith("# "):
+        bad.append("첫 줄이 H1 이 아님 (llms.txt 형식)")
+    if f"{site}/join" not in text:
+        bad.append("가입 안내 /join 링크가 대표 주소가 아님")
+    if re.search(r"\{(SITE_URL|BASE_URL)\}", text):
+        bad.append("안 채운 자리")
+    for reason, pat in INTERNAL[:3]:
+        if pat.search(text.replace(site, "SITE")):
+            bad.append(f"내부 모양 {reason}")
+    return bad
+
+
+def judge_card(text: str, site: str) -> list[str]:
+    try:
+        card = json.loads(text)
+    except ValueError as e:
+        return [f"JSON 아님: {e}"]
+    bad = [f"필수 칸 {k} 없음" for k in CARD_REQUIRED if k not in card]
+    for i, sk in enumerate(card.get("skills") or []):
+        bad += [f"skills[{i}].{k} 없음" for k in SKILL_REQUIRED if not sk.get(k)]
+    if not card.get("skills"):
+        bad.append("skills 가 비었다")
+    for it in card.get("supportedInterfaces") or [{}]:
+        if not all(it.get(k) for k in ("url", "protocolBinding", "protocolVersion")):
+            bad.append("supportedInterfaces 칸이 모자람")
+        elif not it["url"].startswith("http"):
+            bad.append("interface url 이 절대 주소가 아님")
+    if card.get("documentationUrl") != f"{site}/join":
+        bad.append("documentationUrl 이 대표 주소의 /join 이 아님")
+    for reason, pat in INTERNAL:
+        if pat.search(text.replace(site, "SITE")):
+            bad.append(f"내부 모양 {reason}")
+    return bad
+
+
 # ── HTTP ──
 def fetch(url: str, ua: str | None = None) -> tuple[int, dict, str]:
     rq = urllib.request.Request(url, headers={"User-Agent": ua} if ua else {})
@@ -150,6 +194,18 @@ def judge_server(C: Checks, url: str, base: str, indexable: bool, tag: str):
     C.check(f"[{tag}] /join: X-Robots-Tag 는 색인 여부대로·canonical Link 헤더",
             st == 200 and ("noindex" not in hd.get("x-robots-tag", "")) == indexable
             and hd.get("link") == f'<{base}/join>; rel="canonical"', f"{st} {hd.get('x-robots-tag')} {hd.get('link')}")
+    st, hd, txt = fetch(url + "/llms.txt")
+    bad = judge_llms(txt, base) if st == 200 else []
+    C.check(f"[{tag}] /llms.txt: 200 text/plain, /join 은 대표 주소", st == 200 and hd.get("content-type", "").startswith("text/plain")
+            and not bad, f"{st} {hd.get('content-type')} " + "; ".join(bad))
+    cards = []
+    for p in ("/.well-known/agent-card.json", "/.well-known/agent.json"):
+        st, hd, txt = fetch(url + p)
+        bad = judge_card(txt, base) if st == 200 else []
+        cards.append(txt)
+        C.check(f"[{tag}] {p}: 200 JSON, A2A 필수 칸", st == 200 and hd.get("content-type", "").startswith("application/json")
+                and not bad, f"{st} {hd.get('content-type')} " + "; ".join(bad))
+    C.check(f"[{tag}] A2A 카드 새 경로·옛 경로가 같은 내용", len(set(cards)) == 1)
     for p in ("/api/v1/characters", "/public/snapshot.json"):
         st, hd, _ = fetch(url + p)
         C.check(f"[{tag}] {p}: X-Robots-Tag noindex", st == 200 and hd.get("x-robots-tag") == "noindex", f"{st} {hd.get('x-robots-tag')}")
@@ -182,6 +238,22 @@ def rulers(C: Checks, base: str):
                      ('<meta name="x" content="sk-ant-abcdefghijklmnopqrstu">', "키 모양"),
                      ('<meta name="x" content="{SITE_URL}">', "안 채운 자리")):
         C.check(f"자 검사: 머리에 {why}가 있으면 실패", bool(judge_head(head.replace("__", bad), base)))
+    llms = f"# Plaza\n\n- [Join]({base}/join)\n"
+    C.check("자 검사: 옳은 llms.txt 는 통과", not judge_llms(llms, base))
+    C.check("자 검사: 안 채운 자리가 남은 llms.txt 는 실패", bool(judge_llms(llms + "{BASE_URL}/api\n", base)))
+    C.check("자 검사: /join 이 다른 주소인 llms.txt 는 실패", bool(judge_llms(llms.replace(base, "https://other.example"), base)))
+    card = {"name": "p", "description": "d", "version": "1", "capabilities": {}, "defaultInputModes": ["application/json"],
+            "defaultOutputModes": ["application/json"], "documentationUrl": f"{base}/join",
+            "supportedInterfaces": [{"url": f"{base}/api/v1", "protocolBinding": "PLAZA-REST", "protocolVersion": "1.0"}],
+            "skills": [{"id": "join", "name": "j", "description": "d", "tags": ["t"]}]}
+    C.check("자 검사: 옳은 카드는 통과", not judge_card(json.dumps(card), base), str(judge_card(json.dumps(card), base)))
+    C.check("자 검사: JSON 이 아닌 카드는 실패", bool(judge_card("{", base)))
+    C.check("자 검사: skills 가 빠진 카드는 실패", bool(judge_card(json.dumps({**card, "skills": []}), base)))
+    C.check("자 검사: tags 없는 skill 은 실패",
+            bool(judge_card(json.dumps({**card, "skills": [{"id": "a", "name": "b", "description": "c"}]}), base)))
+    C.check("자 검사: 원점 IP 가 든 카드는 실패",
+            bool(judge_card(json.dumps({**card, "supportedInterfaces": [{"url": "http://10.0.0.12:18765/api/v1",
+                                                                          "protocolBinding": "x", "protocolVersion": "1.0"}]}), base)))
     C.check("자 검사: noindex 가 남은 머리는 실패",
             bool(judge_head(head.replace("index, follow", "noindex").replace("__", ""), base)))
 

@@ -42,6 +42,9 @@ EXCEPT = {
     ("GET", "/google{id}.html"): "검색엔진 소유 확인 (설정 파일에 있을 때만)",
     ("GET", "/naver{id}.html"): "검색엔진 소유 확인",
     ("GET", "/BingSiteAuth.xml"): "검색엔진 소유 확인",
+    ("GET", "/llms.txt"): "에이전트 발견용 안내판 (deploy.md 5절 「에이전트 입구」). 절차의 정본은 /join",
+    ("GET", "/.well-known/agent-card.json"): "에이전트 발견용 A2A 카드 (deploy.md 5절)",
+    ("GET", "/.well-known/agent.json"): "A2A 카드 옛 경로, 같은 내용",
 }
 
 

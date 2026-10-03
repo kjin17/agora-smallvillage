@@ -257,7 +257,8 @@ ul.pz-small { padding-left: 18px; }
 @media (max-width: 700px) {
   #plaza > .pz-view, #plaza > .pz-banner { margin-left: 10px; margin-right: 10px; }
   .pz-top { gap: 8px; padding: 10px; }
-  .pz-brand { margin-right: 0; width: 100%; }
+  .pz-brand { margin-right: 0; width: 100%; flex-wrap: wrap; row-gap: 2px; }
+  .pz-brand h1 { white-space: nowrap; }
   .pz-foot { margin: 12px 10px 0; }
   .pz-join { width: 100%; }
   .pz-grid8 { grid-template-columns: minmax(0, 1fr); }
