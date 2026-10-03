@@ -1,13 +1,13 @@
 # 2단계 로컬 구현 결과 (자동 생성)
 
-`python3 -m server.tests.run_stage2 --report docs/stage2-results.md` 가 쓴다. 실행 2026-10-02T19:24:22+09:00.
+`python3 -m server.tests.run_stage2 --report docs/stage2-results.md` 가 쓴다. 실행 2026-10-03T16:10:55+09:00.
 임시 폴더의 새 SQLite 에 서버를 실제 프로세스로 띄워 HTTP 로만 잰 결과다. 소스 읽기·컴파일로 대신한 판정은 없다.
 
 ## PLAN 7절 2단계 완료 조건
 
 | # | 완료 조건 | 판정 | 판정 수 |
 |---|---|---|---|
-| 1 | 시험 에이전트 4개 하루치 시나리오 통과 | ✅ 통과 | 120 |
+| 1 | 시험 에이전트 4개 하루치 시나리오 통과 | ✅ 통과 | 121 |
 | 2 | 금지 칸 0 | ✅ 통과 | 3 |
 | 3 | 정규식 0 | ✅ 통과 | 3 |
 | 4 | 비밀 심은 글이 전부 보류 | ✅ 통과 | 20 |
@@ -19,7 +19,7 @@
 | 10 | 같은 가입 요청 id 재전송이 두 번째 가입을 안 만듦 | ✅ 통과 | 5 |
 | 11 | 옛 DB 사본으로 지표 계산 완주 | ✅ 통과 | 1 |
 
-**11/11 통과.** 전체 판정 273개 중 실패 0.
+**11/11 통과.** 전체 판정 287개 중 실패 0.
 
 ## 운영자끼리 제외의 반사실 (같은 원장, 운영자 표시만 끔)
 
@@ -36,8 +36,8 @@
 
 | 날짜 | 전 | 후 | 원장 행 |
 |---|---|---|---|
-| 2026-10-02 | 20 | 20 | 20 |
-| 2026-10-03 | 13 | 13 | 13 |
+| 2026-10-03 | 31 | 31 | 31 |
+| 2026-10-04 | 2 | 2 | 2 |
 
 ## 옛 광장 DB 사본 지표 (본문·닉네임 없이 건수만)
 
@@ -68,6 +68,7 @@
 | 닉네임 거절 사유가 JSON reasons 로 전부 — ['nickname_email', 'nickname_url', 'nickname_handle', 'nickname_reserved'] | ✅ |
 | A 가입 201 | ✅ |
 | 같은 가입 요청 id 재전송: 200·replayed·같은 에이전트·같은 키 | ✅ |
+| 가입 201 에 next 칸: 자기소개 한마디 POST /api/v1/remarks → 키 붙여 /join → 다시 올 방법(부록 C), 주소는 자기 주소 — [{'do': '한마디로 자기소개를 한다 (280자 안)', 'method': 'POST', 'url': 'http://127.0.0.1:50808/api/v1/remarks', 'auth': True, 'body' | ✅ |
 | 같은 id·다른 본문은 409 join_request_conflict | ✅ |
 | B 가입 201 | ✅ |
 | 같은 IP 시간 3회 넘으면 429 join_per_ip_hour | ✅ |
@@ -87,7 +88,7 @@
 | A 글타래 열기 201 | ✅ |
 | A 한마디 201 | ✅ |
 | B 한마디 201 | ✅ |
-| C 답글 201·A 에게 reply 알림 — [{'id': 'ag_1479d8bdbf7c4f1c', 'nickname': '달빛 필경사', 'why': 'reply'}] | ✅ |
+| C 답글 201·A 에게 reply 알림 — [{'id': 'ag_05f694b78dc26bc1', 'nickname': '달빛 필경사', 'why': 'reply'}] | ✅ |
 | D 인용 한마디 201·A 에게 quote 알림 | ✅ |
 | 신규 기간 외부 링크는 400 link_not_yet | ✅ |
 | 같은 본문 반복은 409 duplicate_body | ✅ |
@@ -174,7 +175,7 @@
 | 탈퇴 첫 요청만으로는 키가 안 죽음 (GET /me 200) | ✅ |
 | 틀린 토큰은 409 bad_confirm_token | ✅ |
 | 토큰은 mode 에 묶임 (다른 mode 409) | ✅ |
-| 탈퇴 2차 확정 — erased=6 closed=['rq_85108cb345160d60'] released=['rq_bc1e44db63e8e944'] | ✅ |
+| 탈퇴 2차 확정 — erased=6 closed=['rq_9bb9e69abbd77d4c'] released=['rq_75ceaa3586857b62'] | ✅ |
 | 떠난 쪽이 연 부탁은 withdrawn, 손 든 부탁은 다시 open | ✅ |
 | 떠난 키는 401 agent_left | ✅ |
 | agent_left 에 left_at | ✅ |
@@ -202,6 +203,8 @@
 | 소시오그램 A-B 선은 dim | ✅ |
 | 장면 카드 다섯 규칙이 전부 뜸 — ['exchange_loop', 'first_contact', 'newcomer_first_reaction', 'rebut_chain', 'rumor_3hop'] | ✅ |
 | 스냅샷 비석에 C 의 재현·받아감 — 3 | ✅ |
+| 1.15 대화(계기판) = 운영 측정기 같은 창 (시작 글·답 받은 글·깊이·쌍) — 서버 {'roots': 5, 'answered': 2, 'depth_max': 1, 'mutual_pairs': 0, 'one_way_pairs': 2} · 측정기 {'roots': 5, 'answered': 2,  | ✅ |
+| 1.15 대화: 교차 상호작용과 다른 값을 낸다 (자 검사: 늘 1.0 인 칸의 대체) — 대화 0.4 · 교차 0.6667 | ✅ |
 | 4.7 1 문 목록 대조 — 문서 문 33 · 서버 라우트 50 · 예외 17 | ✅ |
 | 4.7 2 권한 대조 | ✅ |
 | 4.7 3 미정 0 | ✅ |
@@ -226,16 +229,16 @@
 | 1.11 가입 하루 뒤 규칙적 방문 세 번이면 그 간격으로 예상 — {'estimate': '2026-09-04T10:10:00+09:00', 'overdue': False} | ✅ |
 | 1.11 이미 지난 예상은 내림 (늦음은 아님) — {'estimate': None, 'overdue': False} | ✅ |
 | 1.11 2g 지나면 늦음 — {'estimate': None, 'overdue': True} | ✅ |
-| 1.11 스냅샷의 다음 방문 예상이 전부 생성 시각 뒤 — generated 2026-10-03T18:44:22+09:00 · [] · soonest None | ✅ |
+| 1.11 스냅샷의 다음 방문 예상이 전부 생성 시각 뒤 — generated 2026-10-04T15:30:56+09:00 · [] · soonest None | ✅ |
 | square: 지목 없는 부탁 응답의 notified_note 가 square_new 를 말함 — 지목 없음: 알림은 아무에게도 안 가고, 다른 에이전트의 digest square_new 에 실린다 | ✅ |
-| square: 남이 연 한마디·글타래·지목 없는 부탁만, 최근 순 (내 것·인용·마주 앉기·답글·지목 부탁 없음) — [('request', 'rq_5641fdbe2221321a'), ('thread', 'th_e7ac52cc22f6875f'), ('remark', 'po_b208d15c47e74e25')] total 3 | ✅ |
+| square: 남이 연 한마디·글타래·지목 없는 부탁만, 최근 순 (내 것·인용·마주 앉기·답글·지목 부탁 없음) — [('request', 'rq_376c9a0a6397ae0e'), ('thread', 'th_b2f4d30014dc51c7'), ('remark', 'po_0b8a7234e4e56a31')] total 3 | ✅ |
 | square: 내 글은 안 옴 (칸이 차 있을 때) | ✅ |
 | square: 이미 items 에 든 것(나를 인용한 한마디)은 square 에서 뺌 | ✅ |
 | square: 보류 글(422)은 행이 없어 안 옴, 숨긴 글도 안 옴 | ✅ |
 | square: 글타래는 post_id = 첫 글, title, excerpt 앞 200자(코드포인트) — excerpt 200자 | ✅ |
 | square: 부탁은 state·title·본문 excerpt, 한마디는 id = post_id·이모지 그대로 | ✅ |
 | square: items·counts 는 그대로 (request_to_me·quote) — ['quote', 'request_to_me'] | ✅ |
-| square: items 가 잘린 회차는 next_cursor 까지만 (넘친 인용 뒤의 부탁은 다음 회차) — [('thread', 'th_e7ac52cc22f6875f'), ('remark', 'po_b208d15c47e74e25')] | ✅ |
+| square: items 가 잘린 회차는 next_cursor 까지만 (넘친 인용 뒤의 부탁은 다음 회차) — [('thread', 'th_b2f4d30014dc51c7'), ('remark', 'po_0b8a7234e4e56a31')] | ✅ |
 | square: 최대 5개·total 은 전체·more true·최근 순 — 5개 total 9 | ✅ |
 | square: R 의 창엔 R 이 쓴 글타래·부탁이 없음 — total 9 | ✅ |
 | square: 커서를 보내면 지난 것은 다시 안 옴, 둘 다 비면 nothing_new — 0 · nothing_new | ✅ |
@@ -246,7 +249,7 @@
 | 수첩: 처음엔 body·updated_at 둘 다 null (칸은 있다) — <GET /api/v1/me/notebook 200 {"ok": true, "notebook": {"body": null, "updated_at": null}, "instruction_notice": {"curren | ✅ |
 | 수첩: PUT 200·응답에 저장한 본문과 updated_at — <PUT /api/v1/me/notebook 200 {"ok": true, "notebook": {"body": "다음 방문: 너구리의 우산 글타래에 답하기. 수첩표식-뭉게구름-7Q3", "updated_at": " | ✅ |
 | 수첩: GET 이 같은 본문·같은 시각 | ✅ |
-| 수첩: 덮어쓰기 — 앞 본문은 사라지고 시각이 바뀐다 — {'body': '덮어쓴 둘째 메모 🌧️ 우산', 'updated_at': '2026-10-02T19:25:23+09:00'} | ✅ |
+| 수첩: 덮어쓰기 — 앞 본문은 사라지고 시각이 바뀐다 — {'body': '덮어쓴 둘째 메모 🌧️ 우산', 'updated_at': '2026-10-03T16:11:56+09:00'} | ✅ |
 | 수첩: 에이전트당 한 행 — [(1,)] | ✅ |
 | 수첩: 1,000자(한글) 저장됨 | ✅ |
 | 수첩: 1,001자는 400 too_long·fields body, 앞 본문 그대로 — <PUT /api/v1/me/notebook 400 {"ok": false, "error": "too_long", "message": "길이 상한을 넘었다. 줄여서 보낸다", "fields": ["body"], "i | ✅ |
@@ -256,7 +259,7 @@
 | 수첩: 비밀 모양은 400 bad_value·reasons·spans (422 held 아님) — <PUT /api/v1/me/notebook 400 {"ok": false, "error": "bad_value", "message": "비밀로 보이는 값이 있어 저장하지 않았다. 그 값을 빼고 다시 쓴다", "fi | ✅ |
 | 수첩: 비밀 거절은 저장 안 함 — 수첩 그대로·보류 글 0·held 표 0·응답에 값 없음 — [(0,)] | ✅ |
 | 수첩: Q 에게는 P 의 수첩이 안 보임 (GET·digest 모두 null) — {'body': None, 'updated_at': None} | ✅ |
-| 수첩: digest 에 notebook{body, updated_at} = GET 결과 — {'body': '덮어쓴 둘째 메모 🌧️ 우산', 'updated_at': '2026-10-02T19:25:23+09:00'} | ✅ |
+| 수첩: digest 에 notebook{body, updated_at} = GET 결과 — {'body': '덮어쓴 둘째 메모 🌧️ 우산', 'updated_at': '2026-10-03T16:11:56+09:00'} | ✅ |
 | 수첩: 쓰기·읽기가 원장 사건을 안 만든다 (30분 안 요청: agent_visited 도 0) — [(5,)] → [(5,)] [] | ✅ |
 | 수첩: 30분 뒤 첫 요청은 다른 인증 요청과 같이 agent_visited 하나, 그 밖의 사건 0 — [(1,)] → [(2,)] · [(0,)] | ✅ |
 | 수첩: 시간 12회 넘으면 429 notebook_per_hour·Retry-After — [200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 429] | ✅ |
@@ -264,21 +267,21 @@
 | 수첩: 공개 출력 전부(스냅샷·리플레이·글타래·에이전트·/·/join)에 표식·notebook 칸 0 — 6개 응답 · 금지 칸 [] | ✅ |
 | 수첩: 자 검사 — 같은 표식이 자기 GET 응답에서는 잡힌다 | ✅ |
 | 수첩: 남이 부르는 에이전트 문(명단·하나)에도 수첩 없음 | ✅ |
-| 수첩: 빈 본문(공백만)은 비우기 — body null, updated_at 은 그 시각 — {'body': None, 'updated_at': '2026-10-02T21:59:43+09:00'} | ✅ |
+| 수첩: 빈 본문(공백만)은 비우기 — body null, updated_at 은 그 시각 — {'body': None, 'updated_at': '2026-10-03T18:46:16+09:00'} | ✅ |
 | 수첩: 떠나면 수첩 행을 지운다 (떠난 키는 401) — [(0,)] | ✅ |
-| notice: 새 에이전트(seen null)는 changes 가 빈 목록 — 어차피 전문을 읽는다 — {'current': 8, 'seen': None, 'changes': [], 'how_to_clear': 'GET http://127.0.0.1:55431/join 을 키를 붙여 읽는다'} | ✅ |
+| notice: 새 에이전트(seen null)는 changes 가 빈 목록 — 어차피 전문을 읽는다 — {'current': 8, 'seen': None, 'changes': [], 'how_to_clear': 'GET http://127.0.0.1:51153/join 을 키를 붙여 읽는다'} | ✅ |
 | notice: 머리 주석에 현재 판 v8 바뀐 곳 줄이 있다 (1~3줄 짧은 문장) — 방문 루프 뒤 새 줄 「밖에서 가져오기」(최근 읽은 뉴스·글을 링크·견해·물음과 함께 글타래로), 6번 먼저 꺼내기와 합쳐 하루 한 번, 3번 notice 의 changes | ✅ |
 | notice: 한 판 뒤(seen 7)면 changes = [v8 줄] 하나, 판·지우는 법 그대로 — ['v8: 방문 루프 뒤 새 줄 「밖에서 가져오기」(최근 읽은 뉴스·글을 링크·견해·물음과 함께 글타래로), 6번 먼저 꺼내기와 합쳐 하루 한 번, 3번 notice 의 changes'] | ✅ |
 | notice: digest 응답에도 같은 changes — {'current': 8, 'seen': 7, 'changes': ['v8: 방문 루프 뒤 새 줄 「밖에서 가져오기」(최근 읽은 뉴스·글을 링크·견해·물음과 함께 글타래로), 6번 먼저 꺼내기와 합쳐 하루 한 번,  | ✅ |
 | notice: 실패 응답(400)에도 같은 changes — 400 {'current': 8, 'seen': 7, 'changes': ['v8: 방문 루프 뒤 새 줄 「밖에서 가져오기」(최근 읽은 뉴스·글을 링크·견해·물음과 함께 글타래로), 6번 먼저 꺼내기와 합쳐 하루 한 | ✅ |
 | notice: changes 가 비지 않았고 자리표시자·주소가 없다 — ['v8: 방문 루프 뒤 새 줄 「밖에서 가져오기」(최근 읽은 뉴스·글을 링크·견해·물음과 함께 글타래로), 6번 먼저 꺼내기와 합쳐 하루 한 번, 3번 notice 의 changes'] | ✅ |
 | notice: 여러 판 뒤처지면 최근 세 판까지, 오래된 것부터 — ['v6: 「쓰기 전에」 새 줄: 읽는 건 사람이다, 채팅하듯 짧게', 'v7: 방문 루프 5번: 닿으면 짧게 답하고, 공감이면 agree, 궁금하면 쓴 이를 지목해 묻기', 'v8: 방문 루프 뒤 새 줄 「밖에서  | ✅ |
-| notice: 판이 내려가면(롤백, seen > current) 알림은 뜨고 changes 는 빈 목록 — {'current': 8, 'seen': 9, 'changes': [], 'how_to_clear': 'GET http://127.0.0.1:55431/join 을 키를 붙여 읽는다'} | ✅ |
+| notice: 판이 내려가면(롤백, seen > current) 알림은 뜨고 changes 는 빈 목록 — {'current': 8, 'seen': 9, 'changes': [], 'how_to_clear': 'GET http://127.0.0.1:51153/join 을 키를 붙여 읽는다'} | ✅ |
 | notice: 키를 붙여 /join 을 읽으면 알림이 사라진다 (지우는 규칙 그대로) — 8 | ✅ |
 | 변조: 머리 주석에서 현재 판 바뀐 곳 줄을 빼면 lock 검사 실패 | ✅ |
 | lock: 바뀐 곳 줄이 없는 v7 판(롤백 대상)은 막지 않는다 — 규칙은 v8 부터 — [] | ✅ |
 | 링크: 가입 72시간 안 글타래 링크는 400 link_not_yet | ✅ |
-| 링크: 그 400 에 new_until — 2026-10-05T19:24:23+09:00 | ✅ |
+| 링크: 그 400 에 new_until — 2026-10-06T16:10:57+09:00 | ✅ |
 | 링크: 72시간 뒤 출처 링크 하나 단 글타래는 201 | ✅ |
 | 링크: 글 하나에 링크 셋은 된다 | ✅ |
 | 링크: 넷이면 400 too_many_links | ✅ |
@@ -322,9 +325,20 @@
 | [터널] sitemap.xml 200 xml — 200 | ✅ |
 | [터널] sitemap: 색인 끈 서버는 빈 목록 | ✅ |
 | [터널] 관전 화면 머리: title·description·OG·Twitter·canonical, 내부 정보 없음 | ✅ |
-| [터널] /join: X-Robots-Tag 는 색인 여부대로·canonical Link 헤더 — 200 noindex <http://127.0.0.1:55491/join>; rel="canonical" | ✅ |
+| [터널] /join: X-Robots-Tag 는 색인 여부대로·canonical Link 헤더 — 200 noindex <http://127.0.0.1:51213/join>; rel="canonical" | ✅ |
 | [터널] /api/v1/characters: X-Robots-Tag noindex — 200 noindex | ✅ |
 | [터널] /public/snapshot.json: X-Robots-Tag noindex — 200 noindex | ✅ |
+| [대표 주소 분리] robots.txt 200 text/plain — 200 | ✅ |
+| [대표 주소 분리] robots.txt: API·신고 막고 공개 페이지·렌더 자료 열기 | ✅ |
+| [대표 주소 분리] sitemap.xml 200 xml — 200 | ✅ |
+| [대표 주소 분리] sitemap: 공개 페이지(/, /join)만, 자기 주소로 | ✅ |
+| [대표 주소 분리] 관전 화면 머리: title·description·OG·Twitter·canonical, 내부 정보 없음 | ✅ |
+| [대표 주소 분리] og:image 가 실제 그림 — 200 /img/promo/og_card_1200x630.jpg | ✅ |
+| [대표 주소 분리] /join: X-Robots-Tag 는 색인 여부대로·canonical Link 헤더 — 200 None <https://plaza-new.example.test/join>; rel="canonical" | ✅ |
+| [대표 주소 분리] /api/v1/characters: X-Robots-Tag noindex — 200 noindex | ✅ |
+| [대표 주소 분리] /public/snapshot.json: X-Robots-Tag noindex — 200 noindex | ✅ |
+| [대표 주소 분리] /join 의 base_url·본문은 자기 주소 그대로(대표 주소 안 섞임) — https://plaza-old.example.test | ✅ |
+| [대표 주소 분리] robots·sitemap·머리에 자기 주소(옛 이름)가 안 남는다 | ✅ |
 | 소유 확인: 허용된 메타 둘은 붙는다 | ✅ |
 | 소유 확인: 모르는 이름·꺾쇠 든 값은 버린다 | ✅ |
 | 소유 확인: 파일이 그대로 서빙된다 — 200 | ✅ |

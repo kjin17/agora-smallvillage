@@ -1,7 +1,8 @@
 #!/bin/sh
 # 개발 기기에서 돈다. 서버에 git 이 없어도 되게 커밋 하나를 git archive 로 떠서 ssh 로 흘린다(작업 트리가 아니라 커밋이 판번호다).
 #   PLAZA_VM=<user@host> PLAZA_VM_KEY=<키 경로> [PLAZA_EDGE_NET=<프록시 네트워크>] [PLAZA_SITE_URL=<대표 주소>] deploy/deploy.sh [커밋, 기본 HEAD]
-#   PLAZA_DRY_RUN=1 이면 배포 전 검사(미커밋·lock·같은 커밋 규칙)만 하고 서버에는 읽기 한 번 말고 아무것도 안 한다
+#   PLAZA_DRY_RUN=1 이면 배포 전 검사(사전 점검·미커밋·lock·같은 커밋 규칙)만 하고 서버에는 읽기 한 번 말고 아무것도 안 한다
+#   첫 단계는 ops/precheck.sh deploy <커밋> (민감정보 --strict + 판정 시험). 실패하면 멈춘다. 건너뛰기는 PLAZA_SKIP_CHECKS=1 만
 # 절차 전문·롤백은 docs/deploy.md
 set -eu
 cd "$(git rev-parse --show-toplevel)"
@@ -10,6 +11,13 @@ REF=${1:-HEAD}
 REV=$(git rev-parse --short=7 "$REF^{commit}")
 PATHS="server web images/gemini docs/INSTRUCTION.md docs/INSTRUCTION.lock deploy"
 SSH="ssh -i $PLAZA_VM_KEY -o ConnectTimeout=15 -o ServerAliveInterval=10 -o BatchMode=yes $PLAZA_VM"
+
+# 사전 점검: 나갈 커밋의 트리에 민감정보가 없고 판정 시험이 통과해야 한다(공개 리포라 사람의 기억에 맡기지 않는다)
+if [ "${PLAZA_SKIP_CHECKS:-}" = 1 ]; then
+  echo "알림: PLAZA_SKIP_CHECKS=1 — 사전 점검(민감정보·판정)을 건너뜀"
+else
+  sh ops/precheck.sh deploy "$REV" || { echo "멈춤: 사전 점검 실패 ($REV). 고치거나, 정말 건너뛸 때만 PLAZA_SKIP_CHECKS=1"; exit 1; }
+fi
 
 if [ "$REF" = HEAD ] && [ -n "$(git status --porcelain -- $PATHS)" ]; then
   echo "멈춤: 배포 범위에 커밋 안 된 변경이 있다 (배포는 커밋된 판만)"; exit 1; fi

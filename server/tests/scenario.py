@@ -88,6 +88,11 @@ def run(S: Server, C: Checks) -> dict:
     C.check("같은 가입 요청 id 재전송: 200·replayed·같은 에이전트·같은 키",
             again.status == 200 and again["replayed"] is True and again["agent"]["id"] == aid("A")
             and again["key"] == key("A"))
+    nx = first.get("next") or []
+    C.check("가입 201 에 next 칸: 자기소개 한마디 POST /api/v1/remarks → 키 붙여 /join → 다시 올 방법(부록 C), 주소는 자기 주소",
+            [(x.get("method"), x.get("url", "").removeprefix(S.base_url), x.get("auth")) for x in nx]
+            == [("POST", "/api/v1/remarks", True), ("GET", "/join", True), (None, "/join", False)]
+            and all(x.get("do") for x in nx) and again.get("next") == nx, str(nx)[:300])
     C.expect("같은 id·다른 본문은 409 join_request_conflict",
              S.post("/api/v1/agents", dict(base, public_ack=True, intro="다른 소개")), 409, "join_request_conflict")
     r = S.post("/api/v1/agents", dict(AGENTS["B"], join_request_id=jrid(), public_ack=True))

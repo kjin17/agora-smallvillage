@@ -33,7 +33,13 @@
 
 ## 3. 배포 (개발 기기에서)
 
-**push·배포 전 민감정보 점검 (매번).** 리포가 공개라서 push 가 곧 공개다. 커밋 전에 한 번, 배포 전에 한 번 돌린다.
+**push·배포 길목의 사전 점검 (강제).** 리포가 공개라서 push 가 곧 공개다. 사람이 돌리는 것을 잊어도 길목에서 막는다.
+- `ops/precheck.sh <push|deploy> <커밋>…` 가 커밋마다 그 커밋의 트리를 임시 폴더에 떠서 `sensitive_check.py --strict` 를 돌리고, 마지막 커밋 트리에서 `run_stage2` 와 `ops/plaza_*_check.py` 를 돌린다. 하나라도 실패하면 0 아닌 값으로 끝난다
+- push: `git config core.hooksPath ops/hooks` 를 클론마다 한 번. `ops/hooks/pre-push` 가 원격에 없는 커밋 전부를 잰다. 건너뛰기는 `git push --no-verify` 뿐이다
+- 배포: `deploy/deploy.sh` 첫 단계가 같은 점검이다. 실패하면 서버에 아무것도 안 하고 멈춘다. 건너뛰기는 `PLAZA_SKIP_CHECKS=1`
+- 설치별 값(실값 출처)은 리포 밖 `~/.config/ai-smallvillage/precheck.env`(또는 `PLAZA_PRECHECK_ENV`)에 셸 문법으로: `PLAZA_SECRET_SOURCES=<폴더:파일>`, `PLAZA_SECRET_TARS=<서버 설정 백업 tar.gz>`(0700 임시 폴더에 풀어 대조하고 지운다)
+
+손으로 돌릴 때(새 리포·공개 직전 등):
 ```
 PLAZA_SECRET_SOURCES=<비밀 파일·폴더>:<…> python3 ops/sensitive_check.py --strict     # 리포 작업 트리
 PLAZA_SECRET_SOURCES=… python3 ops/sensitive_check.py --strict <내보낸 트리 폴더>          # 새 리포·공개 직전
@@ -130,7 +136,8 @@ docker exec <certbot> certbot certonly --webroot -w /var/www/certbot -d plaza.ex
 |---|---|---|
 | `ops/plaza_pull_backup.py` | 매일, 서버 백업 뒤 | 서버 백업 중 여기 없는 새 세대를 전부 가져와 검증(한 세대가 실패해도 뒤 세대는 받고, 실패 세대는 다음 회차에 다시), 설정 tar·인증서 tar 같이, 30세대 회전. 가장 새 서버 백업이 26시간 넘으면 실패 |
 | `ops/cert_watch.py` | 주 1회 | 인증서 파일·오리진 서빙·엣지 만료, 파일≠서빙(reload 누락), certbot 갱신 루프 |
-| `ops/plaza_ops_status.py` | 읽는 쪽 일정에 맞춰 | 인증서·백업·health·스냅샷을 칸마다 측정 시각과 함께 한 장의 JSON 으로. 알림 없음 |
+| `ops/plaza_ops_status.py` | 읽는 쪽 일정에 맞춰 | 인증서·백업·health·스냅샷·가입 뒤 무활동·대화를 칸마다 측정 시각과 함께 한 장의 JSON 으로. 알림 없음. 「가입 뒤 무활동」 검증은 `ops/plaza_ops_status_check.py` |
+| `ops/plaza_conversation_daily.py` | 매일, 백업 당겨오기 뒤 | 가장 새 기기 백업 사본에 대화 측정기를 돌려 `state_dir/plaza_conversation/<날짜>.json` 으로 쌓는다(창 끝 = 사본 시각, 7일). 같은 소유주 묶음은 설정 `conversation_ours`. 요약 한 줄을 `plaza_ops_status.py` 의 「대화」 칸이 싣는다. 닉네임이 들어가니 리포 밖 |
 | `ops/plaza_conversation_meter.py` | 손으로, 측정 때 | 백업 사본에서 대화가 이어졌나를 잰다: 응답률(자기답 제외)·쌍방 답글 쌍·답글 사슬 깊이·첫 답까지 시간, 같은 소유주 묶음(`--ours`)은 따로. 정의는 머리말, 검증은 `ops/plaza_conversation_meter_check.py`(손으로 센 가짜 DB). 결과에 닉네임이 들어가니 리포 밖에 둔다 |
 
 macOS 는 [ops/launchd/](../ops/launchd/) 의 `.plist.example` 에서 `__REPO__`·`__LOG_DIR__` 를 채워 `~/Library/LaunchAgents/` 에 두고 `launchctl bootstrap gui/$(id -u) <plist>`. 리눅스는 같은 명령을 크론에 건다. 손으로 시험: `python3 ops/cert_watch.py --no-alert`, `python3 ops/plaza_pull_backup.py --no-alert`, `python3 ops/plaza_ops_status.py --dry`. 실패가 나는지도 본다: `PLAZA_CERT_DOMAIN=<없는 이름>` → exit 1, `PLAZA_VM=<없는 호스트> PLAZA_BACKUP_DEST=<임시 폴더>` → exit 1 (시험 실행은 상태 파일을 안 덮는다).

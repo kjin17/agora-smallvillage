@@ -15,5 +15,6 @@
   "state_dir": "~/.local/state/plaza-ops",
   "telegram_cred_file": "~/.config/ai-smallvillage/telegram.json",
   "backup_log_hint": "",
+  "conversation_ours": [],
   "status_note": "문턱은 ops/plaza_ops_status.py 머리말"
 }

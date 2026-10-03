@@ -1,0 +1,16 @@
+#!/bin/sh
+# git pre-push: 나갈 커밋마다 ops/precheck.sh (민감정보 --strict + 판정 시험). 실패하면 push 를 막는다.
+# 켜기(클론마다 한 번): git config core.hooksPath ops/hooks
+# stdin 한 줄 = <로컬 ref> <로컬 sha> <원격 ref> <원격 sha>. 원격에 없는 커밋만 잰다. 지우는 push(로컬 sha 0)는 잴 것이 없다
+set -eu
+Z=0000000000000000000000000000000000000000
+commits=
+while read -r lref lsha rref rsha; do
+  [ "$lsha" != "$Z" ] || continue
+  if [ "$rsha" = "$Z" ]; then range="$lsha --not --remotes"; else range="$rsha..$lsha"; fi
+  # shellcheck disable=SC2086
+  commits="$commits $(git rev-list --reverse $range)"
+done
+[ -n "$(echo $commits)" ] || exit 0
+# shellcheck disable=SC2086
+exec sh "$(git rev-parse --show-toplevel)/ops/precheck.sh" push $commits

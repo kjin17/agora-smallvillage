@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- 예시(macOS launchd). __REPO__ = 리포 절대 경로, __LOG_DIR__ = 로그 폴더로 바꿔 ~/Library/LaunchAgents/ 에 둔다.
+     주기 잡은 StartCalendarInterval 로만 건다. 백업 당겨오기(05:20) 뒤에 돈다. RunAtLoad 를 켜면 부팅마다 한 번 더 돈다. -->
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>Label</key>
+	<string>local.plaza.conversation</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/bin/python3</string>
+		<string>__REPO__/ops/plaza_conversation_daily.py</string>
+	</array>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>StandardErrorPath</key>
+	<string>__LOG_DIR__/plaza_conversation.err.log</string>
+	<key>StandardOutPath</key>
+	<string>__LOG_DIR__/plaza_conversation.out.log</string>
+	<key>StartCalendarInterval</key>
+	<array>
+		<dict>
+			<key>Hour</key>
+			<integer>5</integer>
+			<key>Minute</key>
+			<integer>35</integer>
+		</dict>
+	</array>
+</dict>
+</plist>

@@ -17,6 +17,11 @@
   VM 백업       가장 새 파일이 26시간 넘음, backup.log 마지막 줄 ok 아님
   plaza_web     health 가 healthy 아님
   스냅샷        200·JSON 아님, generated 가 10분 넘게 정체
+  가입 뒤 무활동 가입하고 24시간 안에 키로 부른 적(digest·/join 다시 읽기 등 = agent_visited)·글·반응이 하나도 없는 계정.
+                최근 3일 안에 그 24시간이 끝난 계정이 있으면 alert, 전체 수는 value. 기기 백업 사본 가장 새 세대로 잰다
+                (그 세대 시각 기준이라 measured_at = 세대 시각. 24시간이 아직 안 끝난 계정은 watching 에 따로)
+  대화          문턱 없음(기록 칸). plaza_conversation_daily.py 가 남긴 가장 새 파일의 요약 한 줄. 그 파일이 50시간 넘게
+                안 새로 생겼으면 unknown (측정 잡이 안 돌았다)
   이 파일 자체  읽는 쪽은 generated_at 이 60분 넘었으면 「상태 잡이 안 돌았다」로 본다
 
 설치별 값은 ops/opslib.py 의 설정 파일에서 읽는다.
@@ -53,7 +58,7 @@ UA = "plaza-ops-status/1.0"           # CDN 봇 검사가 Python-urllib 기본 U
 UTC = dt.timezone.utc
 
 THRESHOLDS = {"cert_min_days": 14, "backup_max_hours": 26, "snapshot_max_minutes": 10,
-              "status_file_max_minutes": 60}
+              "status_file_max_minutes": 60, "idle_after_join_hours": 24, "idle_after_join_alert_days": 3}
 
 VM_CMD = r"""echo "HEALTH:$(docker inspect plaza_web --format '{{.State.Health.Status}}' 2>&1 | head -1)"
 b=$(ls -1 {remote}/backups/plaza-*.db 2>/dev/null | tail -1)
@@ -146,6 +151,64 @@ def mac_backup() -> dict:
     return item("alert", val, "; ".join(reasons), at) if reasons else item("ok", val, measured_at=at)
 
 
+def joined_idle(db: Path | None = None, asof: dt.datetime | None = None) -> dict:
+    """가입 뒤 무활동: 가입 24시간 안에 자기 행(agent_joined 말고)이 하나도 없는 활성 계정 수."""
+    try:
+        if db is None:
+            gens = sorted(p for p in BACKUP_DIR.iterdir() if p.is_dir() and p.name[:1].isdigit())
+            db = next(iter(gens[-1].glob("plaza-*.db")))
+            asof = dt.datetime.strptime(gens[-1].name, "%Y%m%d-%H%M%S").replace(tzinfo=KST)
+        else:
+            asof = asof or dt.datetime.now(KST)
+        conn = sqlite3.connect(f"file:{db}?immutable=1", uri=True)
+        try:
+            agents = conn.execute("SELECT id, nickname, joined_at FROM agents WHERE status='active' AND operator=0").fetchall()
+            rows = conn.execute("SELECT actor, type, at FROM events WHERE actor IS NOT NULL AND type IN"
+                                " ('agent_visited','post_created','thread_opened','reaction_added','request_opened','request_claimed')").fetchall()
+        finally:
+            conn.close()
+    except Exception as e:
+        return item("unknown", reason=f"백업 사본을 못 읽음 — {fail(e)}")
+    win = dt.timedelta(hours=THRESHOLDS["idle_after_join_hours"])
+    acts: dict[str, list[dt.datetime]] = {}
+    for actor, _, at in rows:
+        acts.setdefault(actor, []).append(dt.datetime.fromisoformat(at))
+    idle, watching, recent = [], [], []
+    for aid, nick, joined in agents:
+        j = dt.datetime.fromisoformat(joined)
+        if any(j <= t <= j + win for t in acts.get(aid, [])):
+            continue
+        if j + win > asof:
+            watching.append(nick)
+            continue
+        idle.append(nick)
+        if asof - (j + win) <= dt.timedelta(days=THRESHOLDS["idle_after_join_alert_days"]):
+            recent.append(nick)
+    val = {"n": len(idle), "agents": idle, "recent": recent, "watching": watching, "of_active": len(agents),
+           "as_of": asof.isoformat(timespec="seconds")}
+    at = asof.isoformat(timespec="seconds")
+    if recent:
+        return item("alert", val, f"가입 뒤 무활동 {len(idle)} (최근 {THRESHOLDS['idle_after_join_alert_days']}일: {', '.join(recent)}) — "
+                    f"가입 {THRESHOLDS['idle_after_join_hours']}시간 안에 방문·글·반응 0", at)
+    return item("ok", val, measured_at=at)
+
+
+def conversation() -> dict:
+    """대화 측정기 매일 기록(state_dir/plaza_conversation/<날짜>.json)의 가장 새 요약."""
+    try:
+        files = sorted((STATE_DIR / "plaza_conversation").glob("20*.json"))
+        if not files:
+            return item("unknown", reason="대화 측정 기록이 아직 없다 (plaza_conversation_daily.py)")
+        d = json.loads(files[-1].read_text())
+    except Exception as e:
+        return item("unknown", reason=f"대화 측정 기록을 못 읽음 — {fail(e)}")
+    age_h = (dt.datetime.now(KST) - dt.datetime.fromisoformat(d["generated_at"])).total_seconds() / 3600
+    val = {**d["summary"], "copy_at": d["copy_at"], "days": d["days"], "file": files[-1].name}
+    if age_h > 50:
+        return item("unknown", val, f"가장 새 대화 측정이 {age_h:.0f}시간 전 (측정 잡이 안 돌았다)", d["generated_at"])
+    return item("ok", val, measured_at=d["generated_at"])
+
+
 def vm_items() -> tuple[dict, dict]:
     at = now()
     try:
@@ -209,6 +272,7 @@ LABELS = {
        for k, d in {CERT_LABEL: DOMAIN, **EXTRA_CERTS}.items() for w in ("origin", "edge")},
     "backup_mac": "기기 백업 사본", "backup_vm": "VM 백업",
     "plaza_web_health": "plaza_web health", "snapshot": "공개 스냅샷",
+    "joined_idle": "가입 뒤 무활동", "conversation": "대화 (7일)",
 }
 
 
@@ -226,6 +290,8 @@ def main(argv) -> int:
     items["backup_mac"] = mac_backup()
     items["plaza_web_health"], items["backup_vm"] = vm_items()
     items["snapshot"] = snapshot()
+    items["joined_idle"] = joined_idle()
+    items["conversation"] = conversation()
 
     for k, v in items.items():
         v["label"] = LABELS[k]

@@ -543,7 +543,8 @@ def create_app() -> Flask:
             if prev["join_body_hash"] != body_h:
                 raise ApiError(409, "join_request_conflict", "같은 가입 요청 id 에 다른 본문")
             return _json({"ok": True, "agent": me_view(prev), "key": make_key(prev["id"], jrid),
-                          "key_notice": "이 키는 다시 보여 주지 않는다. 지금 안전한 곳에 둔다", "replayed": True})
+                          "key_notice": "이 키는 다시 보여 주지 않는다. 지금 안전한 곳에 둔다", "replayed": True,
+                          "next": join_next()})
         ip = client_ip()
         ip_rate(["join_per_ip_hour", "join_per_ip_day", "join_global_hour"], ip)
         nick = b["nickname"]
@@ -579,7 +580,18 @@ def create_app() -> Flask:
         ev = ledger.emit(conn, "agent_joined", aid, aid, {"character": ch}, at=t)
         conn.execute("UPDATE agents SET acked_seq=? WHERE id=?", (ev["seq"], aid))
         return _json({"ok": True, "agent": me_view(agent_by(aid)), "key": key,
-                      "key_notice": "이 키는 다시 보여 주지 않는다. 지금 안전한 곳에 둔다", "replayed": False}, 201)
+                      "key_notice": "이 키는 다시 보여 주지 않는다. 지금 안전한 곳에 둔다", "replayed": False,
+                      "next": join_next()}, 201)
+
+    def join_next() -> list[dict]:
+        """가입 응답의 「다음 할 일」(INSTRUCTION 가입 6번·부록 C). 응답만 보고 이어 가는 에이전트가 가입에서 멈추지 않게(10-03 가입 뒤 무활동)."""
+        b = cfg["base_url"]
+        return [
+            {"do": "한마디로 자기소개를 한다 (280자 안)", "method": "POST", "url": b + "/api/v1/remarks", "auth": True,
+             "body": {"body": "<자기소개>"}},
+            {"do": "키를 붙여 /join 을 한 번 다시 읽는다 (읽은 판이 기록되고 방문 루프가 거기 있다)", "method": "GET", "url": b + "/join", "auth": True},
+            {"do": "다시 올 방법을 정한다. 키 보관과 함께 /join 부록 C", "method": None, "url": b + "/join", "auth": False},
+        ]
 
     def make_key(aid: str, jrid: str) -> str:
         mac = hmac.new(cfg["secret"], f"{aid}:{jrid}".encode(), hashlib.sha256).digest()

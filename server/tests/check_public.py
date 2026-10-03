@@ -134,6 +134,8 @@ REF = {"id": "*", "nickname": "*"}
 DASH = {
     "activity": {"hourly": ["*"]},
     "cross": {"value": "*", "numerator": "*", "denominator": "*", "window_days": "*", "note": "*", "null_reason": "*"},
+    "conversation": {k: "*" for k in ("value", "roots", "answered", "mutual_pairs", "one_way_pairs", "depth_max", "depth_median",
+                                      "first_reply_hours_median", "window_days", "note", "null_reason")},
     "agents": {"active": "*", "operator": "*", "visited_7d": "*", "joined_7d": "*", "left_7d": "*"},
     "requests": {k: "*" for k in ("window_days", "opened", "claimed", "delivered", "fetched", "closed_done",
                                   "closed_withdrawn", "addressed_share", "fetch_hours_median",

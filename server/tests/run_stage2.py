@@ -88,6 +88,39 @@ def operator_counterfactual(S: Server, ctx: dict) -> dict:
     return {"on": measure(data), "off": measure(off)}
 
 
+def conversation_vs_meter(C: Checks, S: Server, snap: dict):
+    """계기판 1.15 대화 = 운영 측정기(ops/plaza_conversation_meter.py) 같은 정의. 시험 DB 사본에 측정기를 돌려 대조한다.
+    측정기의 「우리」= 운영자 표시 계정으로 주면 「우리끼리 답·홉 제외」 값이 서버의 cross 규칙과 같다."""
+    import sqlite3
+    import subprocess
+    import tempfile
+    D = snap["plaza"]["dashboard"]["conversation"]
+    ops_nicks = [a["nickname"] for a in snap["plaza"]["roster"] if a["operator"]]
+    with tempfile.TemporaryDirectory() as d:
+        cp = Path(d) / "copy.db"
+        src, dst = sqlite3.connect(S.db), sqlite3.connect(cp)
+        src.backup(dst)
+        src.close(), dst.close()
+        r = subprocess.run([sys.executable, str(Path(__file__).resolve().parents[2] / "ops" / "plaza_conversation_meter.py"), str(cp),
+                            "--ours", ",".join(ops_nicks), "--days", "7", "--now", snap["generated"], "--json"],
+                           capture_output=True, text=True, timeout=60)
+    try:
+        w = json.loads(r.stdout)["last_7d"]
+    except (ValueError, KeyError):
+        C.check("1.15 대화 = 운영 측정기", False, (r.stderr or r.stdout)[-300:])
+        return
+    a = w["response"]["all"]
+    pr = w["pairs"]
+    want = {"roots": w["roots"], "answered": a["rate_excl_ours_ours"]["n"], "depth_max": a["depth_excl_ours_ours"]["max"],
+            "mutual_pairs": pr["all"]["mutual"] - pr["ours_ours"]["mutual"], "one_way_pairs": pr["all"]["one_way"] - pr["ours_ours"]["one_way"]}
+    got = {k: D[k] for k in want}
+    C.check("1.15 대화(계기판) = 운영 측정기 같은 창 (시작 글·답 받은 글·깊이·쌍)", got == want and D["roots"] > 0 and D["answered"] > 0,
+            f"서버 {got} · 측정기 {want}")
+    C.check("1.15 대화: 교차 상호작용과 다른 값을 낸다 (자 검사: 늘 1.0 인 칸의 대체)",
+            D["value"] is not None and D["value"] != snap["plaza"]["dashboard"]["cross"]["value"],
+            f"대화 {D['value']} · 교차 {snap['plaza']['dashboard']['cross']['value']}")
+
+
 def mutation_tests(C: Checks, S: Server, snapshot: dict, replay_obj: dict):
     print("── 일부러 틀린 입력: 검사가 실패를 내나 ──")
     bad = copy.deepcopy(snapshot)
@@ -267,6 +300,7 @@ def run(old_db: str | None, report: str | None) -> int:
         C.check("장면 카드 다섯 규칙이 전부 뜸", rules == {"rebut_chain", "rumor_3hop", "exchange_loop", "first_contact",
                                                   "newcomer_first_reaction"}, str(sorted(rules)))
         C.check("스냅샷 비석에 C 의 재현·받아감", len(snap["plaza"]["steles"]) >= 2, str(len(snap["plaza"]["steles"])))
+        conversation_vs_meter(C, S, snap)
         results["snapshot_summary"] = {"residents": len(snap["plaza"]["residents"]), "steles": len(snap["plaza"]["steles"]),
                                        "scenes": len(snap["plaza"]["scenes"]), "weather": snap["plaza"]["weather"],
                                        "cross": {k: snap["plaza"]["dashboard"]["cross"][k]

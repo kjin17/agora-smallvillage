@@ -106,6 +106,12 @@ body {
 .pz-modechip button { font: inherit; font-size: 12.5px; border: 1.5px solid var(--pz-ink); background: rgba(255, 253, 248, .95); color: var(--pz-ink);
   border-radius: 999px; padding: 3px 11px; cursor: pointer; font-weight: 700; }
 .pz-modechip button.on { background: var(--pz-ink); color: #fff; }
+/* 리플레이 중 무대 위 한 줄: 며칠 하루를 몇 배로 다시 보는지 + 「지금」으로 가는 버튼 (머리줄 「지금 광장」과 무대가 어긋나 보이던 것) */
+.pz-replaynote { position: absolute; left: 16px; top: 48px; display: flex; align-items: center; gap: 8px; z-index: 1001; max-width: calc(100% - 32px);
+  background: rgba(255, 253, 248, .94); border: 1px solid var(--pz-line); border-radius: 10px; padding: 4px 6px 4px 11px; font-size: 12px; color: var(--pz-ink2); }
+.pz-replaynote b { color: var(--pz-ink); }
+.pz-replaynote button { font: inherit; font-size: 11.5px; font-weight: 700; border: 1.5px solid var(--pz-ink); background: var(--pz-ink); color: #fff;
+  border-radius: 999px; padding: 1px 9px; cursor: pointer; white-space: nowrap; }
 .pz-scenepop { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); width: 520px; z-index: 1100;
   background: var(--pz-card); border: 2px solid var(--pz-ink); border-radius: 16px; padding: 12px 14px; box-shadow: 0 8px 0 rgba(74, 59, 47, .25); }
 .pz-go { font: inherit; font-weight: 700; margin-top: 8px; border: 1.5px solid var(--pz-ink); background: var(--pz-ink); color: #fff; border-radius: 8px; padding: 4px 14px; cursor: pointer; }
@@ -190,6 +196,9 @@ ul.pz-small { padding-left: 18px; }
 .pz-elsewhere h4 { font-size: 14px; margin-bottom: 6px; }
 .pz-elsewhere h4 small { font-weight: 500; color: var(--pz-ink2); font-size: 11.5px; }
 .pz-elsewhere ul { list-style: none; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+/* 데스크톱에서 무대 아래가 남을 때(1100~1400 폭): 같은 구역 목록을 두 줄로 채우고, 무대 안 설명 띠는 여기로 옮긴다(벤치 이름표를 가리던 것) */
+.pz-roomy .pz-elsewhere ul { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; }
+.pz-roomy .pz-corner { display: none; }
 .pz-elsewhere li i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 6px; }
 .pz-elsewhere em { font-style: normal; color: var(--pz-ink2); font-size: 11.5px; }
 
@@ -199,6 +208,9 @@ ul.pz-small { padding-left: 18px; }
 .pz-x { font: inherit; border: 1.5px solid var(--pz-ink); background: #fff; border-radius: 8px; padding: 2px 10px; cursor: pointer; }
 .pz-copy { display: flex; gap: 8px; align-items: stretch; margin: 12px 0; }
 .pz-copy code { flex: 1; background: #fff; border: 1px solid var(--pz-line); border-radius: 8px; padding: 8px 10px; font-size: 13px; user-select: all; word-break: break-all; }
+.pz-table.pz-joinwho { margin: 0 0 10px; font-size: 12.5px; }
+.pz-joinwho caption { text-align: left; font-weight: 700; font-size: 12.5px; padding-bottom: 4px; }
+.pz-joinwho td:last-child { width: 36%; }
 .pz-copy button { font: inherit; font-weight: 700; background: var(--pz-accent); color: #fff; border: 0; border-radius: 8px; padding: 0 14px; cursor: pointer; }
 
 /* 최근 이야기 · 에이전트 글 패널. 본문은 줄바꿈 그대로(pre-wrap), 긴 낱말도 틀 안에서 꺾는다 */
@@ -257,6 +269,8 @@ ul.pz-small { padding-left: 18px; }
   .pz-corner { display: none; }   /* the same line is printed under the stage (drawElsewhere) */
   .pz-modechip { left: 6px; top: 6px; }
   .pz-modechip button { font-size: 11px; padding: 2px 8px; }
+  .pz-replaynote { left: 6px; top: 34px; font-size: 10.5px; padding: 2px 4px 2px 8px; gap: 6px; max-width: calc(100% - 12px); }
+  .pz-replaynote button { font-size: 10.5px; padding: 0 7px; }
   .pz-talk { padding: 12px 10px; }
   .pz-modal { padding: 0; align-items: flex-end; }
   .pz-whosheet { max-height: 88vh; border-radius: 16px 16px 0 0; border-bottom: 0; padding: 14px 14px 20px; }

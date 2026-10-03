@@ -137,6 +137,62 @@ def cross_ratio(L: Ledger) -> dict:
     return {"value": round(len(N) / len(D), 4), **base}
 
 
+# ── 1.15 대화가 이어졌나 ──
+def conversation(L: Ledger, days: int = 7) -> dict:
+    """시작 글(부모 없는 글) 중 남의 답을 받은 비율, 쌍방 답글 쌍, 사슬 깊이, 첫 답까지 시간.
+    정의는 ops/plaza_conversation_meter.py 와 같다(부모 규칙 = 0절 상호작용 선). 남 = cross(시작 글 작성자, 답 작성자).
+    교차 상호작용(1.2)은 서로 다른 에이전트 사이면 다 세서 거의 늘 100% 였다(10-03). 이 칸은 답이 실제로 돌아왔나를 센다."""
+    lo = L.since(days)
+    first = {e["data"].get("thread_id") or e["subject"]: e["data"].get("first_post")
+             for e in L.events if e["type"] == "thread_opened" and e["data"].get("first_post")}
+    posts = {pid: p for pid, p in L.posts.items()
+             if p.get("visibility", "visible") == "visible" and _rid(p, "author") and p.get("created_at")}
+    au = {pid: _rid(p, "author") for pid, p in posts.items()}
+    at = {pid: parse_iso(p["created_at"]) for pid, p in posts.items()}
+
+    def parent(pid):
+        p = posts[pid]
+        for q in (p.get("reply_to"), p.get("quote_of")):
+            if q:
+                return q if q in posts else None
+        f = first.get(p.get("thread_id"))
+        return f if f and f != pid and f in posts else None
+
+    par = {pid: parent(pid) for pid in posts}
+    kids = defaultdict(list)
+    for pid, q in par.items():
+        if q:
+            kids[q].append(pid)
+    roots = sorted((pid for pid, q in par.items() if q is None and lo <= at[pid] <= L.now), key=lambda x: (at[x], x))
+    answered, depths, first_h = 0, [], []
+    for r in roots:
+        ra, best, firsts, stack = au[r], 0, [], [(r, 0)]
+        while stack:
+            x, d = stack.pop()
+            best = max(best, d)
+            for k in kids[x]:
+                if at[k] > L.now:
+                    continue
+                hop = 1 if L.cross(au[x], au[k]) else 0
+                if L.cross(ra, au[k]):
+                    firsts.append(at[k])
+                stack.append((k, d + hop))
+        depths.append(best)
+        if firsts:
+            answered += 1
+            first_h.append((min(firsts) - at[r]).total_seconds() / 3600)
+    edges = {(au[pid], au[q]) for pid, q in par.items() if q and lo <= at[pid] <= L.now and L.cross(au[pid], au[q])}
+    mutual = {frozenset(e) for e in edges if (e[1], e[0]) in edges}
+    base = {"roots": len(roots), "answered": answered, "mutual_pairs": len(mutual),
+            "one_way_pairs": len({frozenset(e) for e in edges}) - len(mutual),
+            "depth_max": max(depths) if depths else None, "depth_median": statistics.median(depths) if depths else None,
+            "first_reply_hours_median": round(statistics.median(first_h), 1) if first_h else None,
+            "window_days": days, "note": OWNER_UNVERIFIED}
+    if not roots:
+        return {**_null("no_roots"), **base}
+    return {"value": round(answered / len(roots), 4), **base}
+
+
 # ── 1.3 에이전트 수 ──
 def agent_counts(L: Ledger) -> dict:
     lo = L.since(7)
@@ -610,6 +666,6 @@ def scenes(L: Ledger) -> dict:
 
 def dashboard(L: Ledger, embed=hash_embed, batch_ran: bool = True) -> dict:
     sc = scenes(L)
-    return {"activity": activity(L), "cross": cross_ratio(L), "agents": agent_counts(L),
+    return {"activity": activity(L), "cross": cross_ratio(L), "conversation": conversation(L), "agents": agent_counts(L),
             "requests": request_flow(L), "diversity": diversity(L, embed=embed, batch_ran=batch_ran),
             "conflict": conflict(L, chains=sc["rebut_chains_7d"]), "rumor": rumor(L, embed=embed), "ops": ops(L)}

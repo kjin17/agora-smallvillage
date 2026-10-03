@@ -1239,13 +1239,63 @@ def plaza_checks(C: Checks, browser, args, work: Path, extra=(), capture=None):
     # UI 최고 배속: 60× 버튼을 눌러 벽시계 20초에 리플레이 시계가 20분 가는지 (하루 끝까지는 프레임 9만 개라 600× 로 잰다)
     ctx, pg = page(1840, 1080, f"view=replay&date={busiest['date']}&autopause=0", False)
     pg.click("#pzRbarPlaza [data-rp=speed][data-s='60']")
+    # 빈 시간 건너뛰기가 시계를 앞당기지 않게, 그날 첫 행으로 시각을 직접 골라(seek → 안 건너뜀) 거기서 잰다
+    first_iso = json.loads((site / "public" / "replay" / f"{busiest['date']}.json").read_text(encoding="utf-8"))["events"][0]["at"]
+    pg.evaluate(f"Plaza.seek('{first_iso}')")
     t0 = pg.evaluate("Plaza.stats().t")
     pg.clock.run_for(20_000)
     st = pg.evaluate("Plaza.stats()")
     ctx.close()
     adv = (st["t"] - t0) / 1000
-    C.check("리플레이", "60× 버튼: 벽시계 20초 = 리플레이 20분", st["playing"] and abs(adv - 1200) <= 30,
-            f"리플레이 시계 {adv:.0f}초 전진 (기대 1200)")
+    C.check("리플레이", "60× 버튼: 벽시계 20초 = 리플레이 20분", st["playing"] and abs(adv - 1200) <= 30 and st["skipped"] == 0,
+            f"리플레이 시계 {adv:.0f}초 전진 (기대 1200) · 건너뜀 {st['skipped']}")
+
+    # 2d. 첫 화면 공백(10-03): 리플레이는 그날 첫 행 2분 전부터, 재생 중 30분 넘는 빈 구간은 건너뛴다. 시각을 직접 고르면 안 건너뛴다
+    bday = json.loads((site / "public" / "replay" / f"{busiest['date']}.json").read_text(encoding="utf-8"))
+    first_ms = dt.datetime.fromisoformat(bday["events"][0]["at"]).timestamp() * 1000
+    ats = [dt.datetime.fromisoformat(e["at"]).timestamp() * 1000 for e in bday["events"]]
+    gap_at = next(a for a, b in zip(ats, ats[1:]) if b - a > 40 * 60e3)   # 시험 데이터에 40분 넘게 빈 곳이 있어야 한다
+    ctx, pg = page(1840, 1080, f"view=replay&date={busiest['date']}&autopause=0", False)
+    st0 = pg.evaluate(f"(Plaza.replay({{date: '{busiest['date']}', autopause: false}}), Plaza.stats())")   # 처음부터 = 시작 시각
+    pg.clock.run_for(5_000)
+    st5 = pg.evaluate("Plaza.stats()")
+    figs5 = pg.evaluate("document.querySelectorAll('#pzFigures .pz-agent').length")
+    seek_iso = dt.datetime.fromtimestamp((gap_at + 60e3) / 1000, KST).isoformat()
+    pg.evaluate(f"Plaza.seek('{seek_iso}')")
+    ts0 = pg.evaluate("Plaza.stats().t")
+    pg.clock.run_for(10_000)
+    sts = pg.evaluate("Plaza.stats()")
+    ctx.close()
+    C.check("리플레이", "시작 = 그날 첫 행 2분 전 (00:00 아님), 5초 뒤 무대에 캐릭터",
+            st0["start"] == first_ms - 120e3 and st0["t"] == st0["start"] and figs5 >= 1 and st5["t"] > first_ms,
+            f"시작 {dt.datetime.fromtimestamp(st0['start'] / 1000, KST):%H:%M} · 첫 행 {dt.datetime.fromtimestamp(first_ms / 1000, KST):%H:%M} · 5초 뒤 {dt.datetime.fromtimestamp(st5['t'] / 1000, KST):%H:%M} 캐릭터 {figs5}")
+    adv_s = (sts["t"] - ts0) / 1000
+    C.check("리플레이", "자 검사: 시각을 직접 고른 뒤에는 빈 구간이어도 안 건너뜀 (10초 = 10분)",
+            sts["seeked"] and sts["skipped"] == 0 and abs(adv_s - 600) <= 30, f"{adv_s:.0f}초 전진 · 건너뜀 {sts['skipped']}")
+    ctx, pg = page(1840, 1080, f"view=replay&date={busiest['date']}&autopause=0", False)
+    pg.clock.run_for(60_000)
+    stg = pg.evaluate("Plaza.stats()")
+    ctx.close()
+    C.check("리플레이", "빈 구간 건너뛰기: 60× 1분에 30분 넘는 빈 곳을 건너뛰고 말풍선은 행 수만큼",
+            stg["skipped"] > 30 * 60e3 and stg["emitted"] == sum(1 for e in bday["events"] if e.get("bubble") and e.get("actor") not in (None, "operator", "server") and dt.datetime.fromisoformat(e["at"]).timestamp() * 1000 <= stg["t"]),
+            f"건너뜀 {stg['skipped'] / 60000:.0f}분 · 말풍선 {stg['emitted']} · 시계 {dt.datetime.fromtimestamp(stg['t'] / 1000, KST):%H:%M}")
+
+    # 2e. 1100~1400 폭 무대 아래 빈 띠(10-03 지적): 남는 높이가 100px 넘으면 구역 목록을 채우고 무대 안 설명 띠는 그리로
+    BAND_JS = """() => { const row = document.querySelector('#plaza .pz-row').getBoundingClientRect(), left = document.querySelector('#plaza .pz-left');
+      const kids = [...left.children].filter((e) => !e.hidden && e.offsetHeight); const bottom = Math.max(...kids.map((e) => e.getBoundingClientRect().bottom));
+      return {band: Math.round(row.bottom - bottom), corner: getComputedStyle(document.getElementById('pzCorner')).display, els: !document.getElementById('pzElsewhere').hidden}; }"""
+    bands = {}
+    for w in (1200, 1440):
+        ctx, pg = page(w, 900, "mode=now", False)
+        bands[w] = pg.evaluate(BAND_JS) | {"roomy": pg.evaluate("Plaza.stats().roomy")}
+        if w == 1200:
+            pg.evaluate("document.getElementById('pzElsewhere').hidden = true")
+            bands["probe"] = pg.evaluate(BAND_JS)
+        ctx.close()
+    C.check("첫 화면", "1200·1440 폭 무대 아래 빈 띠 < 100px (남으면 구역 목록, 설명 띠는 무대 밖)",
+            all(bands[w]["band"] < 100 and (bands[w]["corner"] == "none") == bands[w]["els"] for w in (1200, 1440)),
+            " · ".join(f"{w}: 띠 {bands[w]['band']}px 목록 {'있음' if bands[w]['els'] else '없음'} 설명띠 {bands[w]['corner']}" for w in (1200, 1440)))
+    C.check("첫 화면", "자 검사: 1200 폭에서 구역 목록을 숨기면 띠 100px 이상", bands["probe"]["band"] >= 100, f"띠 {bands['probe']['band']}px")
 
     # 2c. 장면 자동 일시정지 켬: 멈춘 횟수 = 그날 장면 시각 수, 말풍선 수는 그대로
     day = json.loads((site / "public" / "replay" / f"{busiest['date']}.json").read_text(encoding="utf-8"))
@@ -1354,8 +1404,11 @@ def plaza_checks(C: Checks, browser, args, work: Path, extra=(), capture=None):
     pg.click("#pzJoin")
     pg.screenshot(path=str(shots / "join.png"))
     line = pg.text_content("#pzJoinLine")
+    who_rows = pg.evaluate("[...document.querySelectorAll('#pzJoinWho tr')].map((r) => r.textContent.replace(/\\s+/g, ' ').trim())")
     ctx.close()
     C.check("입구 버튼", "「내 에이전트 데려오기」 → 문서 주소 한 줄", "/join" in (line or ""), line or "")
+    C.check("입구 버튼", "데려오기 창에 플랫폼 가부 세 줄 (셸·코드 실행 됨 / 웹 채팅 검색 도구 멈춤 / 커스텀 GPT Actions)",
+            len(who_rows) == 3 and "바로 됨" in who_rows[0] and "멈춤" in who_rows[1] and "Actions" in who_rows[2], " | ".join(who_rows))
 
     host = url.split("//")[1]
     outside = sorted({u for u in reqs_all if host in u and not re.search(rf"{re.escape(host)}/(\?|$|web/|img/|public/)", u)})
