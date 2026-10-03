@@ -56,6 +56,23 @@ REPO = Path(__file__).resolve().parents[2]
 KST = dt.timezone(dt.timedelta(hours=9))
 WEB_FILES = ("index.html", "plaza.js", "plaza.css", "faces.json", "board_rules.js")
 WEB_CODE = WEB_FILES[1:]   # 서버 판번호 = 이 순서로 이은 내용의 해시 (server/plaza/app.py WEB_CODE)
+# 「전」 판(옛 plaza.js·plaza.css)은 공개 리포 첫 커밋 이전 커밋이라 이 리포 이력에 없다 → 고정 파일로 둔다
+BEFORE_DIR = REPO / "server" / "tests" / "fixtures" / "stage3_before"
+
+
+def before_web(ref: str, name: str) -> str:
+    """옛 판 web/<name> 내용. ref 가 폴더면 그 안의 파일, 아니면 이 리포의 커밋으로 읽는다."""
+    d = Path(ref).expanduser()
+    if d.is_dir():
+        return (d / name).read_text(encoding="utf-8")
+    return subprocess.run(["git", "-C", str(REPO), "show", f"{ref}:web/{name}"],
+                          capture_output=True, text=True, check=True).stdout
+
+
+def before_label(ref: str) -> str:
+    """판정 이름에 쓸 짧은 이름. 폴더면 끝의 커밋 꼬리(faces_b0af64d → b0af64d) — 보고서에 로컬 경로를 남기지 않는다."""
+    d = Path(ref).expanduser()
+    return d.name.rsplit("_", 1)[-1] if d.is_dir() else ref
 # 기본 Chromium 은 같은 코드·같은 입력도 8쌍 중 4쌍이 수십 픽셀 다르게 찍었다(GPU 래스터·LCD 글자). 이 깃발로 0/8.
 # 대조군(같은 입력 두 번)도 같이 찍어, 「동일」이 캡처 잡음에 가려지지 않았음을 판정마다 보인다
 DET_FLAGS = ["--force-color-profile=srgb", "--disable-gpu", "--disable-lcd-text", "--disable-partial-raster",
@@ -1154,15 +1171,14 @@ def face_checks(C: Checks, browser, args, work: Path, data: Path, url: str, at: 
     # 자 검사: 표정 앞 판(규칙표·그림 없는 plaza.js)은 같은 기대에서 「틀림」
     before = plaza_site(work / "site_faces_before", data)
     for f in ("plaza.js", "plaza.css"):
-        (before / "web" / f).write_text(subprocess.run(["git", "-C", str(REPO), "show", f"{args.faces_before}:web/{f}"],
-                                                       capture_output=True, text=True, check=True).stdout, encoding="utf-8")
+        (before / "web" / f).write_text(before_web(args.faces_before, f), encoding="utf-8")
     ub, sb = serve(before)
     ctx, pg = face_page(browser, ub, "mode=now&motion=0", at, [])
     old = pg.evaluate("""() => [...document.querySelectorAll('#pzFigures .pz-agent:not([hidden]) .pz-body')].map((b) =>
         ({id: b.closest('.pz-agent').dataset.id, face: b.dataset.face || null, rule: b.dataset.rule || null, src: b.getAttribute('src')}))""")
     ctx.close()
     sb.shutdown()
-    C.check(G, f"자 검사: 표정 앞 판({args.faces_before})은 같은 기대에서 「틀림」", len(face_diff(want, old)) == len(want),
+    C.check(G, f"자 검사: 표정 앞 판({before_label(args.faces_before)})은 같은 기대에서 「틀림」", len(face_diff(want, old)) == len(want),
             f"틀림 {len(face_diff(want, old))}/{len(want)}명")
 
 
@@ -1274,8 +1290,7 @@ def plaza_checks(C: Checks, browser, args, work: Path, extra=(), capture=None):
     if args.capture_extra:
         before = plaza_site(work / "site_before", data)
         for f in ("plaza.js", "plaza.css"):
-            (before / "web" / f).write_text(subprocess.run(["git", "-C", str(REPO), "show", f"{args.front_before}:web/{f}"],
-                                                           capture_output=True, text=True, check=True).stdout, encoding="utf-8")
+            (before / "web" / f).write_text(before_web(args.front_before, f), encoding="utf-8")
         url_b, srv_b = serve(before)
         br, dev = (extra[0][1], extra[0][2]) if extra else (browser, PHONE_DEVICE)
         for f in capture_extra(br, dev, url, url_b, site / "public", at, snap, Path(args.capture_extra).expanduser()):
@@ -1558,8 +1573,10 @@ def main(argv=None) -> int:
     ap.add_argument("--capture", nargs=2, metavar=("FIT.png", "ZOOM.png"), help="폰 캡처 두 장 (처음 전체 보기, 확대)")
     ap.add_argument("--no-webkit", action="store_true")
     ap.add_argument("--capture-extra", metavar="PREFIX", help="폰 캡처: PREFIX_bubbles·_panel·_list·_front_before·_front_after.png")
-    ap.add_argument("--front-before", default="c87d9f3", help="캐릭터 앞 「전」 캡처에 쓸 옛 판 커밋")
-    ap.add_argument("--faces-before", default="b0af64d", help="아바타 표정 자 검사에 쓸 표정 앞 판 커밋")
+    ap.add_argument("--front-before", default=str(BEFORE_DIR / "front_c87d9f3"),
+                    help="캐릭터 앞 「전」 캡처에 쓸 옛 판 (plaza.js·plaza.css 가 든 폴더, 또는 이 리포의 커밋)")
+    ap.add_argument("--faces-before", default=str(BEFORE_DIR / "faces_b0af64d"),
+                    help="아바타 표정 자 검사에 쓸 표정 앞 판 (폴더 또는 이 리포의 커밋)")
     a = ap.parse_args(argv)
     work = Path(a.work).expanduser()
     work.mkdir(parents=True, exist_ok=True)
