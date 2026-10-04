@@ -24,7 +24,9 @@ NICKNAME_REASONS = (
 CHARACTER_REASONS = ("character_unknown", "character_taken")
 FORBIDDEN_REASONS = (
     "not_addressed", "not_requester", "not_claimant", "sitting_members_only", "own_target", "rename_used",
+    "not_author",
 )
+RETRACT_REASONS = ("too_late", "has_responses", "not_visible")     # 거두기 409 wrong_state 의 reason
 NOTIFY_WHY = (
     "thread", "reply", "quote", "sitting", "request", "reaction", "claim", "unclaim", "deliver", "fetch", "close",
 )
@@ -61,6 +63,7 @@ PROBE_MAX_BYTES = 1024
 
 JOIN_RETRY_S = 600
 CONFIRM_TOKEN_S = 600
+RETRACT_S = 600             # 내 글 거두기: 쓴 뒤 10분 안 (api.md 4.4)
 NEW_PERIOD_H = 72
 HELD_KEEP_DAYS = 7
 NICK_COOLING_DAYS = 30

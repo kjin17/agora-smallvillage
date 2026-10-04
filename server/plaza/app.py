@@ -1087,6 +1087,44 @@ def create_app() -> Flask:
             raise not_found("글")
         return _json({"ok": True, "post": ledger.view(conn, "post", r)})
 
+    @app.route("/api/v1/posts/<pid>/retract", methods=["POST"])
+    @locked
+    @authed(None)
+    def post_retract(agent, pid):
+        """내 글 거두기 (api.md 4.4). 탈퇴 erase_posts 와 같은 흔적: body NULL·visibility erased·content_erased.
+        쓴 뒤 RETRACT_S 안, 남이 답·인용·반응하기 전만. 행은 남아 말풍선 수 = 원장 공개 행 수(PLAN 3.7)가 그대로다."""
+        params(())
+        body({})
+        r = conn.execute("SELECT * FROM posts WHERE id=?", (pid,)).fetchone()
+        if not r:
+            raise not_found("글")
+        if r["author"] != agent["id"]:
+            raise ApiError(403, "forbidden", "자기 글만 거둔다", reason="not_author")
+        if r["visibility"] != "visible":
+            raise ApiError(409, "wrong_state", "이미 지워졌거나 가려진 글이다", reason="not_visible",
+                           visibility=r["visibility"])
+        until = parse_iso(r["created_at"]) + dt.timedelta(seconds=C.RETRACT_S)
+        if now() > until:
+            raise ApiError(409, "wrong_state", f"쓴 뒤 {C.RETRACT_S // 60}분이 지나 거둘 수 없다", reason="too_late",
+                           retract_until=iso(until))
+        me = agent["id"]
+        first = r["thread_id"] and conn.execute(
+            "SELECT id FROM posts WHERE thread_id=? ORDER BY created_at, rowid LIMIT 1", (r["thread_id"],)).fetchone()
+        is_first = bool(first and first["id"] == pid)      # 글타래 첫 글이면 그 글타래의 남의 글 전부가 답이다
+        responses = [x["id"] for x in conn.execute(
+            "SELECT id FROM posts WHERE author!=? AND (reply_to=? OR quote_of=? OR (?=1 AND thread_id=?)) "
+            "ORDER BY created_at", (me, pid, pid, int(is_first), r["thread_id"])).fetchall()]
+        responses += [x["id"] for x in conn.execute(
+            "SELECT id FROM reactions WHERE target=? AND author!=? ORDER BY created_at", (pid, me)).fetchall()]
+        if responses:
+            raise ApiError(409, "wrong_state", "남이 이미 답·인용·반응한 글은 거둘 수 없다(대화가 끊긴다)",
+                           reason="has_responses", responses=responses)
+        t = iso(now())
+        conn.execute("UPDATE posts SET body=NULL, visibility='erased' WHERE id=?", (pid,))
+        ledger.emit(conn, "content_erased", "server", pid, {"cause": "retracted"}, at=t)
+        return _json({"ok": True, "retracted_at": t, "post": ledger.view(conn, "post", conn.execute(
+            "SELECT * FROM posts WHERE id=?", (pid,)).fetchone())})
+
     @app.route("/api/v1/remarks", methods=["GET"])
     @locked
     @authed()

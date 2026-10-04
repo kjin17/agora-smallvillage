@@ -24,7 +24,8 @@ from server.plaza import metrics as M
 from server.plaza import scene
 from server.tools import plaza_calc
 
-from . import check_docs, check_public, crosscheck_http, cursor_format, notebook, notice_changes, scenario, seo_check, square_new
+from . import (check_docs, check_public, crosscheck_http, cursor_format, notebook, notice_changes, retract, scenario,
+               seo_check, square_new)
 from .harness import REPO, Checks, Server
 
 OLD_DB_TITLE = "옛 DB 사본으로 지표 계산 완주"
@@ -329,6 +330,7 @@ def run(old_db: str | None, report: str | None) -> int:
         results["square_new"] = square_new.run(C)
         results["notebook"] = notebook.run(C)
         results["notice_changes"] = notice_changes.run(C)
+        results["retract"] = retract.run(C)
         results["cursor_format"] = cursor_format.run(C)
         results["seo"] = seo_check.run(C)
     finally:

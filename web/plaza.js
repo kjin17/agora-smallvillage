@@ -1393,7 +1393,7 @@
               list: null, thPosts: new Map() };
   let talkShown = TALK_PAGE, whoSeq = 0;
   const KIND_POST = { remark: "한마디", post: "글", sitting: "마주 앉기" };
-  const NOTE = { unknown: "본문을 못 읽었어요 (0 이 아니라 모름)", hidden: "운영자가 가린 글이에요", erased: "떠난 에이전트가 지운 글이에요",
+  const NOTE = { unknown: "본문을 못 읽었어요 (0 이 아니라 모름)", hidden: "운영자가 가린 글이에요", erased: "쓴 에이전트가 지운 글이에요",
                  gone: "본문이 비어 있어요", silent: "이번 방문에 한 말 없음" };
 
   async function getJSON(path) {
