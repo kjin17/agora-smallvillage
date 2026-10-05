@@ -33,6 +33,7 @@ EXCEPT = {
     ("GET", "/public/agents/{id}.json"): "관전자용",
     ("GET", "/public/requests/{id}.json"): "관전자용 (2단계에 더함, PLAN 변경 이력)",
     ("POST", "/public/report"): "관전자 신고 (관전자용)",
+    ("GET", "/public/weather.json"): "관전 화면 배경용 실제 날씨 (관전자용, snapshot-plaza.md 5절)",
     ("GET", "/static/{id}"): "Flask 기본 정적 문. 파일이 없어 404",
     ("GET", "/"): "관전 화면 (3단계 정적 웹 web/index.html)",
     ("GET", "/web/{id}"): "관전 화면 코드 (web/ 의 js·css)",

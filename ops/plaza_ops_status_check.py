@@ -72,6 +72,18 @@ def main() -> int:
     ok = (got2["value"] or {}).get("n") == EXPECT["n"] + 1
     print(f"  [{'PASS' if ok else 'FAIL'}] 대조군: 방문 행 하나를 지우면 n 이 하나 는다 — {(got2['value'] or {}).get('n')}")
     bad += [] if ok else ["control"]
+    # 배경 날씨 칸: none 만 alert, 실패 중(stale)은 ok 에 수만. 자 검사로 none 을 ok 로 읽는 판정을 끼워 「다름」이 나는지
+    at = NOW.isoformat()
+    base = {"fetch": {"last_ok_at": "2026-10-10T09:00:00+09:00", "last_error": "timeout", "fail_streak": 3, "fails_24h": 5}}
+    cases = [("ok", "ok"), ("stale", "ok"), ("off", "ok"), ("none", "alert"), ("weird", "unknown")]
+    for st, want in cases:
+        got_w = M.weather_item(dict(base, state=st, weather=None if st == "none" else {"label": "비 · 밤"}), at)
+        ok = got_w["state"] == want and got_w["value"]["fails_24h"] == 5
+        print(f"  [{'PASS' if ok else 'FAIL'}] 배경 날씨 state {st} → {got_w['state']} (기대 {want})")
+        bad += [] if ok else [f"weather_{st}"]
+    ok = M.weather_item(dict(base, state="none", weather=None), at)["state"] != "ok"
+    print(f"  [{'PASS' if ok else 'FAIL'}] 대조군: 쓸 날씨 없음(none)은 ok 가 아니다")
+    bad += [] if ok else ["weather_control"]
     print("결과:", "통과" if not bad else f"실패 {bad}")
     return 1 if bad else 0
 

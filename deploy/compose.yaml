@@ -14,6 +14,8 @@ services:
       PLAZA_OPERATORS_FILE: /run/plaza-config/operators.json
       # 검색엔진 소유 확인(선택). 파일이 없으면 아무것도 안 붙는다. 고치면 재시작 없이 반영된다
       PLAZA_SITE_VERIFY_FILE: /run/plaza-config/site_verification.json
+      # 배경용 실제 날씨(선택, docs/spec/snapshot-plaza.md 5절). 파일이 없으면 서울·15분. {"enabled": false} 로 끈다. 바꾸면 재시작
+      PLAZA_WEATHER_FILE: /run/plaza-config/weather.json
       PLAZA_DATA_DIR: /data/public
       PLAZA_BASE_URL: ${PLAZA_BASE_URL:?자기 주소가 없다}
       # 대표 주소(검색·공유용). 비우면 PLAZA_BASE_URL. 도메인을 옮길 때 이것만 먼저 새 이름으로 둔다

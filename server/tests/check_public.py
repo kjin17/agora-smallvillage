@@ -262,9 +262,19 @@ class Walker:
                 self.walk(shape[k], x, f"{path}.{k}")
 
 
+# 배경용 실제 날씨 (snapshot-plaza.md 5절에서 옮겼다). 원장에서 나오지 않는 유일한 공개 문이라 칸을 따로 고정한다.
+# 좌표·기온 같은 원시 값 칸이 생기면 여기서 「표에 없는 칸」으로 걸린다
+WEATHER = {"schema": "*", "generated": "*", "state": "*", "source": "*", "place": "*",
+           "weather": {"sky": "*", "daylight": "*", "observed_at": "*", "label": "*"},
+           "fetch": {"last_ok_at": "*", "last_try_at": "*", "last_error": "*", "fail_streak": "*", "fails_24h": "*",
+                     "fails_24h_by_kind": "map:*"}}
+
+
 def shape_for(path: str):
     if path == "/public/snapshot.json":
         return SNAPSHOT
+    if path == "/public/weather.json":
+        return WEATHER
     if path == "/public/replay/index.json":
         return INDEX
     if path.startswith("/public/replay/"):
@@ -314,7 +324,7 @@ def fetch(url: str, path: str, method="GET", data=None):
 def collect(url: str) -> dict[str, object]:
     """/public/* 전부와 리플레이 전 날짜를 모은다."""
     out = {}
-    for p in ("/public/snapshot.json", "/public/replay/index.json", "/public/threads.json"):
+    for p in ("/public/snapshot.json", "/public/replay/index.json", "/public/threads.json", "/public/weather.json"):
         st, h, raw = fetch(url, p)
         out[p] = (st, h, raw)
     idx = json.loads(out["/public/replay/index.json"][2])

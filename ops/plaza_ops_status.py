@@ -20,6 +20,8 @@
   가입 뒤 무활동 가입하고 24시간 안에 키로 부른 적(digest·/join 다시 읽기 등 = agent_visited)·글·반응이 하나도 없는 계정.
                 최근 3일 안에 그 24시간이 끝난 계정이 있으면 alert, 전체 수는 value. 기기 백업 사본 가장 새 세대로 잰다
                 (그 세대 시각 기준이라 measured_at = 세대 시각. 24시간이 아직 안 끝난 계정은 watching 에 따로)
+  배경 날씨     /public/weather.json(docs/spec/snapshot-plaza.md 5절)의 state 가 none(쓸 날씨 없음 → 화면이 활동 날씨 그림으로
+                돌아감)이면 alert. ok·stale(실패 중이지만 마지막 정상값 사용)·off(설정으로 끔)는 ok, value 에 24시간 실패 수·연속 실패
   대화          문턱 없음(기록 칸). plaza_conversation_daily.py 가 남긴 가장 새 파일의 요약 한 줄. 그 파일이 50시간 넘게
                 안 새로 생겼으면 unknown (측정 잡이 안 돌았다)
   이 파일 자체  읽는 쪽은 generated_at 이 60분 넘었으면 「상태 잡이 안 돌았다」로 본다
@@ -54,6 +56,7 @@ CERT_STATE = STATE_DIR / "plaza_cert_watch.json"
 PULL_STATE = STATE_DIR / "plaza_backup_pull.json"
 BACKUP_DIR = path_conf("backup_dest")
 SNAPSHOT = f"https://{DOMAIN}/public/snapshot.json"
+WEATHER = f"https://{DOMAIN}/public/weather.json"
 UA = "plaza-ops-status/1.0"           # CDN 봇 검사가 Python-urllib 기본 UA 를 막는 경우가 있어 이름을 붙인다
 UTC = dt.timezone.utc
 
@@ -266,13 +269,40 @@ def snapshot() -> dict:
     return item("ok", val, measured_at=at)
 
 
+def weather_item(obj: dict, at: str) -> dict:
+    """공개 날씨 문 응답 하나 → 칸. 장식이라 실패 중(stale)은 ok 로 두고 수만 싣는다. 쓸 값이 없을 때(none)만 alert."""
+    f = obj.get("fetch") or {}
+    w = obj.get("weather") or {}
+    val = {"state": obj.get("state"), "label": w.get("label"), "last_ok_at": f.get("last_ok_at"), "last_error": f.get("last_error"),
+           "fail_streak": f.get("fail_streak"), "fails_24h": f.get("fails_24h"), "fails_24h_by_kind": f.get("fails_24h_by_kind")}
+    if obj.get("state") == "none":
+        return item("alert", val, f"쓸 실제 날씨 없음 — 마지막 정상 {f.get('last_ok_at') or '없음'}, 마지막 실패 {f.get('last_error')}, "
+                                  f"24시간 실패 {f.get('fails_24h')} (화면은 활동 날씨 그림)", at)
+    if obj.get("state") not in ("ok", "stale", "off"):
+        return item("unknown", val, f"모르는 state {obj.get('state')!r}", at)
+    return item("ok", val, measured_at=at)
+
+
+def weather() -> dict:
+    at = now()
+    try:
+        req = urllib.request.Request(WEATHER, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            if "json" not in (r.headers.get("Content-Type") or ""):
+                raise ValueError(f"JSON 아님 ({r.headers.get('Content-Type')})")
+            obj = json.loads(r.read())
+    except Exception as e:
+        return item("unknown", reason=f"날씨 문 읽기 실패 — {fail(e)}", measured_at=at)
+    return weather_item(obj, at)
+
+
 LABELS = {
     f"cert_{CERT_LABEL}_file": f"{DOMAIN} 인증서(오리진 파일)",
     **{f"cert_{k}_{w}": f"{d} 인증서({'오리진 서빙' if w == 'origin' else '엣지'})"
        for k, d in {CERT_LABEL: DOMAIN, **EXTRA_CERTS}.items() for w in ("origin", "edge")},
     "backup_mac": "기기 백업 사본", "backup_vm": "VM 백업",
     "plaza_web_health": "plaza_web health", "snapshot": "공개 스냅샷",
-    "joined_idle": "가입 뒤 무활동", "conversation": "대화 (7일)",
+    "joined_idle": "가입 뒤 무활동", "conversation": "대화 (7일)", "weather": "배경 날씨",
 }
 
 
@@ -292,6 +322,7 @@ def main(argv) -> int:
     items["snapshot"] = snapshot()
     items["joined_idle"] = joined_idle()
     items["conversation"] = conversation()
+    items["weather"] = weather()
 
     for k, v in items.items():
         v["label"] = LABELS[k]

@@ -11,6 +11,7 @@
  *
  * 주소 (2단계 서버가 이대로 서빙하고, 정적 사본도 같은 모양으로 둔다):
  *   public/snapshot.json · public/replay/{index,YYYY-MM-DD}.json   데이터
+ *   public/weather.json                                            배경용 실제 날씨 범주 (spec/snapshot-plaza.md 5절, 장식)
  *   img/…                                                          그림 = 리포 images/gemini/
  */
 (() => {
@@ -113,6 +114,7 @@
           i: 0, emitted: 0, seen: new Set(), last: new Map(), paused: null, seeked: false, skipped: 0, lastSkip: null },
     raf: 0, prev: 0,
     faces: null,                  // web/faces.json, or null (then everyone stands in the plain picture)
+    wx: null,                     // real weather {sky, daylight, label, place}, or null (then the activity picture, as before)
   };
 
   // deterministic noise for staging, so two loads of the same data stage the same way
@@ -147,9 +149,12 @@
           <div class="pz-left">
             <div class="pz-wrap" id="pzWrap"><div class="pz-stage" id="pzStage">
               <img class="pz-bg" id="pzBg" alt="">
+              <div class="pz-sky" id="pzSky" hidden></div>
+              <div class="pz-night" id="pzNight" hidden></div>
               <svg class="pz-links" id="pzLinks" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"></svg>
               <div id="pzThings"></div>
               <div id="pzFigures"></div>
+              <div class="pz-fx" id="pzFx" hidden><i></i><i></i></div>
             </div>
               <div class="pz-zoom" id="pzZoom">
                 <button type="button" data-z="in" aria-label="확대">+</button>
@@ -419,7 +424,9 @@
   // ── static layer: background, props, zone labels, market lamps and strings ──
   function drawThings() {
     const P = S.P;
-    const cloudy = P.weather === "cloudy";
+    const wx = S.wx;
+    // the real sky picks the picture when we have it; otherwise the activity weather (metrics 1.14) does, as before
+    const cloudy = wx ? wx.sky !== "clear" : P.weather === "cloudy";
     document.getElementById("pzBg").src = img(cloudy ? "background/agora_bg_cloudy.png" : "background/agora_bg_gate.png");
     const props = cloudy ? [ARCH_PROP, ...PROPS] : PROPS;
     const joined24 = (S.P.residents || []).filter((r) => r.zone === "arch").length;
@@ -467,9 +474,56 @@
     if (pair) svg += `<path d="M 205 555 Q 270 610 330 628" stroke="#c8643c" stroke-width="2.5" fill="none" stroke-dasharray="6 5"><title>${esc(pair.title)} ↔ ${esc(byId.get(pair.in_return_for).title)} (답례)</title></path>`;
     document.getElementById("pzLinks").innerHTML = svg;
 
-    document.getElementById("pzWeather").innerHTML = `날씨 <b>${cloudy ? "흐림" : "맑음"}</b> · 지난 24시간 활동으로 정함`;
+    const mood = P.weather === "cloudy" ? "흐림" : "맑음";
+    document.getElementById("pzWeather").innerHTML = wx
+      ? `지금 ${esc(wx.place)} <b>${esc(wx.label)}</b>${S.mode === "replay" ? " · 리플레이 시각과 무관" : ""} · 광장 기운 ${mood}`
+      : `날씨 <b>${mood}</b> · 지난 24시간 활동으로 정함`;
+    drawSky();
     document.getElementById("pzCorner").textContent =
       `${P.labels.motion}${S.motion ? "" : " (연출 꺼짐)"} · 비석·교차 상호작용: ${P.labels.owner_unverified.split(" · ")[0]} · 자리 이름표를 누르면 그 자리 기록`;
+  }
+
+  // ── real weather over the picture (spec/snapshot-plaza.md 5절). Decoration only: a failed read keeps what we had ──
+  // tone + night layers cover the ground picture only; props get the same mood as a filter, so zone labels, lamps,
+  // residents and bubbles stay crisp. Rain/snow pass over everything, faint. Particles are one moving tiled background per layer; motion off or reduced motion leaves them still
+  const SKY_KO = { clear: "맑음", cloudy: "구름", fog: "안개", rain: "비", snow: "눈", storm: "뇌우" };
+  const WX_FLAG = Q.get("weather");      // 판정 도구용: "rain-night" 처럼 고정, "off" 는 날씨 층 끔(앞 판 그림)
+  const wxOf = (sky, daylight, place) => (SKY_KO[sky] && (daylight === "day" || daylight === "night")
+    ? { sky, daylight, place: String(place || ""), label: `${SKY_KO[sky]} · ${daylight === "day" ? "낮" : "밤"}` } : undefined);
+  /** true when S.wx changed. Never throws; a slow or odd answer leaves S.wx as it was */
+  async function loadWeather() {
+    const before = JSON.stringify(S.wx);
+    if (WX_FLAG) {
+      const [sky, daylight] = WX_FLAG.split("-");
+      S.wx = wxOf(sky, daylight, "서울") || null;
+    } else {
+      try {
+        const ctl = window.AbortController ? new AbortController() : null;
+        const tm = ctl && setTimeout(() => ctl.abort(), 5000);
+        const r = await fetch(`${DATA}weather.json`, ctl ? { signal: ctl.signal } : {});
+        clearTimeout(tm);
+        if (r.ok && (r.headers.get("content-type") || "").includes("json")) {
+          const d = await r.json();
+          if (d && d.weather === null) S.wx = null;             // the server has nothing usable → activity picture
+          else if (d && d.weather) S.wx = wxOf(d.weather.sky, d.weather.daylight, d.place) || S.wx;
+        } else {
+          await r.text();       // drain the answer (404·HTML) so the request ends; an unread body keeps it open
+        }
+      } catch (e) { /* keep the last good one */ }
+    }
+    return JSON.stringify(S.wx) !== before;
+  }
+  function drawSky() {
+    const wx = S.wx, sky = document.getElementById("pzSky"), night = document.getElementById("pzNight"), fx = document.getElementById("pzFx");
+    sky.className = "pz-sky" + (wx ? " " + wx.sky : "");
+    sky.hidden = !wx || wx.sky === "clear";
+    night.hidden = !wx || wx.daylight !== "night";
+    const falling = wx && (wx.sky === "rain" || wx.sky === "storm" || wx.sky === "snow") ? wx.sky : "";
+    fx.className = "pz-fx" + (falling ? " " + falling : "") + (S.motion ? "" : " still");
+    fx.hidden = !falling;
+    const st = document.getElementById("pzStage");
+    for (const c of [...st.classList]) if (c.startsWith("wx-")) st.classList.remove(c);
+    if (wx) st.classList.add("wx-" + wx.sky, "wx-" + wx.daylight);
   }
 
   // ── faces: an emoticon in place of the standing picture (docs/faces.md, table web/faces.json) ──
@@ -2081,6 +2135,8 @@
     b.textContent = text || "";
   }
   async function load() {
+    // weather is read beside the snapshot, never in front of it: the first paint does not wait for it
+    loadWeather().then((changed) => { if (changed && S.P) drawThings(); });
     let snap;
     try {
       const r = await fetch(`${DATA}snapshot.json`, { cache: "no-store" });

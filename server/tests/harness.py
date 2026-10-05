@@ -48,7 +48,8 @@ class Resp:
 
 
 class Server:
-    def __init__(self, workdir: str | None = None, cache_s: float = 0, base_url: str | None = None):
+    def __init__(self, workdir: str | None = None, cache_s: float = 0, base_url: str | None = None,
+                 env: dict | None = None):
         self.dir = Path(workdir or tempfile.mkdtemp(prefix="plaza-test-"))
         self.dir.mkdir(parents=True, exist_ok=True)
         os.chmod(self.dir, 0o700)
@@ -67,13 +68,15 @@ class Server:
         self.proc = None
         self.log: list[Resp] = []   # 모든 응답 (두 번째 대조가 읽는다)
         self.offset = 0.0
+        # 시험 서버는 바깥 날씨 출처를 부르지 않는다(기본 꺼짐). 날씨 시험만 가짜 출처 주소와 함께 켠다
+        self.env = {"PLAZA_WEATHER": "off", **(env or {})}
 
     # ── 프로세스 ──
     def start(self):
         env = dict(os.environ, PLAZA_DB=str(self.db), PLAZA_SECRET_FILE=str(self.secret),
                    PLAZA_BASE_URL=self.base_url, PLAZA_OPERATORS_FILE=str(self.operators),
                    PLAZA_PUBLIC_CACHE_S=str(self.cache_s), PLAZA_CLOCK_FILE=str(self.clock),
-                   PYTHONPATH=str(REPO))
+                   PYTHONPATH=str(REPO), **self.env)
         self.stderr = open(self.dir / "server.log", "ab")
         self.proc = subprocess.Popen([sys.executable, "-m", "server.plaza.app", "--port", str(self.port)],
                                      cwd=REPO, env=env, stdout=self.stderr, stderr=self.stderr)

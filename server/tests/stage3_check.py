@@ -1375,8 +1375,8 @@ def plaza_checks(C: Checks, browser, args, work: Path, extra=(), capture=None):
     C.check("앞 판 흠", "자 검사: 「라일락가」「Pebble와」「Nova-7가」를 「틀림」", len(probe) == 3, ", ".join(probe))
 
     # 4. 결정성: 같은 입력이면 같은 그림 (연출 끔), 생성 시각 1분 차이면 다른 그림
-    def still(base, name, when=None):
-        ctx, pg = page(1440, 900, "mode=now&motion=0", False, base=base, when=when)
+    def still(base, name, when=None, q="mode=now&motion=0"):
+        ctx, pg = page(1440, 900, q, False, base=base, when=when)
         pg.clock.run_for(2000)
         pg.evaluate("document.fonts.ready")
         # 최근 이야기가 얼굴 그림 수십 장을 더 불러, 같은 그림을 여러 크기로 줄여 그리는 곳에서 몇 점이 흔들렸다(최대 57/255, 줄이는 필터 차이).
@@ -1385,7 +1385,10 @@ def plaza_checks(C: Checks, browser, args, work: Path, extra=(), capture=None):
         pg.wait_for_timeout(400)
         pg.clock.run_for(200)
         pg.screenshot(path=str(shots / name), full_page=True)
+        st = pg.evaluate("({b: Plaza.stats().bubblesOnStage, w: document.getElementById('pzWeather').textContent,"
+                         " sky: !document.getElementById('pzSky').hidden, fx: !document.getElementById('pzFx').hidden})")
         ctx.close()
+        return st
     still(url, "det_a.png")
     still(url, "det_b.png")
     ok0, why0 = same_pixels(shots / "det_a.png", shots / "det_b.png")
@@ -1398,6 +1401,22 @@ def plaza_checks(C: Checks, browser, args, work: Path, extra=(), capture=None):
     srv2.shutdown()
     C.check("결정성", "같은 스냅샷·같은 시각이면 같은 그림 (연출 끔, 대조군)", ok0, why0)
     C.check("결정성", "자 검사: 생성 시각 1분 차이를 「다름」", not ok1, why1)
+
+    # 실제 날씨 층(snapshot-plaza.md 5절): 정적 사본엔 weather.json 이 없어 위 판정들은 날씨 층 없이 찍힌다.
+    # 날씨는 깃발 ?weather= 로 고정해 잰다(출처를 안 부른다)
+    wq = "mode=now&motion=0&weather=rain-night"
+    s_a = still(url, "det_wx_a.png", q=wq)
+    still(url, "det_wx_b.png", q=wq)
+    s_off = still(url, "det_wx_off.png", q="mode=now&motion=0&weather=off")
+    okw, whyw = same_pixels(shots / "det_wx_a.png", shots / "det_wx_b.png")
+    okd, whyd = same_pixels(shots / "det_a.png", shots / "det_wx_a.png")
+    oko, whyo = same_pixels(shots / "det_a.png", shots / "det_wx_off.png")
+    C.check("날씨", "깃발로 고정한 날씨(비 · 밤)는 두 번 찍어도 같은 그림 (연출 끔)", okw, whyw)
+    C.check("날씨", "자 검사: 비 · 밤 그림은 날씨 없는 그림과 「다름」(날씨 층이 실제로 그려짐)", not okd and s_a["sky"] and s_a["fx"], whyd)
+    C.check("날씨", "weather.json 없음(정적 사본) = weather=off = 앞 판과 같은 그림, 날씨 층 숨김", oko, whyo)
+    C.check("날씨", "날씨를 켜도 말풍선 수 불변", s_a["b"] == s_off["b"], f"비·밤 {s_a['b']} · 끔 {s_off['b']}")
+    C.check("날씨", "띠 글자: 「지금 서울 비 · 밤 · 광장 기운 …」, 끄면 옛 글자", "지금 서울 비 · 밤" in s_a["w"]
+            and "광장 기운" in s_a["w"] and "지난 24시간 활동으로 정함" in s_off["w"], f"{s_a['w']} / {s_off['w']}")
 
     # 입구 버튼
     ctx, pg = page(1840, 1080, "view=plaza&mode=now")

@@ -35,7 +35,7 @@ from werkzeug.exceptions import NotFound
 
 from . import consts as C
 from . import db as DB
-from . import guard, ledger, metrics, public, scene
+from . import guard, ledger, metrics, public, scene, weather
 from .util import ApiError, KST, cp_len, iso, new_id, nfc, now, parse_iso
 
 REPO = Path(__file__).resolve().parents[2]
@@ -140,6 +140,9 @@ def create_app() -> Flask:
 
     with lock:
         sync_operators()
+
+    # 배경용 실제 날씨(연출). 데몬 스레드 하나가 받아 메모리에 쥔다 — 요청 경로는 읽기만 한다(weather.py 머리말)
+    sky = weather.Weather().start()
 
     # ── 인스트럭션 ──
     def instruction():
@@ -1530,6 +1533,11 @@ def create_app() -> Flask:
     def pub_snapshot():
         params(())
         return pub(cached("snapshot", lambda: scene.build_snapshot(ledger_now(), iso(now()))))
+
+    @app.route("/public/weather.json", methods=["GET"])
+    def pub_weather():
+        params(())
+        return pub(sky.view(), max_age=300)
 
     def bubble_rows(date: str) -> int:
         """리플레이 불변식의 기준: 원장 표에서 그날 말풍선 종류 행을 따로 센다."""
