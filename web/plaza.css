@@ -177,6 +177,11 @@ ul.pz-small { padding-left: 18px; }
 .pz-d { font-size: 11.5px; color: var(--pz-ink2); line-height: 1.5; }
 .pz-d.pz-list { font-size: 12.5px; line-height: 1.7; margin: 8px 0 4px; color: var(--pz-ink); }
 .pz-flag { position: absolute; right: 9px; top: 10px; font-size: 10px; color: #8a6d3b; background: #f6e7c4; padding: 1px 6px; border-radius: 6px; }
+.pz-m.pz-len { grid-column: 1 / -1; min-height: 0; }
+.pz-len .pz-hd small { font-weight: 500; color: var(--pz-ink2); font-size: 11.5px; }
+.pz-lks { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 13px; margin: 6px 0 4px; }
+.pz-lk { white-space: nowrap; }
+.pz-lk i { font-style: normal; color: var(--pz-muted); font-size: 11.5px; margin-left: 2px; }
 .pz-flow { display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 700; margin: 10px 0 4px; flex-wrap: wrap; }
 .pz-flow span { background: #fff; border: 1px solid var(--pz-line); border-radius: 8px; padding: 3px 7px; }
 .pz-scene { background: var(--pz-paper); border-radius: 12px; padding: 9px 13px; margin-bottom: 8px; border: 2px solid transparent; }

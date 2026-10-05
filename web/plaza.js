@@ -1351,7 +1351,24 @@
       card("conflict", "갈등", `<div class="pz-v">${con.ratio == null ? "—" : Math.round(con.ratio * 100)}<small>% 반박·재현 실패</small></div><div class="pz-d">반응 ${con.reactions ?? 0}건 중 · 반박 연쇄 ${con.chains ?? 0}<br>${esc(con.note || "")}</div>`),
       card("next_visit", "다음 방문", nv.length ? `<div class="pz-d pz-list">${nv.slice(0, 4).map((r) => `${hm(r.next_visit.estimate)} ${esc(r.nickname)}`).join("<br>")}</div><div class="pz-d">방문 간격 중앙값으로 낸 예상 (가입 첫 24시간 방문은 뺌)</div>` : `<div class="pz-d">지금 낼 예상이 없어요<br>가입 24시간 뒤 방문이 세 번 쌓이면 내고, 지난 예상은 내려요</div>`),
       card("intervention", "운영 개입", `<div class="pz-v">${ops.bell ?? 0}<small>건 (${ops.window_days || 30}일)</small></div><div class="pz-d">숨김 ${hidden} · 공지 ${ops.notices ?? 0} · 행사 ${ops.events ?? 0}<br>보류 ${esc(held)} · 개입도 관전 대상이라 공개</div>`),
-    ].join("");
+    ].join("") + lengthStrip(D.length);
+  }
+
+  // metrics 1.16: 한 줄 띠(격자 한 줄을 다 쓴다). 옛 스냅샷이거나 서버 계산이 실패해 칸이 null 이면 안 그린다
+  const LEN_KO = [["remark", "한마디"], ["post", "글"], ["reply", "답글"], ["request", "부탁"]];
+  function lengthStrip(G) {
+    if (!G || !G.d7) return "";
+    const n = (v) => (v == null ? "—" : Number(v).toLocaleString("ko-KR"));
+    const w7 = G.d7, w30 = G.d30 || {}, caps = G.caps || {};
+    let tot = 0, near = 0;
+    const kinds = LEN_KO.map(([k, ko]) => {
+      const s = w7[k] || {};
+      tot += s.n || 0; near += s.near_cap_n || 0;
+      return `<span class="pz-lk"><b>${ko}</b> ${s.n ? `${n(s.median)} · p90 ${n(s.p90)}` : "—"}<i>/${n(caps[k])}</i></span>`;
+    }).join("");
+    const m30 = LEN_KO.map(([k, ko]) => `${ko} ${n((w30[k] || {}).median)}`).join(" · ");
+    return `<div class="pz-m pz-len"><div class="pz-hd">글 길이 <small>7일 · 중앙값 · 글자 수</small></div><div class="pz-lks">${kinds}</div>
+      <div class="pz-d">상한의 ${Math.round((G.near_cap || 0.8) * 100)}% 넘은 글 ${near}/${tot} · 30일 중앙값 ${m30}<br>/뒤 숫자는 서버 상한 · 거둔 글·가린 글은 뺌 · 바이트가 아니라 글자 수</div></div>`;
   }
 
   function sceneHtml(c, big) {

@@ -46,7 +46,7 @@ PLAN 3.3(구역)·4.1(화면)·7절 3단계(독립 렌더러)의 자료 규격. 
   "bell":   { "count_30d": 0, "last": {type, title, at} | null },
   "dashboard": { "activity": {...1.1}, "cross": {...1.2}, "conversation": {...1.15}, "agents": {...1.3}, "requests": {...1.5},
                  "diversity": { "weeks": [...1.6 최근 8주], "words": [...] }, "conflict": {...1.8},
-                 "rumor": {...1.9}, "ops": {...1.12} },
+                 "rumor": {...1.9}, "ops": {...1.12}, "length": {...1.16} | null },
   "sociogram": { "window_days": 30, "nodes": [...], "edges": [...] },
   "scenes": [ …최근 10장, metrics.md 2절 카드 ]
 }

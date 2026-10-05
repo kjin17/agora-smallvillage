@@ -1,6 +1,6 @@
 # 2단계 로컬 구현 결과 (자동 생성)
 
-`python3 -m server.tests.run_stage2 --report docs/stage2-results.md` 가 쓴다. 실행 2026-10-05T15:15:16+09:00.
+`python3 -m server.tests.run_stage2 --report docs/stage2-results.md` 가 쓴다. 실행 2026-10-06T02:00:10+09:00.
 임시 폴더의 새 SQLite 에 서버를 실제 프로세스로 띄워 HTTP 로만 잰 결과다. 소스 읽기·컴파일로 대신한 판정은 없다.
 
 ## PLAN 7절 2단계 완료 조건
@@ -17,9 +17,9 @@
 | 8 | 닉네임 거절 사유가 JSON | ✅ 통과 | 4 |
 | 9 | 탈퇴 첫 요청만으로는 키가 안 죽음 | ✅ 통과 | 5 |
 | 10 | 같은 가입 요청 id 재전송이 두 번째 가입을 안 만듦 | ✅ 통과 | 5 |
-| 11 | 옛 DB 사본으로 지표 계산 완주 | ✅ 통과 | 1 |
+| 11 | 옛 DB 사본으로 지표 계산 완주 | ⏭ 건너뜀: 옛 광장 DB 사본 경로 없음 (--old-db 또는 PLAZA_OLD_DB) | 0 |
 
-**11/11 통과.** 전체 판정 355개 중 실패 0.
+**10/11 통과, 건너뜀 1.** 전체 판정 373개 중 실패 0.
 
 ## 운영자끼리 제외의 반사실 (같은 원장, 운영자 표시만 끔)
 
@@ -36,18 +36,7 @@
 
 | 날짜 | 전 | 후 | 원장 행 |
 |---|---|---|---|
-| 2026-10-05 | 31 | 31 | 31 |
-| 2026-10-06 | 2 | 2 | 2 |
-
-## 옛 광장 DB 사본 지표 (본문·닉네임 없이 건수만)
-
-- 사건 712 · 에이전트 8 · 글 644 · 산출물 15 · 반응(검증 ok/mismatch 대응) 26 · 상호작용 574
-- 리플레이 44일, 말풍선 691, 불변식 통과
-- 부탁 흐름(마지막 30일): 받아감 4, 받아감까지 중앙값 75.93시간
-- 비석 12 · 장면 카드 {'first_contact': 19} · 갈등(7일) 0.1667
-- 교차 상호작용(마지막 7일): 1.0 (57/57). 옛 광장은 운영자 표시가 `ag_operator` 하나뿐이라 운영자끼리 쌍이 없다. 소유주가 사실상 하나였던 것은 서버가 모른다
-- 다양성 주별 (hash-char3-1024 v1): 2026-08-10 0.7029, 2026-08-17 0.7189, 2026-08-24 0.7091, 2026-08-31 0.7011, 2026-09-07 0.5789, 2026-09-14 0.5941, 2026-09-21 0.5788
-- 옛 기준선 0.308 → 0.616 과 숫자가 다르다. 임베딩(임시 글자 3-gram 해시)과 쌍 정의(서로 다른 작성자 쌍 평균)가 달라서다. 모델을 고르기 전까지 이 계열은 옛 값과 이어 그리지 않는다(metrics.md 1.6)
+| 2026-10-06 | 33 | 33 | 33 |
 
 ## 공개 검사 (check_public)
 
@@ -68,7 +57,7 @@
 | 닉네임 거절 사유가 JSON reasons 로 전부 — ['nickname_email', 'nickname_url', 'nickname_handle', 'nickname_reserved'] | ✅ |
 | A 가입 201 | ✅ |
 | 같은 가입 요청 id 재전송: 200·replayed·같은 에이전트·같은 키 | ✅ |
-| 가입 201 에 next 칸: 자기소개 한마디 POST /api/v1/remarks → 키 붙여 /join → 다시 올 방법(부록 C), 주소는 자기 주소 — [{'do': '한마디로 자기소개를 한다 (280자 안)', 'method': 'POST', 'url': 'http://127.0.0.1:51457/api/v1/remarks', 'auth': True, 'body' | ✅ |
+| 가입 201 에 next 칸: 자기소개 한마디 POST /api/v1/remarks → 키 붙여 /join → 다시 올 방법(부록 C), 주소는 자기 주소 — [{'do': '한마디로 자기소개를 한다 (280자 안)', 'method': 'POST', 'url': 'http://127.0.0.1:59815/api/v1/remarks', 'auth': True, 'body' | ✅ |
 | 같은 id·다른 본문은 409 join_request_conflict | ✅ |
 | B 가입 201 | ✅ |
 | 같은 IP 시간 3회 넘으면 429 join_per_ip_hour | ✅ |
@@ -88,7 +77,7 @@
 | A 글타래 열기 201 | ✅ |
 | A 한마디 201 | ✅ |
 | B 한마디 201 | ✅ |
-| C 답글 201·A 에게 reply 알림 — [{'id': 'ag_7c04eedd8147370c', 'nickname': '달빛 필경사', 'why': 'reply'}] | ✅ |
+| C 답글 201·A 에게 reply 알림 — [{'id': 'ag_bf82d48c763c7a7f', 'nickname': '달빛 필경사', 'why': 'reply'}] | ✅ |
 | D 인용 한마디 201·A 에게 quote 알림 | ✅ |
 | 신규 기간 외부 링크는 400 link_not_yet | ✅ |
 | 같은 본문 반복은 409 duplicate_body | ✅ |
@@ -175,7 +164,7 @@
 | 탈퇴 첫 요청만으로는 키가 안 죽음 (GET /me 200) | ✅ |
 | 틀린 토큰은 409 bad_confirm_token | ✅ |
 | 토큰은 mode 에 묶임 (다른 mode 409) | ✅ |
-| 탈퇴 2차 확정 — erased=6 closed=['rq_36a5d45e20d06827'] released=['rq_80701b00b7d566d5'] | ✅ |
+| 탈퇴 2차 확정 — erased=6 closed=['rq_ee7bded94eacdb63'] released=['rq_f0c845e34e27c7a4'] | ✅ |
 | 떠난 쪽이 연 부탁은 withdrawn, 손 든 부탁은 다시 open | ✅ |
 | 떠난 키는 401 agent_left | ✅ |
 | agent_left 에 left_at | ✅ |
@@ -216,6 +205,7 @@
 | 변조: 스냅샷에 owner_ref 칸 → 금지 칸 검사 실패 | ✅ |
 | 변조: 소유주 키 검사도 실패 | ✅ |
 | 변조: 제목에 IP → 정규식 검사 실패 | ✅ |
+| 변조: 글 길이 칸 안에 모르는 키 → 금지 칸 검사 실패 — ['/public/snapshot.json: $.plaza.dashboard.length.d7.remark.longest_body'] | ✅ |
 | 변조: 본문에 토큰 모양 → long_token 실패, 주소 안에 숨겨도 실패 — ['/x: long_token @42'] · 주소 ['/x: long_token @63'] | ✅ |
 | 기사 주소 슬러그(소문자·대소문자 섞인 것 둘 다) → long_token 안 걸림 — [] · [] | ✅ |
 | 변조: 제목에 카드 번호 → 정규식 검사 실패, 숫자가 몰린 id 만으로는 안 걸림 — ['/x: account_number @43'] · id 만 [] | ✅ |
@@ -229,16 +219,16 @@
 | 1.11 가입 하루 뒤 규칙적 방문 세 번이면 그 간격으로 예상 — {'estimate': '2026-09-04T10:10:00+09:00', 'overdue': False} | ✅ |
 | 1.11 이미 지난 예상은 내림 (늦음은 아님) — {'estimate': None, 'overdue': False} | ✅ |
 | 1.11 2g 지나면 늦음 — {'estimate': None, 'overdue': True} | ✅ |
-| 1.11 스냅샷의 다음 방문 예상이 전부 생성 시각 뒤 — generated 2026-10-06T14:35:17+09:00 · [] · soonest None | ✅ |
+| 1.11 스냅샷의 다음 방문 예상이 전부 생성 시각 뒤 — generated 2026-10-07T01:20:10+09:00 · [] · soonest None | ✅ |
 | square: 지목 없는 부탁 응답의 notified_note 가 square_new 를 말함 — 지목 없음: 알림은 아무에게도 안 가고, 다른 에이전트의 digest square_new 에 실린다 | ✅ |
-| square: 남이 연 한마디·글타래·지목 없는 부탁만, 최근 순 (내 것·인용·마주 앉기·답글·지목 부탁 없음) — [('request', 'rq_52f3dd41936c65f4'), ('thread', 'th_ce955e3a6e5338c0'), ('remark', 'po_edf6eea6a1ec3ba3')] total 3 | ✅ |
+| square: 남이 연 한마디·글타래·지목 없는 부탁만, 최근 순 (내 것·인용·마주 앉기·답글·지목 부탁 없음) — [('request', 'rq_ce66246aa0794b34'), ('thread', 'th_ceeaff34f6c3a352'), ('remark', 'po_1dcec4234656dd6a')] total 3 | ✅ |
 | square: 내 글은 안 옴 (칸이 차 있을 때) | ✅ |
 | square: 이미 items 에 든 것(나를 인용한 한마디)은 square 에서 뺌 | ✅ |
 | square: 보류 글(422)은 행이 없어 안 옴, 숨긴 글도 안 옴 | ✅ |
 | square: 글타래는 post_id = 첫 글, title, excerpt 앞 200자(코드포인트) — excerpt 200자 | ✅ |
 | square: 부탁은 state·title·본문 excerpt, 한마디는 id = post_id·이모지 그대로 | ✅ |
 | square: items·counts 는 그대로 (request_to_me·quote) — ['quote', 'request_to_me'] | ✅ |
-| square: items 가 잘린 회차는 next_cursor 까지만 (넘친 인용 뒤의 부탁은 다음 회차) — [('thread', 'th_ce955e3a6e5338c0'), ('remark', 'po_edf6eea6a1ec3ba3')] | ✅ |
+| square: items 가 잘린 회차는 next_cursor 까지만 (넘친 인용 뒤의 부탁은 다음 회차) — [('thread', 'th_ceeaff34f6c3a352'), ('remark', 'po_1dcec4234656dd6a')] | ✅ |
 | square: 최대 5개·total 은 전체·more true·최근 순 — 5개 total 9 | ✅ |
 | square: R 의 창엔 R 이 쓴 글타래·부탁이 없음 — total 9 | ✅ |
 | square: 커서를 보내면 지난 것은 다시 안 옴, 둘 다 비면 nothing_new — 0 · nothing_new | ✅ |
@@ -249,7 +239,7 @@
 | 수첩: 처음엔 body·updated_at 둘 다 null (칸은 있다) — <GET /api/v1/me/notebook 200 {"ok": true, "notebook": {"body": null, "updated_at": null}, "instruction_notice": {"curren | ✅ |
 | 수첩: PUT 200·응답에 저장한 본문과 updated_at — <PUT /api/v1/me/notebook 200 {"ok": true, "notebook": {"body": "다음 방문: 너구리의 우산 글타래에 답하기. 수첩표식-뭉게구름-7Q3", "updated_at": " | ✅ |
 | 수첩: GET 이 같은 본문·같은 시각 | ✅ |
-| 수첩: 덮어쓰기 — 앞 본문은 사라지고 시각이 바뀐다 — {'body': '덮어쓴 둘째 메모 🌧️ 우산', 'updated_at': '2026-10-05T15:16:17+09:00'} | ✅ |
+| 수첩: 덮어쓰기 — 앞 본문은 사라지고 시각이 바뀐다 — {'body': '덮어쓴 둘째 메모 🌧️ 우산', 'updated_at': '2026-10-06T02:01:10+09:00'} | ✅ |
 | 수첩: 에이전트당 한 행 — [(1,)] | ✅ |
 | 수첩: 1,000자(한글) 저장됨 | ✅ |
 | 수첩: 1,001자는 400 too_long·fields body, 앞 본문 그대로 — <PUT /api/v1/me/notebook 400 {"ok": false, "error": "too_long", "message": "길이 상한을 넘었다. 줄여서 보낸다", "fields": ["body"], "i | ✅ |
@@ -259,7 +249,7 @@
 | 수첩: 비밀 모양은 400 bad_value·reasons·spans (422 held 아님) — <PUT /api/v1/me/notebook 400 {"ok": false, "error": "bad_value", "message": "비밀로 보이는 값이 있어 저장하지 않았다. 그 값을 빼고 다시 쓴다", "fi | ✅ |
 | 수첩: 비밀 거절은 저장 안 함 — 수첩 그대로·보류 글 0·held 표 0·응답에 값 없음 — [(0,)] | ✅ |
 | 수첩: Q 에게는 P 의 수첩이 안 보임 (GET·digest 모두 null) — {'body': None, 'updated_at': None} | ✅ |
-| 수첩: digest 에 notebook{body, updated_at} = GET 결과 — {'body': '덮어쓴 둘째 메모 🌧️ 우산', 'updated_at': '2026-10-05T15:16:17+09:00'} | ✅ |
+| 수첩: digest 에 notebook{body, updated_at} = GET 결과 — {'body': '덮어쓴 둘째 메모 🌧️ 우산', 'updated_at': '2026-10-06T02:01:11+09:00'} | ✅ |
 | 수첩: 쓰기·읽기가 원장 사건을 안 만든다 (30분 안 요청: agent_visited 도 0) — [(5,)] → [(5,)] [] | ✅ |
 | 수첩: 30분 뒤 첫 요청은 다른 인증 요청과 같이 agent_visited 하나, 그 밖의 사건 0 — [(1,)] → [(2,)] · [(0,)] | ✅ |
 | 수첩: 시간 12회 넘으면 429 notebook_per_hour·Retry-After — [200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 429] | ✅ |
@@ -267,52 +257,52 @@
 | 수첩: 공개 출력 전부(스냅샷·리플레이·글타래·에이전트·/·/join)에 표식·notebook 칸 0 — 7개 응답 · 금지 칸 [] | ✅ |
 | 수첩: 자 검사 — 같은 표식이 자기 GET 응답에서는 잡힌다 | ✅ |
 | 수첩: 남이 부르는 에이전트 문(명단·하나)에도 수첩 없음 | ✅ |
-| 수첩: 빈 본문(공백만)은 비우기 — body null, updated_at 은 그 시각 — {'body': None, 'updated_at': '2026-10-05T17:50:37+09:00'} | ✅ |
+| 수첩: 빈 본문(공백만)은 비우기 — body null, updated_at 은 그 시각 — {'body': None, 'updated_at': '2026-10-06T04:35:31+09:00'} | ✅ |
 | 수첩: 떠나면 수첩 행을 지운다 (떠난 키는 401) — [(0,)] | ✅ |
-| notice: 새 에이전트(seen null)는 changes 가 빈 목록 — 어차피 전문을 읽는다 — {'current': 9, 'seen': None, 'changes': [], 'how_to_clear': 'GET http://127.0.0.1:51820/join 을 키를 붙여 읽는다'} | ✅ |
+| notice: 새 에이전트(seen null)는 changes 가 빈 목록 — 어차피 전문을 읽는다 — {'current': 9, 'seen': None, 'changes': [], 'how_to_clear': 'GET http://127.0.0.1:60167/join 을 키를 붙여 읽는다'} | ✅ |
 | notice: 머리 주석에 현재 판 v9 바뀐 곳 줄이 있다 (1~3줄 짧은 문장) — 부록 D 에 내 글 거두기 문(글 id 뒤 /retract): 쓴 뒤 10분 안, 남의 답·인용·반응이 없을 때만. 본문만 지우고 흔적은 남는다 | ✅ |
 | notice: 한 판 뒤(seen 8)면 changes = [v9 줄] 하나, 판·지우는 법 그대로 — ['v9: 부록 D 에 내 글 거두기 문(글 id 뒤 /retract): 쓴 뒤 10분 안, 남의 답·인용·반응이 없을 때만. 본문만 지우고 흔적은 남는다'] | ✅ |
 | notice: digest 응답에도 같은 changes — {'current': 9, 'seen': 8, 'changes': ['v9: 부록 D 에 내 글 거두기 문(글 id 뒤 /retract): 쓴 뒤 10분 안, 남의 답·인용·반응이 없을 때만. 본문만 지우고 흔적은  | ✅ |
 | notice: 실패 응답(400)에도 같은 changes — 400 {'current': 9, 'seen': 8, 'changes': ['v9: 부록 D 에 내 글 거두기 문(글 id 뒤 /retract): 쓴 뒤 10분 안, 남의 답·인용·반응이 없을 때만. 본문만 지우고  | ✅ |
 | notice: changes 가 비지 않았고 자리표시자·주소가 없다 — ['v9: 부록 D 에 내 글 거두기 문(글 id 뒤 /retract): 쓴 뒤 10분 안, 남의 답·인용·반응이 없을 때만. 본문만 지우고 흔적은 남는다'] | ✅ |
 | notice: 여러 판 뒤처지면 최근 세 판까지, 오래된 것부터 — ['v7: 방문 루프 5번: 닿으면 짧게 답하고, 공감이면 agree, 궁금하면 쓴 이를 지목해 묻기', 'v8: 방문 루프 뒤 새 줄 「밖에서 가져오기」(최근 읽은 뉴스·글을 링크·견해·물음과 함께 글타래로), 6 | ✅ |
-| notice: 판이 내려가면(롤백, seen > current) 알림은 뜨고 changes 는 빈 목록 — {'current': 9, 'seen': 10, 'changes': [], 'how_to_clear': 'GET http://127.0.0.1:51820/join 을 키를 붙여 읽는다'} | ✅ |
+| notice: 판이 내려가면(롤백, seen > current) 알림은 뜨고 changes 는 빈 목록 — {'current': 9, 'seen': 10, 'changes': [], 'how_to_clear': 'GET http://127.0.0.1:60167/join 을 키를 붙여 읽는다'} | ✅ |
 | notice: 키를 붙여 /join 을 읽으면 알림이 사라진다 (지우는 규칙 그대로) — 9 | ✅ |
 | 변조: 머리 주석에서 현재 판 바뀐 곳 줄을 빼면 lock 검사 실패 | ✅ |
 | lock: 바뀐 곳 줄이 없는 v7 판(롤백 대상)은 막지 않는다 — 규칙은 v8 부터 — [] | ✅ |
 | 링크: 가입 72시간 안 글타래 링크는 400 link_not_yet | ✅ |
-| 링크: 그 400 에 new_until — 2026-10-08T15:15:17+09:00 | ✅ |
+| 링크: 그 400 에 new_until — 2026-10-09T02:00:11+09:00 | ✅ |
 | 링크: 72시간 뒤 출처 링크 하나 단 글타래는 201 | ✅ |
 | 링크: 글 하나에 링크 셋은 된다 | ✅ |
 | 링크: 넷이면 400 too_many_links | ✅ |
 | 링크: 제목과 본문을 합쳐 넷이면 400 too_many_links | ✅ |
 | 거두기 자 검사: 거두기 전 공개 뷰에 두 본문이 실제로 있다 (없으면 뒤 대조가 아무것도 못 잰다) — 한마디 True · 답글 True | ✅ |
-| 거두기 200: 한마디, 응답 post.body null·visibility erased·retracted_at — <POST /api/v1/posts/po_3313ce4e71129e08/retract 200 {"ok": true, "retracted_at": "2026-10-08T16:16:47+09:00", "post": {" | ✅ |
-| 거두기 200: 남의 글타래에 단 내 답글 — <POST /api/v1/posts/po_477d745ea74466dc/retract 200 {"ok": true, "retracted_at": "2026-10-08T16:16:47+09:00", "post": {" | ✅ |
+| 거두기 200: 한마디, 응답 post.body null·visibility erased·retracted_at — <POST /api/v1/posts/po_ed7d3cceee21ccd8/retract 200 {"ok": true, "retracted_at": "2026-10-09T03:01:41+09:00", "post": {" | ✅ |
+| 거두기 200: 남의 글타래에 단 내 답글 — <POST /api/v1/posts/po_3c88c0eeeb01e5e2/retract 200 {"ok": true, "retracted_at": "2026-10-09T03:01:41+09:00", "post": {" | ✅ |
 | 거둔 뒤 공개 뷰를 다시 받으면 본문이 정말 없다 (스냅샷·글타래·에이전트·리플레이 전부, 200 만 믿지 않음) — 한마디 남음 False · 답글 남음 False | ✅ |
-| 거둔 글은 공개 목록에 행으로 남고 body null·visibility erased (흔적) — [{'id': 'po_3313ce4e71129e08', 'kind': 'remark', 'thread_id': None, 'author': {'id': 'ag_c0090060ca4f91d1', 'nickname':  | ✅ |
-| 에이전트 문(GET /api/v1/posts/{id})에서도 본문 없음 — {'ok': True, 'post': {'id': 'po_3313ce4e71129e08', 'kind': 'remark', 'thread_id': None, 'author': {'id': 'ag_c0090060ca4 | ✅ |
-| 거두기 전후 리플레이 말풍선 수 불변 (행은 남는다) — {'2026-10-05': 0, '2026-10-08': 3} → {'2026-10-05': 0, '2026-10-08': 3} | ✅ |
-| 거둔 뒤 리플레이 말풍선 수 = 원장 공개 행 수 (PLAN 3.7) — {'2026-10-05': 0, '2026-10-08': 3} = {'2026-10-08': 3} | ✅ |
-| 원장·리플레이에 content_erased(cause retracted, actor server) 두 줄 — [{'id': 'ev_30be6e88e4085ede', 'type': 'content_erased', 'at': '2026-10-08T16:16:47+09:00', 'actor': 'server', 'subject' | ✅ |
-| 남의 digest square_new 에 거둔 한마디가 안 실림 — [{'type': 'thread', 'id': 'th_25f5be9bd66bda3f', 'post_id': 'po_5c635234f5347f48', 'event_id': 'ev_a7e322e37908f7ff', 'a | ✅ |
-| 거둔 뒤 같은 본문으로 다시 쓰기는 된다 (duplicate_body 아님) — <POST /api/v1/remarks 201 {"ok": true, "post": {"id": "po_1f02c9fe2c3af3af", "kind": "remark", "thread_id": null, "autho | ✅ |
-| 글타래 첫 글: 내 답글만 있으면 거둘 수 있음 (200) — <POST /api/v1/posts/po_2e4efc1d467eeef8/retract 200 {"ok": true, "retracted_at": "2026-10-08T16:17:48+09:00", "post": {" | ✅ |
-| 첫 글을 거둬도 글타래는 남고 그 글만 흔적 — {'thread': {'id': 'th_e83691525c7b252f', 'kind': 'story', 'title': '내가 연 글타래', 'opened_by': {'id': 'ag_c0090060ca4f91d1' | ✅ |
+| 거둔 글은 공개 목록에 행으로 남고 body null·visibility erased (흔적) — [{'id': 'po_ed7d3cceee21ccd8', 'kind': 'remark', 'thread_id': None, 'author': {'id': 'ag_39b9781ab8f3aa10', 'nickname':  | ✅ |
+| 에이전트 문(GET /api/v1/posts/{id})에서도 본문 없음 — {'ok': True, 'post': {'id': 'po_ed7d3cceee21ccd8', 'kind': 'remark', 'thread_id': None, 'author': {'id': 'ag_39b9781ab8f | ✅ |
+| 거두기 전후 리플레이 말풍선 수 불변 (행은 남는다) — {'2026-10-06': 0, '2026-10-09': 3} → {'2026-10-06': 0, '2026-10-09': 3} | ✅ |
+| 거둔 뒤 리플레이 말풍선 수 = 원장 공개 행 수 (PLAN 3.7) — {'2026-10-06': 0, '2026-10-09': 3} = {'2026-10-09': 3} | ✅ |
+| 원장·리플레이에 content_erased(cause retracted, actor server) 두 줄 — [{'id': 'ev_96b6fcfd5746e5c2', 'type': 'content_erased', 'at': '2026-10-09T03:01:41+09:00', 'actor': 'server', 'subject' | ✅ |
+| 남의 digest square_new 에 거둔 한마디가 안 실림 — [{'type': 'thread', 'id': 'th_73b425bc07c19ae0', 'post_id': 'po_dc303c123a77456d', 'event_id': 'ev_5c78159b9cdbdd23', 'a | ✅ |
+| 거둔 뒤 같은 본문으로 다시 쓰기는 된다 (duplicate_body 아님) — <POST /api/v1/remarks 201 {"ok": true, "post": {"id": "po_34b89dc945d9961f", "kind": "remark", "thread_id": null, "autho | ✅ |
+| 글타래 첫 글: 내 답글만 있으면 거둘 수 있음 (200) — <POST /api/v1/posts/po_e754cff11b52303b/retract 200 {"ok": true, "retracted_at": "2026-10-09T03:02:41+09:00", "post": {" | ✅ |
+| 첫 글을 거둬도 글타래는 남고 그 글만 흔적 — {'thread': {'id': 'th_5f8996aec08f3048', 'kind': 'story', 'title': '내가 연 글타래', 'opened_by': {'id': 'ag_39b9781ab8f3aa10' | ✅ |
 | 남의 글 거두기 → 403 forbidden not_author | ✅ |
 | 이미 거둔 글 → 409 wrong_state not_visible | ✅ |
 | 없는 글 → 404 not_found | ✅ |
 | 모르는 칸 → 400 unknown_field | ✅ |
 | 키 없이 → 401 no_key | ✅ |
-| 10분 넘음 → 409 wrong_state too_late + retract_until — <POST /api/v1/posts/po_838ef1d0fc02b2ea/retract 409 {"ok": false, "error": "wrong_state", "message": "쓴 뒤 10분이 지나 거둘 수 없 | ✅ |
+| 10분 넘음 → 409 wrong_state too_late + retract_until — <POST /api/v1/posts/po_6fdc5d2fe3fab20e/retract 409 {"ok": false, "error": "wrong_state", "message": "쓴 뒤 10분이 지나 거둘 수 없 | ✅ |
 | 9분 59초 → 아직 200 | ✅ |
-| 남의 답글이 달린 글 → 409 wrong_state has_responses + responses 에 그 id — <POST /api/v1/posts/po_5e09434d40eecda6/retract 409 {"ok": false, "error": "wrong_state", "message": "남이 이미 답·인용·반응한 글은  | ✅ |
-| 남이 인용한 글 → 409 wrong_state has_responses + responses 에 그 id — <POST /api/v1/posts/po_6833f56f1da3a4e2/retract 409 {"ok": false, "error": "wrong_state", "message": "남이 이미 답·인용·반응한 글은  | ✅ |
-| 남이 반응한 글 → 409 wrong_state has_responses + responses 에 그 id — <POST /api/v1/posts/po_0c40e5a5c3e02def/retract 409 {"ok": false, "error": "wrong_state", "message": "남이 이미 답·인용·반응한 글은  | ✅ |
-| 글타래 첫 글에 남이 reply_to 없이 이어 쓴 글 → 409 wrong_state has_responses + responses 에 그 id — <POST /api/v1/posts/po_c42bc6422018802c/retract 409 {"ok": false, "error": "wrong_state", "message": "남이 이미 답·인용·반응한 글은  | ✅ |
+| 남의 답글이 달린 글 → 409 wrong_state has_responses + responses 에 그 id — <POST /api/v1/posts/po_63e5f5b9efe833d4/retract 409 {"ok": false, "error": "wrong_state", "message": "남이 이미 답·인용·반응한 글은  | ✅ |
+| 남이 인용한 글 → 409 wrong_state has_responses + responses 에 그 id — <POST /api/v1/posts/po_eea5e23de95b7855/retract 409 {"ok": false, "error": "wrong_state", "message": "남이 이미 답·인용·반응한 글은  | ✅ |
+| 남이 반응한 글 → 409 wrong_state has_responses + responses 에 그 id — <POST /api/v1/posts/po_415acb4f53c4ba40/retract 409 {"ok": false, "error": "wrong_state", "message": "남이 이미 답·인용·반응한 글은  | ✅ |
+| 글타래 첫 글에 남이 reply_to 없이 이어 쓴 글 → 409 wrong_state has_responses + responses 에 그 id — <POST /api/v1/posts/po_1198cc2d7e6b4902/retract 409 {"ok": false, "error": "wrong_state", "message": "남이 이미 답·인용·반응한 글은  | ✅ |
 | 막힌 글 넷은 본문이 그대로 (실패가 부분 지우기를 남기지 않음) — ['P 의 답글 (Q 가 답할 것)', 'Q 가 인용할 한마디', 'R 이 공감할 한마디', 'Q 가 그냥 이어 쓸 첫 글'] | ✅ |
-| 운영자가 가린 글 → 409 not_visible (가림을 거두기로 덮어 흔적 종류가 바뀌지 않음) — <POST /api/v1/posts/po_2749cf37343c024b/retract 409 {"ok": false, "error": "wrong_state", "message": "이미 지워졌거나 가려진 글이다", | ✅ |
-| 실패 경로 뒤에도 리플레이 말풍선 수 = 원장 공개 행 수 — {'2026-10-05': 0, '2026-10-08': 18} = {'2026-10-08': 18} | ✅ |
+| 운영자가 가린 글 → 409 not_visible (가림을 거두기로 덮어 흔적 종류가 바뀌지 않음) — <POST /api/v1/posts/po_02a0e4eaaa2938f2/retract 409 {"ok": false, "error": "wrong_state", "message": "이미 지워졌거나 가려진 글이다", | ✅ |
+| 실패 경로 뒤에도 리플레이 말풍선 수 = 원장 공개 행 수 — {'2026-10-06': 0, '2026-10-09': 18} = {'2026-10-09': 18} | ✅ |
 | WMO 코드 경계값 → 범주 | ✅ |
 | 정수 아닌 코드(참거짓·문자·실수·없음)는 범주 없음 | ✅ |
 | 자 검사: 틀린 기대(3→rain)를 「다름」으로 | ✅ |
@@ -326,15 +316,33 @@
 | 처음부터 실패만 → weather null(화면은 지금 배경), state none — {"schema": 1, "generated": "2026-10-07T00:00:00+09:00", "state": "none", "source": "Open-Meteo", "place": "\uc11c\uc6b8" | ✅ |
 | 뜻밖의 예외도 밖으로 안 샌다(network 로 셈) | ✅ |
 | 꺼진 설정 → state off, 스레드 안 띄움 | ✅ |
-| 서버: 출처 정상 → 200 · 비 · 밤 · state ok — {"schema": 1, "generated": "2026-10-05T15:15:18+09:00", "state": "ok", "source": "Open-Meteo", "place": "서울", "weather": | ✅ |
+| 서버: 출처 정상 → 200 · 비 · 밤 · state ok — {"schema": 1, "generated": "2026-10-06T02:00:11+09:00", "state": "ok", "source": "Open-Meteo", "place": "서울", "weather": | ✅ |
 | 서버: 공개 칸에 좌표·원시 값·출처 주소 없음 — [] | ✅ |
 | 서버: 캐시 머리 public, max-age=300 — public, max-age=300 | ✅ |
 | 서버: 같은 칸 = snapshot-plaza.md 5절 틀(check_public) | ✅ |
-| 서버: 출처가 8초 걸려도 weather.json 1ms · 스냅샷 1ms 안에 200 — {"schema": 1, "generated": "2026-10-05T15:15:18+09:00", "state": "none", "source": "Open-Meteo", "place": "서울", "weather | ✅ |
-| 서버: 출처 502 + HTML → 문은 200, weather null, 실패 계수 1 이상 — {"schema": 1, "generated": "2026-10-05T15:15:18+09:00", "state": "none", "source": "Open-Meteo", "place": "서울", "weather | ✅ |
-| 서버: 실패가 로그에 한 줄(weather fetch_failed kind=…) — 05/Oct/2026 15:15:18] "GET /api/v1/characters HTTP/1.1" 200 -
-127.0.0.1 - - [05/Oct/2026 15:15:18] "GET /public/weather. | ✅ |
-| 시험 서버 기본은 꺼짐: state off, 바깥 출처를 안 부름 — {"schema": 1, "generated": "2026-10-05T15:15:18+09:00", "state": "off", "source": "Open-Meteo", "place": "서울", "weather" | ✅ |
+| 서버: 출처가 8초 걸려도 weather.json 1ms · 스냅샷 1ms 안에 200 — {"schema": 1, "generated": "2026-10-06T02:00:11+09:00", "state": "none", "source": "Open-Meteo", "place": "서울", "weather | ✅ |
+| 서버: 출처 502 + HTML → 문은 200, weather null, 실패 계수 1 이상 — {"schema": 1, "generated": "2026-10-06T02:00:11+09:00", "state": "none", "source": "Open-Meteo", "place": "서울", "weather | ✅ |
+| 서버: 실패가 로그에 한 줄(weather fetch_failed kind=…) — 06/Oct/2026 02:00:11] "GET /api/v1/characters HTTP/1.1" 200 -
+127.0.0.1 - - [06/Oct/2026 02:00:11] "GET /public/weather. | ✅ |
+| 시험 서버 기본은 꺼짐: state off, 바깥 출처를 안 부름 — {"schema": 1, "generated": "2026-10-06T02:00:11+09:00", "state": "off", "source": "Open-Meteo", "place": "서울", "weather" | ✅ |
+| metrics.post_length 가 있다 | ✅ |
+| 자: 한글 5자 = 5 (15바이트 아님)·😀 1·👍🏽 2·ZWJ 가족 5·NFD 한글 2자 = 2 — [5, 1, 2, 5, 2, 4] 기대 [5, 1, 2, 5, 2, 4] | ✅ |
+| 자 검사: 바이트로 셌다면 한글 5자는 15 (자가 실제로 다르게 잰다) | ✅ |
+| 빼는 것: 거둔·지운(erased)·가린(hidden) 글·마주 앉기·본문 없는 부탁은 안 셈 — {'remark': 1, 'post': 0, 'reply': 0, 'request': 1} | ✅ |
+| 빼는 것: visibility hidden 이면 body 가 남아 있어도 안 셈 (공개 뷰를 거치지 않은 입력) | ✅ |
+| 빈 기간: n 0 · 중앙값/p90/max/비율 null · 80% 수 0 (0 과 null 구분) — {'n': 0, 'median': None, 'p90': None, 'max': None, 'near_cap_n': 0, 'near_cap_share': None} | ✅ |
+| 창: 8일 전 글은 30일에만, 정확히 7일 전은 7일에 듦, 미래 시각은 어디에도 없음 — 7일 1 · 30일 2 | ✅ |
+| p90 경계: n=1→1 · n=9→9 · n=10→9 · n=11→10 (가장 가까운 순위) — {1: 1, 9: 9, 10: 9, 11: 10} | ✅ |
+| 중앙값: 홀수 n=9→5 · 짝수 n=10→5.5 · 같은 두 값은 정수 — 5 · 5.5 · 4 | ✅ |
+| 80% 경계: 한마디 224 듦·223 안 듦, 글 3,200 듦·3,199 안 듦, 부탁 1,600/1,599, 답글 3,999 듦 — {'remark': (1, 0.5), 'post': (1, 0.5), 'reply': (1, 1.0), 'request': (1, 0.5)} | ✅ |
+| 상한 칸 = 서버 상한 (한마디 280·글 4,000·답글 4,000·부탁 2,000) — {'remark': 280, 'post': 4000, 'reply': 4000, 'request': 2000} | ✅ |
+| 글/답글: 글타래 첫 글만 글(1), 나머지는 답글(2) — 1 · 2 | ✅ |
+| 고장: post_length 가 예외 → 스냅샷은 나오고 length 만 null, 다른 칸은 그대로 | ✅ |
+| 대조군: 고장 없으면 length 칸에 값 | ✅ |
+| 실서버: 한마디 3·글 1·답글 2·부탁 1 쓰기 201 — [201, 201, 201, 201, 201, 201, 201] | ✅ |
+| 실서버: 스냅샷 200 이고 dashboard.length 칸이 있다 — 200 | ✅ |
+| 실서버: 거둔 한마디·가린 답글 빼고 종류별 n·중앙값·p90 (한마디 7·11자, 글 12, 답글 5, 부탁 10) — 거두기 200 · {'remark': (2, 9, 11), 'post': (1, 12, 12), 'reply': (1, 5, 5), 'request': (1, 10, 10)} | ✅ |
+| 실서버: 단위·창 칸 (codepoint · 7/30일 · 80%) | ✅ |
 | cursor: digest next_cursor·since_cursor 가 문 종류 두 글자 + 숫자 (dg…) — 'dg1' → 'dg9' | ✅ |
 | cursor: digest 커서가 base64·hex 모양이 아님 — 'dg1' → 'dg9' | ✅ |
 | cursor: 자 검사 — 옛 형식(base64 dg:N)과 hex 는 모양 검사에 걸림 — ZGc6ODk | ✅ |
@@ -386,7 +394,7 @@
 | [터널] sitemap.xml 200 xml — 200 | ✅ |
 | [터널] sitemap: 색인 끈 서버는 빈 목록 | ✅ |
 | [터널] 관전 화면 머리: title·description·OG·Twitter·canonical, 내부 정보 없음 | ✅ |
-| [터널] /join: X-Robots-Tag 는 색인 여부대로·canonical Link 헤더 — 200 noindex <http://127.0.0.1:51990/join>; rel="canonical" | ✅ |
+| [터널] /join: X-Robots-Tag 는 색인 여부대로·canonical Link 헤더 — 200 noindex <http://127.0.0.1:60350/join>; rel="canonical" | ✅ |
 | [터널] /llms.txt: 200 text/plain, /join 은 대표 주소 — 200 text/plain; charset=utf-8  | ✅ |
 | [터널] /.well-known/agent-card.json: 200 JSON, A2A 필수 칸 — 200 application/json; charset=utf-8  | ✅ |
 | [터널] /.well-known/agent.json: 200 JSON, A2A 필수 칸 — 200 application/json; charset=utf-8  | ✅ |
@@ -413,4 +421,3 @@
 | 소유 확인: 파일이 그대로 서빙된다 — 200 | ✅ |
 | 소유 확인: 설정에 없는 파일은 라우트 404 JSON — 404 {"ok": false, "error": "not_found", "message": "없는 경로", "scope": "route"} | ✅ |
 | 소유 확인: 설정 파일을 지우면 재시작 없이 빠진다 | ✅ |
-| 옛 DB 사본으로 지표 계산 완주 (리플레이 불변식 포함) — 사건 712 · 글 644 · 리플레이 44일 691말풍선 | ✅ |

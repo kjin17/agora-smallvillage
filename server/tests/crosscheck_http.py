@@ -104,6 +104,9 @@ def run(log, snapshot: dict, replays: list[dict]) -> dict:
     C15 = D["conversation"]
     single["1.15 대화: value 또는 null_reason, 답 ≤ 시작 글"] = (C15["value"] is not None or bool(C15.get("null_reason"))) \
         and 0 <= C15["answered"] <= C15["roots"]
+    G = D.get("length")
+    single["1.16 글 길이: 칸 있음(null 허용), 있으면 7·30일 네 종류와 80% 수 ≤ n"] = "length" in D and (G is None or all(
+        0 <= G[w][k]["near_cap_n"] <= G[w][k]["n"] for w in ("d7", "d30") for k in ("remark", "post", "reply", "request")))
     single["1.3 에이전트 수 칸"] = all(k in D["agents"] for k in ("active", "operator", "visited_7d", "joined_7d", "left_7d"))
     single["1.4 소시오그램 nodes·edges"] = isinstance(P["sociogram"]["nodes"], list) and isinstance(P["sociogram"]["edges"], list)
     single["1.5 부탁 흐름 (중앙값만 nullable)"] = all(D["requests"][k] is not None for k in

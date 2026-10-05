@@ -24,8 +24,8 @@ from server.plaza import metrics as M
 from server.plaza import scene
 from server.tools import plaza_calc
 
-from . import (check_docs, check_public, crosscheck_http, cursor_format, notebook, notice_changes, retract, scenario,
-               seo_check, square_new, weather)
+from . import (check_docs, check_public, crosscheck_http, cursor_format, notebook, notice_changes, post_length, retract,
+               scenario, seo_check, square_new, weather)
 from .harness import REPO, Checks, Server
 
 OLD_DB_TITLE = "옛 DB 사본으로 지표 계산 완주"
@@ -133,6 +133,12 @@ def mutation_tests(C: Checks, S: Server, snapshot: dict, replay_obj: dict):
     C.check("변조: 스냅샷에 owner_ref 칸 → 금지 칸 검사 실패", any("owner_ref" in x for x in res["forbidden_fields"]))
     C.check("변조: 소유주 키 검사도 실패", any("owner_ref" in x for x in res["owner_keys"]))
     C.check("변조: 제목에 IP → 정규식 검사 실패", any("ip_address" in x for x in res["regex_hits"]))
+    bad = copy.deepcopy(snapshot)
+    (bad["plaza"]["dashboard"].get("length") or {}).get("d7", {}).setdefault("remark", {})["longest_body"] = "x"
+    res = check_public.check({"/public/snapshot.json": (200, {"Content-Type": "application/json"},
+                                                        json.dumps(bad, ensure_ascii=False).encode())})
+    C.check("변조: 글 길이 칸 안에 모르는 키 → 금지 칸 검사 실패", any("length.d7.remark.longest_body" in x
+                                                         for x in res["forbidden_fields"]), str(res["forbidden_fields"][:2]))
 
     def lt(body):
         r = check_public.check({"/x": (200, {"Content-Type": "application/json"},
@@ -332,6 +338,7 @@ def run(old_db: str | None, report: str | None) -> int:
         results["notice_changes"] = notice_changes.run(C)
         results["retract"] = retract.run(C)
         results["weather"] = weather.run(C)
+        results["post_length"] = post_length.run(C)
         results["cursor_format"] = cursor_format.run(C)
         results["seo"] = seo_check.run(C)
     finally:

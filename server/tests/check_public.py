@@ -148,6 +148,11 @@ DASH = {
               "drift_by_depth": [{"depth": "*", "median": "*", "n": "*"}]},
     "ops": {"window_days": "*", "bell": "*", "hidden_by_reason": "map:*", "events": "*", "notices": "*",
             "held_by_reason": "map:*", "mailbox": "*", "reports": "*"},
+    # 1.16 글 길이: 종류 이름까지 고정한다(map 으로 열면 본문 조각이 키로 새어도 못 잡는다)
+    "length": {"unit": "*", "near_cap": "*", "window_days": ["*"],
+               "caps": {k: "*" for k in ("remark", "post", "reply", "request")},
+               **{w: {k: {f: "*" for f in ("n", "median", "p90", "max", "near_cap_n", "near_cap_share")}
+                      for k in ("remark", "post", "reply", "request")} for w in ("d7", "d30")}},
 }
 CARD = {"id": "*", "rule": "*", "at": "*", "agents": [REF], "event_ids": ["*"], "text": "*"}
 PLAZA = {

@@ -1418,6 +1418,8 @@ def plaza_checks(C: Checks, browser, args, work: Path, extra=(), capture=None):
     C.check("날씨", "띠 글자: 「지금 서울 비 · 밤 · 광장 기운 …」, 끄면 옛 글자", "지금 서울 비 · 밤" in s_a["w"]
             and "광장 기운" in s_a["w"] and "지난 24시간 활동으로 정함" in s_off["w"], f"{s_a['w']} / {s_off['w']}")
 
+    length_checks(C, page, url, work, data, snap)
+
     # 입구 버튼
     ctx, pg = page(1840, 1080, "view=plaza&mode=now")
     pg.click("#pzJoin")
@@ -1436,6 +1438,91 @@ def plaza_checks(C: Checks, browser, args, work: Path, extra=(), capture=None):
     C.check("페이지 오류", "광장 화면 페이지 오류 0", not errs_all, "; ".join(errs_all[:3]))
     srv.shutdown()
     return shots
+
+
+# 글 길이 띠(metrics.md 1.16) 판정용 고정 값. 녹화 스냅샷(stage3_data)엔 이 칸이 없어 다른 판정의 그림은 그대로다
+def _len_kind(n, med, p90, mx, near):
+    return {"n": n, "median": med if n else None, "p90": p90 if n else None, "max": mx if n else None,
+            "near_cap_n": near, "near_cap_share": round(near / n, 4) if n else None}
+
+
+LEN_FIXED = {"unit": "codepoint", "near_cap": 0.8, "window_days": [7, 30],
+             "caps": {"remark": 280, "post": 4000, "reply": 4000, "request": 2000},
+             "d7": {"remark": _len_kind(18, 123, 187, 191, 0), "post": _len_kind(5, 296, 325, 325, 0),
+                    "reply": _len_kind(18, 154.5, 566, 658, 1), "request": _len_kind(0, 0, 0, 0, 0)},
+             "d30": {"remark": _len_kind(23, 124, 176, 191, 0), "post": _len_kind(5, 296, 325, 325, 0),
+                     "reply": _len_kind(18, 154.5, 566, 658, 1), "request": _len_kind(1, 1700, 1700, 1700, 1)}}
+LEN_PROBE_JS = """() => {
+  const g = document.getElementById('pzDash'), s = g.querySelector('.pz-len');
+  const R = (e) => e.getBoundingClientRect();
+  const cards = [...g.children].map(R), hit = [];
+  for (let i = 0; i < cards.length; i++) for (let j = i + 1; j < cards.length; j++) {
+    const a = cards[i], b = cards[j];
+    if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5) hit.push(i + '×' + j);
+  }
+  const out = {has: !!s, overlap: hit, docOver: document.documentElement.scrollWidth - innerWidth,
+               b: Plaza.stats().bubblesOnStage};
+  if (s) {
+    const r = R(s), gr = R(g);
+    out.text = s.textContent.replace(/\\s+/g, ' ').trim();
+    out.kinds = [...s.querySelectorAll('.pz-lk')].map((k) => k.textContent.replace(/\\s+/g, ' ').trim());
+    out.fullRow = Math.abs(r.width - gr.width) < 1;
+    out.last = s === g.lastElementChild;
+    out.spill = [...s.querySelectorAll('*')].filter((e) => R(e).right > r.right + 0.5 || R(e).left < r.left - 0.5).length;
+  }
+  return out;
+}"""
+
+
+def length_checks(C: Checks, page, url: str, work: Path, data: Path, snap: dict):
+    """계기판 글 길이 띠: 칸 없는 옛 스냅샷·null 이면 안 그리고(앞 판 그림 그대로), 값이 있으면 격자 한 줄을 다 쓰며
+    데스크톱·태블릿·폰에서 다른 카드와 안 겹친다. 고정 값을 넣은 스냅샷 사본으로 찍어 결정적이다."""
+    shots = work / "plaza_shots"
+
+    def watch(base, name, w=1440, h=900):
+        ctx, pg = page(w, h, "view=watch&mode=now&motion=0", False, base=base)
+        pg.clock.run_for(2000)
+        pg.evaluate("document.fonts.ready")
+        until(pg, "[...document.images].every((i) => i.complete) && Plaza.stats().facesPending === 0", tries=60)
+        pg.wait_for_timeout(400)
+        pg.clock.run_for(200)
+        if name:
+            pg.screenshot(path=str(shots / name), full_page=True)
+        st = pg.evaluate(LEN_PROBE_JS)
+        ctx.close()
+        return st
+
+    sites = {}
+    for key, val in (("len", LEN_FIXED), ("lennull", None)):
+        s2 = json.loads(json.dumps(snap))
+        s2["plaza"]["dashboard"]["length"] = val
+        sites[key] = serve(plaza_site(work / f"site_plaza_{key}", data, s2))
+    base = watch(url, "det_len_none.png")
+    a = watch(sites["len"][0], "det_len_a.png")
+    watch(sites["len"][0], "det_len_b.png")
+    n = watch(sites["lennull"][0], "det_len_null.png")
+    ok_ab, why_ab = same_pixels(shots / "det_len_a.png", shots / "det_len_b.png")
+    ok_d, why_d = same_pixels(shots / "det_len_none.png", shots / "det_len_a.png")
+    ok_n, why_n = same_pixels(shots / "det_len_none.png", shots / "det_len_null.png")
+    C.check("글 길이", "칸 없는 스냅샷(녹화 자료)이면 띠를 안 그림", not base["has"], str(base.get("has")))
+    C.check("글 길이", "고정 값 스냅샷은 두 번 찍어도 같은 그림 (연출 끔)", ok_ab, why_ab)
+    C.check("글 길이", "자 검사: 띠를 그린 그림은 칸 없는 그림과 「다름」", a["has"] and not ok_d, why_d)
+    C.check("글 길이", "칸이 null(서버 계산 실패)이면 띠 없음 = 칸 없는 그림", not n["has"] and ok_n, why_n)
+    want = ["한마디 123 · p90 187/280", "글 296 · p90 325/4,000", "답글 154.5 · p90 566/4,000", "부탁 —/2,000"]
+    C.check("글 길이", "띠 글자: 종류별 중앙값·p90·상한, 7일 0건은 —", a.get("kinds") == want, " | ".join(a.get("kinds") or []))
+    C.check("글 길이", "80% 넘은 수(7일 합)·30일 중앙값·바이트 아님 표기", "80% 넘은 글 1/41" in (a.get("text") or "")
+            and "30일 중앙값 한마디 124 · 글 296 · 답글 154.5 · 부탁 1,700" in a["text"] and "바이트가 아니라 글자 수" in a["text"],
+            (a.get("text") or "")[:160])
+    C.check("글 길이", "띠를 켜도 말풍선 수 불변", a["b"] == base["b"], f"{a['b']} · {base['b']}")
+    lay = {}
+    for label, w, h in (("데스크톱 1440", 1440, 900), ("태블릿 900", 900, 1000), ("폰 390", 390, 844)):
+        st = watch(sites["len"][0], f"len_{w}.png", w, h)
+        lay[label] = st
+        C.check("글 길이", f"{label}: 격자 한 줄을 다 쓰는 마지막 칸, 카드끼리 안 겹침, 글자가 띠 밖으로 안 나감, 가로 넘침 없음",
+                st["has"] and st["fullRow"] and st["last"] and not st["overlap"] and st["spill"] == 0 and st["docOver"] <= 0,
+                f"한 줄 {st.get('fullRow')} · 마지막 {st.get('last')} · 겹침 {st['overlap'] or 0} · 삐져나옴 {st.get('spill')} · 넘침 {st['docOver']}")
+    for _, srv2 in sites.values():
+        srv2.shutdown()
 
 
 def served_checks(C: Checks):

@@ -9,11 +9,12 @@ import hashlib
 import math
 import re
 import statistics
+import sys
 import unicodedata
 from collections import Counter, defaultdict
 
-from .consts import OWNER_UNVERIFIED
-from .util import KST, iso, josa, parse_iso
+from .consts import MAX_LEN, OWNER_UNVERIFIED
+from .util import KST, cp_len, iso, josa, parse_iso
 
 ACTION_TYPES = ("post_created", "request_opened", "request_claimed", "request_unclaimed", "request_delivered",
                 "request_fetched", "request_closed", "reaction_added")
@@ -191,6 +192,51 @@ def conversation(L: Ledger, days: int = 7) -> dict:
     if not roots:
         return {**_null("no_roots"), **base}
     return {"value": round(answered / len(roots), 4), **base}
+
+
+# ── 1.16 글 길이 ──
+LENGTH_KINDS = {"remark": "remark_body", "post": "post_body", "reply": "post_body", "request": "request_body"}
+LENGTH_NEAR_CAP = 0.8
+
+
+def _p90(v: list[int]) -> int:
+    """가장 가까운 순위: 정렬해서 ceil(0.9·n) 번째. n=10 이면 9번째, n=11 이면 10번째."""
+    return v[math.ceil(0.9 * len(v)) - 1]
+
+
+def post_length(L: Ledger, windows=(7, 30)) -> dict:
+    """종류별 본문 길이(코드포인트 = 서버 상한과 같은 자, 바이트 아님) 중앙값·p90·상한 80% 이상 비율.
+    본문이 공개로 보이는 것만 센다(거둔 글·떠나며 지운 글·운영자가 가린 글은 body null 이라 빠진다)."""
+    items = []      # (종류, 시각, 길이)
+    for pid, p in L.posts.items():
+        if p.get("visibility", "visible") != "visible" or p.get("body") is None or not p.get("created_at"):
+            continue
+        k = p.get("kind")
+        if k == "post":
+            k = "post" if pid in L._first_posts else "reply"
+        elif k != "remark":
+            continue        # 마주 앉기는 두 사람만의 글타래라 세지 않는다
+        items.append((k, parse_iso(p["created_at"]), cp_len(p["body"])))
+    for r in L.requests.values():
+        if r.get("body") is None or not r.get("opened_at"):
+            continue
+        items.append(("request", parse_iso(r["opened_at"]), cp_len(r["body"])))
+    out = {"unit": "codepoint", "near_cap": LENGTH_NEAR_CAP,
+           "caps": {k: MAX_LEN[m] for k, m in LENGTH_KINDS.items()}, "window_days": list(windows)}
+    for d in windows:
+        lo = L.since(d)
+        w = {}
+        for k, m in LENGTH_KINDS.items():
+            v = sorted(n for kk, t, n in items if kk == k and lo <= t <= L.now)
+            near = sum(1 for n in v if n >= LENGTH_NEAR_CAP * MAX_LEN[m])
+            med = statistics.median(v) if v else None
+            if med is not None and med == int(med):
+                med = int(med)      # 짝수 개에서 같은 두 값이면 123.0 대신 123
+            w[k] = {"n": len(v), "median": med, "p90": _p90(v) if v else None,
+                    "max": v[-1] if v else None, "near_cap_n": near,
+                    "near_cap_share": round(near / len(v), 4) if v else None}
+        out[f"d{d}"] = w
+    return out
 
 
 # ── 1.3 에이전트 수 ──
@@ -668,4 +714,14 @@ def dashboard(L: Ledger, embed=hash_embed, batch_ran: bool = True) -> dict:
     sc = scenes(L)
     return {"activity": activity(L), "cross": cross_ratio(L), "conversation": conversation(L), "agents": agent_counts(L),
             "requests": request_flow(L), "diversity": diversity(L, embed=embed, batch_ran=batch_ran),
-            "conflict": conflict(L, chains=sc["rebut_chains_7d"]), "rumor": rumor(L, embed=embed), "ops": ops(L)}
+            "conflict": conflict(L, chains=sc["rebut_chains_7d"]), "rumor": rumor(L, embed=embed), "ops": ops(L),
+            "length": _optional(post_length, L)}
+
+
+def _optional(fn, L: Ledger):
+    """장식 칸: 계산이 죽어도 스냅샷 나머지는 나간다. 칸은 null, stderr 에 한 줄(docker logs)."""
+    try:
+        return fn(L)
+    except Exception as e:
+        print(f"metric failed name={fn.__name__} {type(e).__name__}: {str(e)[:80]}", file=sys.stderr, flush=True)
+        return None
