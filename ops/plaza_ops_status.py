@@ -22,6 +22,9 @@
                 (그 세대 시각 기준이라 measured_at = 세대 시각. 24시간이 아직 안 끝난 계정은 watching 에 따로)
   배경 날씨     /public/weather.json(docs/spec/snapshot-plaza.md 5절)의 state 가 none(쓸 날씨 없음 → 화면이 활동 날씨 그림으로
                 돌아감)이면 alert. ok·stale(실패 중이지만 마지막 정상값 사용)·off(설정으로 끔)는 ok, value 에 24시간 실패 수·연속 실패
+                맥→엣지 읽기 자체가 실패하면 unknown. 그 횟수를 state_dir/plaza_weather_read.json 에 누적해 value.edge_read 에
+                싣는다(24시간 실패·그중 타임아웃·연속 실패, 성공한 회차에도 실림). 측정 칸이라 alert 로 올리지 않는다 —
+                CF 구간 재시도(09-30 보류)를 풀지 판단할 근거용(SpareRuns 2026-10-06_0052 조치 후보 2)
   대화          문턱 없음(기록 칸). plaza_conversation_daily.py 가 남긴 가장 새 파일의 요약 한 줄. 그 파일이 50시간 넘게
                 안 새로 생겼으면 unknown (측정 잡이 안 돌았다)
   이 파일 자체  읽는 쪽은 generated_at 이 60분 넘었으면 「상태 잡이 안 돌았다」로 본다
@@ -54,6 +57,7 @@ STATE_DIR = path_conf("state_dir")
 OUT = STATE_DIR / "plaza_ops_status.json"
 CERT_STATE = STATE_DIR / "plaza_cert_watch.json"
 PULL_STATE = STATE_DIR / "plaza_backup_pull.json"
+WEATHER_READ_STATE = STATE_DIR / "plaza_weather_read.json"   # 맥→엣지 날씨 문 읽기 실패 원장(이 잡만 씀)
 BACKUP_DIR = path_conf("backup_dest")
 SNAPSHOT = f"https://{DOMAIN}/public/snapshot.json"
 WEATHER = f"https://{DOMAIN}/public/weather.json"
@@ -283,8 +287,33 @@ def weather_item(obj: dict, at: str) -> dict:
     return item("ok", val, measured_at=at)
 
 
-def weather() -> dict:
+def is_timeout(e: BaseException) -> bool:
+    r = getattr(e, "reason", None)      # urllib.error.URLError 는 원인을 reason 에 싼다
+    return isinstance(e, (TimeoutError, socket.timeout)) or isinstance(r, (TimeoutError, socket.timeout)) or "timed out" in str(e)
+
+
+def edge_read_tally(prev: dict | None, at: dt.datetime, failed: bool, timeout: bool = False) -> dict:
+    """맥→엣지 읽기 한 회차를 원장에 더한 새 원장. 실패 시각은 7일만 남기고, 연속 실패는 성공하면 0."""
+    prev = prev or {}
+    keep = at - dt.timedelta(days=7)
+    fails = [f for f in prev.get("fails", []) if dt.datetime.fromisoformat(f["at"]) > keep]
+    if failed:
+        fails.append({"at": at.isoformat(timespec="seconds"), "timeout": timeout})
+    return {"fails": fails, "streak": prev.get("streak", 0) + 1 if failed else 0,
+            "max_streak_7d": max(prev.get("max_streak_7d", 0) if fails else 0, prev.get("streak", 0) + 1 if failed else 0),
+            "last_ok_at": prev.get("last_ok_at") if failed else at.isoformat(timespec="seconds"),
+            "since": prev.get("since") or at.isoformat(timespec="seconds")}
+
+
+def edge_read_summary(led: dict, at: dt.datetime) -> dict:
+    day = [f for f in led["fails"] if dt.datetime.fromisoformat(f["at"]) > at - dt.timedelta(hours=24)]
+    return {"fails_24h": len(day), "timeouts_24h": sum(f["timeout"] for f in day), "fails_7d": len(led["fails"]),
+            "streak": led["streak"], "max_streak_7d": led["max_streak_7d"], "last_ok_at": led["last_ok_at"], "since": led["since"]}
+
+
+def weather(persist: bool = True) -> dict:
     at = now()
+    err = None
     try:
         req = urllib.request.Request(WEATHER, headers={"User-Agent": UA})
         with urllib.request.urlopen(req, timeout=20) as r:
@@ -292,8 +321,21 @@ def weather() -> dict:
                 raise ValueError(f"JSON 아님 ({r.headers.get('Content-Type')})")
             obj = json.loads(r.read())
     except Exception as e:
-        return item("unknown", reason=f"날씨 문 읽기 실패 — {fail(e)}", measured_at=at)
-    return weather_item(obj, at)
+        err = e
+    try:   # 원장은 부가 칸이라 못 읽거나 못 써도 날씨 칸 판정은 그대로
+        prev = json.loads(WEATHER_READ_STATE.read_text()) if WEATHER_READ_STATE.exists() else None
+        led = edge_read_tally(prev, dt.datetime.fromisoformat(at), err is not None, err is not None and is_timeout(err))
+        if persist:
+            save_json(WEATHER_READ_STATE, led)
+        tally = edge_read_summary(led, dt.datetime.fromisoformat(at))
+    except Exception as e:
+        tally = {"error": fail(e)}
+    if err is not None:
+        return item("unknown", {"edge_read": tally}, f"날씨 문 읽기 실패 — {fail(err)} "
+                    f"(맥→엣지 읽기 실패 24시간 {tally.get('fails_24h')}회·연속 {tally.get('streak')}회)", at)
+    it = weather_item(obj, at)
+    it["value"]["edge_read"] = tally
+    return it
 
 
 LABELS = {
@@ -322,7 +364,7 @@ def main(argv) -> int:
     items["snapshot"] = snapshot()
     items["joined_idle"] = joined_idle()
     items["conversation"] = conversation()
-    items["weather"] = weather()
+    items["weather"] = weather(persist="--dry" not in argv and "PLAZA_VM" not in os.environ)
 
     for k, v in items.items():
         v["label"] = LABELS[k]

@@ -10,6 +10,7 @@
   ag_op 운영자 표시, 무활동                          안 센다
   ag_l  떠난 계정, 무활동                            안 센다
 끝에 대조군: ag_a 의 방문 행을 지운 사본에서 n 이 하나 늘어나는지(통과만 내는 자가 아닌지) 본다.
+배경 날씨 칸 판정과 맥→엣지 읽기 실패 원장(24시간·타임아웃·연속·7일 만료, --dry 는 안 씀)도 함께 본다.
 
     python3 ops/plaza_ops_status_check.py      # 전부 맞으면 exit 0
 """
@@ -84,6 +85,47 @@ def main() -> int:
     ok = M.weather_item(dict(base, state="none", weather=None), at)["state"] != "ok"
     print(f"  [{'PASS' if ok else 'FAIL'}] 대조군: 쓸 날씨 없음(none)은 ok 가 아니다")
     bad += [] if ok else ["weather_control"]
+    # 맥→엣지 날씨 읽기 실패 원장: 타임아웃 2연속 → 성공 → 다른 실패. 7일 지난 실패는 빠진다
+    import socket
+    import urllib.error
+    t0 = NOW - dt.timedelta(days=8)
+    led = M.edge_read_tally(None, t0, True, True)                       # 8일 전 실패(만료 대상)
+    seq = [(t0 + dt.timedelta(minutes=15), False, False), (NOW - dt.timedelta(hours=30), True, True),
+           (NOW - dt.timedelta(hours=29), False, False), (NOW - dt.timedelta(hours=5), True, True),
+           (NOW - dt.timedelta(hours=4, minutes=45), True, True), (NOW - dt.timedelta(hours=4, minutes=30), False, False),
+           (NOW - dt.timedelta(minutes=15), True, False)]
+    for t, failed, to in seq:
+        led = M.edge_read_tally(led, t, failed, to)
+    got_s = M.edge_read_summary(led, NOW)
+    want_s = {"fails_24h": 3, "timeouts_24h": 2, "fails_7d": 4, "streak": 1, "max_streak_7d": 2}
+    for k, want in want_s.items():
+        ok = got_s[k] == want
+        print(f"  [{'PASS' if ok else 'FAIL'}] 엣지 읽기 원장 {k} = {got_s[k]} (기대 {want})")
+        bad += [] if ok else [f"edge_{k}"]
+    led2 = M.edge_read_tally(led, NOW, True, True)
+    ok = led2["streak"] == 2 and M.edge_read_summary(led2, NOW)["fails_24h"] == 4
+    print(f"  [{'PASS' if ok else 'FAIL'}] 대조군: 실패 한 번 더 → 연속 2·24시간 4 ({led2['streak']}·{M.edge_read_summary(led2, NOW)['fails_24h']})")
+    bad += [] if ok else ["edge_control"]
+    for e, want in [(TimeoutError("The read operation timed out"), True), (urllib.error.URLError(socket.timeout("timed out")), True),
+                    (urllib.error.URLError(ConnectionRefusedError(61, "Connection refused")), False), (ValueError("JSON 아님"), False)]:
+        ok = M.is_timeout(e) == want
+        print(f"  [{'PASS' if ok else 'FAIL'}] 타임아웃 판별 {type(e).__name__}({e}) → {M.is_timeout(e)} (기대 {want})")
+        bad += [] if ok else ["is_timeout"]
+    # 실제 weather() 경로: 닫힌 포트로 읽게 하고 원장 파일을 임시 경로로. persist=False 면 안 써야 한다
+    old_url, old_state = M.WEATHER, M.WEATHER_READ_STATE
+    with tempfile.TemporaryDirectory() as d:
+        M.WEATHER, M.WEATHER_READ_STATE = "http://127.0.0.1:9/public/weather.json", Path(d) / "w.json"
+        try:
+            r1 = M.weather(persist=False)
+            ok = r1["state"] == "unknown" and not M.WEATHER_READ_STATE.exists()
+            print(f"  [{'PASS' if ok else 'FAIL'}] --dry 경로는 원장을 안 쓴다 — {r1['state']}, 파일 {M.WEATHER_READ_STATE.exists()}")
+            bad += [] if ok else ["weather_dry"]
+            M.weather(); r3 = M.weather()
+            ok = r3["state"] == "unknown" and r3["value"]["edge_read"]["streak"] == 2 and r3["value"]["edge_read"]["fails_24h"] == 2
+            print(f"  [{'PASS' if ok else 'FAIL'}] 두 번 읽기 실패 → unknown, 연속 2·24시간 2 — {r3['value']['edge_read']}")
+            bad += [] if ok else ["weather_persist"]
+        finally:
+            M.WEATHER, M.WEATHER_READ_STATE = old_url, old_state
     print("결과:", "통과" if not bad else f"실패 {bad}")
     return 1 if bad else 0
 
