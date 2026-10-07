@@ -12,6 +12,7 @@
   "certbot_volume": "certbot_conf",
   "cert_archive_name": "certs.tar.gz",
   "backup_dest": "~/backups/plaza",
+  "backup_cron_hhmm": "0440",
   "state_dir": "~/.local/state/plaza-ops",
   "telegram_cred_file": "~/.config/ai-smallvillage/telegram.json",
   "backup_log_hint": "",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""광장 오프사이트 백업: VM 의 매일 백업 파일을 운영자 기기로 끌어와 검증하고 30세대 회전한다.
+"""광장 오프사이트 백업: VM 의 매일 백업 파일을 운영자 기기로 끌어와 검증하고 날짜 기준으로 회전한다.
 
 VM 은 `server/tools/plaza_backup.py` 가 매일 SQLite backup API 로 만든 파일을 14세대 갖고 있다.
 그건 같은 디스크 위의 사본이라 VM 이 통째로 죽으면 같이 간다. 이 잡은 그 파일을 **그대로** 가져온다.
@@ -25,6 +25,12 @@ VM 은 `server/tools/plaza_backup.py` 가 매일 SQLite backup API 로 만든 �
 한 세대가 실패해도 뒤 세대는 계속 받는다(「줄지 않았다」는 여기 있는 바로 앞 세대와 댄다).
 실패한 세대는 여기 없으니 다음 회차에도 다시 시도되고, 실패하는 동안은 계속 errors 에 남는다.
 
+보관 (2026-10-08 바꿈, 전엔 「세대 30」):
+  - 크론 세대(시각이 backup_cron_hhmm, 기본 0440)는 최근 KEEP_CRON_DAYS(30)일
+  - 크론 밖 세대(배포 직전 손 백업 등)는 가장 새 것 KEEP_OTHER(14)개
+  세대 수로 세면 배포가 몰린 주에 크론 밖 세대가 칸을 먹어 30세대가 열하루치까지 줄었다.
+  가장 새 세대는 어느 규칙으로도 지우지 않는다. 지울 목록만 보려면 --plan-rotate(VM 접속·삭제 없음).
+
 빠진 날 메우기: 여기 있는 가장 오래된 세대보다 새로운 VM 파일 중 여기 없는 것은 전부 가져온다. 하루 VM 이
 얼어 못 가져와도 VM 이 14세대를 들고 있으니 다음 날 같이 온다. 가장 새 VM 백업이 26시간을 넘으면 VM 크론이
 멈춘 것으로 보고 알린다.
@@ -33,6 +39,7 @@ VM 은 `server/tools/plaza_backup.py` 가 매일 SQLite backup API 로 만든 �
 
     python3 ops/plaza_pull_backup.py            # 잡이 부르는 모양
     python3 ops/plaza_pull_backup.py --no-alert # 손으로 돌려 볼 때 (알림 없이 exit 코드만)
+    python3 ops/plaza_pull_backup.py --plan-rotate  # 회전이 지울 세대만 출력
 """
 from __future__ import annotations
 
@@ -57,7 +64,9 @@ LOG_HINT = conf("backup_log_hint", "")
 REMOTE = conf("remote_dir", "~/plaza")
 CERTBOT_VOLUME = conf("certbot_volume", "certbot_conf")
 CERT_ARCHIVE = conf("cert_archive_name", "certs.tar.gz")
-KEEP = 30
+KEEP_CRON_DAYS = 30
+KEEP_OTHER = 14         # VM 이 14세대를 든다 — 그보다 적으면 지운 크론 밖 세대를 다음 회차 「빠진 날 메우기」가 다시 받아 온다
+CRON_HHMM = str(conf("backup_cron_hhmm", "0440"))
 STALE_HOURS = 26
 NAME_RE = re.compile(r"^plaza-(\d{8}-\d{6})\.db$")
 GEN_RE = re.compile(r"^\d{8}-\d{6}$")
@@ -181,11 +190,24 @@ def pull_one(name: str, meta: dict, vm_rows: dict | None, prev_rows: dict | None
         os.umask(old)
 
 
-def rotate() -> list[str]:
+def is_cron_gen(gen: str) -> bool:
+    return gen[9:13] == CRON_HHMM
+
+
+def rotate_plan(now: dt.datetime | None = None) -> list[str]:
+    """지울 세대 목록. 크론 세대는 날짜(최근 KEEP_CRON_DAYS 일), 크론 밖 세대는 개수(KEEP_OTHER)."""
     gens = local_gens()
-    if len(gens) <= KEEP:
+    if not gens:
         return []
-    drop = gens[:-KEEP]
+    cutoff = (now or dt.datetime.now(KST)) - dt.timedelta(days=KEEP_CRON_DAYS)
+    drop = [g for g in gens if is_cron_gen(g) and stamp_time(g) < cutoff]
+    other = [g for g in gens if not is_cron_gen(g)]
+    drop += other[:-KEEP_OTHER] if len(other) > KEEP_OTHER else []
+    return sorted(g for g in drop if g != gens[-1])
+
+
+def rotate() -> list[str]:
+    drop = rotate_plan()
     for g in drop:
         shutil.rmtree(DEST / g)
     return drop
@@ -249,6 +271,13 @@ def run() -> dict:
 
 
 def main(argv) -> int:
+    if "--plan-rotate" in argv:            # 지울 목록만 출력(VM 접속·삭제·상태 파일 쓰기 없음)
+        gens = local_gens()
+        drop = rotate_plan()
+        print(json.dumps({"dest": str(DEST), "local_generations": len(gens),
+                          "cron": sum(map(is_cron_gen, gens)), "other": sum(not is_cron_gen(g) for g in gens),
+                          "would_drop": drop, "would_keep": len(gens) - len(drop)}, ensure_ascii=False))
+        return 0
     alert = "--no-alert" not in argv
     try:
         res = run()

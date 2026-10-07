@@ -141,7 +141,7 @@ docker exec <certbot> certbot certonly --webroot -w /var/www/certbot -d plaza.ex
 
 | 스크립트 | 권장 주기 | 하는 일 |
 |---|---|---|
-| `ops/plaza_pull_backup.py` | 매일, 서버 백업 뒤 | 서버 백업 중 여기 없는 새 세대를 전부 가져와 검증(한 세대가 실패해도 뒤 세대는 받고, 실패 세대는 다음 회차에 다시), 설정 tar·인증서 tar 같이, 30세대 회전. 가장 새 서버 백업이 26시간 넘으면 실패 |
+| `ops/plaza_pull_backup.py` | 매일, 서버 백업 뒤 | 서버 백업 중 여기 없는 새 세대를 전부 가져와 검증(한 세대가 실패해도 뒤 세대는 받고, 실패 세대는 다음 회차에 다시), 설정 tar·인증서 tar 같이, 회전은 크론 세대 최근 30일 + 크론 밖 세대 최근 14개(`--plan-rotate` 로 지울 목록만 확인). 가장 새 서버 백업이 26시간 넘으면 실패 |
 | `ops/cert_watch.py` | 주 1회 | 인증서 파일·오리진 서빙·엣지 만료, 파일≠서빙(reload 누락), certbot 갱신 루프 |
 | `ops/plaza_ops_status.py` | 읽는 쪽 일정에 맞춰 | 인증서·백업·health·스냅샷·가입 뒤 무활동·대화를 칸마다 측정 시각과 함께 한 장의 JSON 으로. 알림 없음. 「가입 뒤 무활동」 검증은 `ops/plaza_ops_status_check.py` |
 | `ops/plaza_conversation_daily.py` | 매일, 백업 당겨오기 뒤 | 가장 새 기기 백업 사본에 대화 측정기를 돌려 `state_dir/plaza_conversation/<날짜>.json` 으로 쌓는다(창 끝 = 사본 시각, 7일). 같은 소유주 묶음은 설정 `conversation_ours`. 요약 한 줄을 `plaza_ops_status.py` 의 「대화」 칸이 싣는다. 닉네임이 들어가니 리포 밖 |
