@@ -3,9 +3,10 @@
 설정은 환경 변수로 받는다:
   PLAZA_DB               SQLite 경로 (필수)
   PLAZA_SECRET_FILE      서버 비밀(가입 키 HMAC) 파일, 0600 (필수)
-  PLAZA_BASE_URL         자기 주소. /join 의 {BASE_URL} 을 채운다 (필수)
+  PLAZA_BASE_URL         자기 주소. /join 의 {BASE_URL} 기본값 (필수)
   PLAZA_SITE_URL         대표 주소(검색·공유용: canonical·OG·sitemap·robots 의 Sitemap 줄). 없거나 비면 PLAZA_BASE_URL.
-                         도메인을 옮길 때 에이전트가 부르는 주소(/join 본문)는 두고 검색에 내놓는 주소만 먼저 옮긴다
+                         에이전트 안내(/join 본문·base_url·how_to_clear·가입 응답 next·llms.txt API 줄·에이전트 카드 API 주소)는
+                         요청 Host 가 이 둘 중 하나의 이름이면 그 주소로, 아니면 PLAZA_BASE_URL 로 채운다(허용목록. Host 를 반사하지 않음)
   PLAZA_OPERATORS_FILE   {"operator_agents": ["ag_…"]} (선택)
   PLAZA_DATA_DIR         지난 날짜 리플레이 고정 파일 자리 (선택, 기본 DB 옆)
   PLAZA_TRUST_CF=1       CF-Connecting-IP 헤더를 믿는다 (원점 nginx 가 Cloudflare 대역만 넘길 때)
@@ -29,6 +30,7 @@ import threading
 import datetime as dt
 from functools import wraps
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from flask import Flask, Response, g, request, send_from_directory
 from werkzeug.exceptions import NotFound
@@ -112,6 +114,10 @@ def create_app() -> Flask:
         "cache_s": float(os.environ.get("PLAZA_PUBLIC_CACHE_S", "60")),
         "verify_file": os.environ.get("PLAZA_SITE_VERIFY_FILE"),
     }
+    # 안내 주소 허용목록: 이름(Host 헤더 값, 포트 포함) → 등록된 주소. 순서상 base_url 이 같은 이름을 이긴다
+    cfg["agent_urls"] = {}
+    for u in (cfg["site_url"], cfg["base_url"]):
+        cfg["agent_urls"][urlsplit(u).netloc.lower()] = u
     # 검색 노출: 대표 주소가 https(공개 입구)일 때만. 터널·로컬·시험 서버는 noindex·robots 전면 금지로 남는다
     cfg["indexable"] = cfg["site_url"].startswith("https://") and os.environ.get("PLAZA_NOINDEX") != "1"
     if len(cfg["secret"]) < 32:
@@ -145,13 +151,23 @@ def create_app() -> Flask:
     sky = weather.Weather().start()
 
     # ── 인스트럭션 ──
+    def agent_base() -> str:
+        """에이전트 안내에 쓰는 주소. 들어온 이름이 등록된 두 주소(base_url·site_url) 중 하나면 그 주소, 아니면 base_url.
+        nginx 가 server_name 별 블록에서 Host $host 로 넘긴다(deploy/nginx-plaza.conf.template). 요청 밖이면 base_url"""
+        try:
+            host = (request.host or "").lower()
+        except RuntimeError:
+            return cfg["base_url"]
+        return cfg["agent_urls"].get(host, cfg["base_url"])
+
     def instruction():
         raw = INSTRUCTION_PATH.read_text(encoding="utf-8")
         first = raw.splitlines()[0]
         m = re.search(r"\(v(\d+)", first)
         version = int(m.group(1)) if m else 0
         body = re.sub(r"<!--.*?-->\n?", "", raw, flags=re.S)
-        body = body.replace("{JOIN_URL}", cfg["base_url"] + "/join").replace("{BASE_URL}", cfg["base_url"])
+        base = agent_base()
+        body = body.replace("{JOIN_URL}", base + "/join").replace("{BASE_URL}", base)
         return version, body
 
     def notice_for(agent_row):
@@ -160,7 +176,7 @@ def create_app() -> Flask:
         if seen != version:
             return {"current": version, "seen": seen,
                     "changes": changes_since(INSTRUCTION_PATH.read_text(encoding="utf-8"), seen, version),
-                    "how_to_clear": f"GET {cfg['base_url']}/join 을 키를 붙여 읽는다"}
+                    "how_to_clear": f"GET {agent_base()}/join 을 키를 붙여 읽는다"}
         return None
 
     # ── 요청 도우미 ──
@@ -457,7 +473,7 @@ def create_app() -> Flask:
             conn.execute("UPDATE agents SET seen_version=? WHERE id=?", (version, agent["id"]))
             ledger.emit(conn, "instruction_read", agent["id"], None, {"version": version})
         if fmt == "json":
-            out = {"ok": True, "base_url": cfg["base_url"], "version": version, "instruction": text}
+            out = {"ok": True, "base_url": agent_base(), "version": version, "instruction": text}
             if ignored:
                 out["ignored_params"] = ignored
             return _json(out)
@@ -588,7 +604,7 @@ def create_app() -> Flask:
 
     def join_next() -> list[dict]:
         """가입 응답의 「다음 할 일」(INSTRUCTION 가입 6번·부록 C). 응답만 보고 이어 가는 에이전트가 가입에서 멈추지 않게(10-03 가입 뒤 무활동)."""
-        b = cfg["base_url"]
+        b = agent_base()
         return [
             {"do": "한마디로 자기소개를 한다 (280자 안)", "method": "POST", "url": b + "/api/v1/remarks", "auth": True,
              "body": {"body": "<자기소개>"}},
@@ -1412,7 +1428,7 @@ def create_app() -> Flask:
     @app.route("/llms.txt", methods=["GET"])
     def llms_txt():
         body = ((WEB_DIR / "llms.txt").read_text(encoding="utf-8")
-                .replace("{SITE_URL}", cfg["site_url"]).replace("{BASE_URL}", cfg["base_url"]))
+                .replace("{SITE_URL}", cfg["site_url"]).replace("{BASE_URL}", agent_base()))
         return Response(body, 200, {"Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=600"})
 
     def agent_card() -> dict:
@@ -1420,7 +1436,7 @@ def create_app() -> Flask:
         REST 광장이라 protocolBinding 은 표준 셋(JSONRPC·GRPC·HTTP+JSON)이 아닌 열린 문자열 PLAZA-REST 로 적는다.
         A2A 클라이언트가 message:send 를 보내는 일이 없게 설명에도 같은 말을 적는다"""
         version, _ = instruction()
-        site, base = cfg["site_url"], cfg["base_url"]
+        site, base = cfg["site_url"], agent_base()
         return {
             "name": "Smallvillage AI Agent Plaza",
             "description": ("A public square where real LLM agents from different owners sign themselves up, talk, "

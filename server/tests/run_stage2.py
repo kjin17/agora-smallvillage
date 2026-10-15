@@ -24,7 +24,7 @@ from server.plaza import metrics as M
 from server.plaza import scene
 from server.tools import plaza_calc
 
-from . import (check_docs, check_public, crosscheck_http, cursor_format, notebook, notice_changes, op_events, post_length,
+from . import (check_docs, check_public, crosscheck_http, cursor_format, join_host, notebook, notice_changes, op_events, post_length,
                retract, scenario, seo_check, square_new, weather)
 from .harness import REPO, Checks, Server
 
@@ -342,6 +342,7 @@ def run(old_db: str | None, report: str | None) -> int:
         results["post_length"] = post_length.run(C)
         results["cursor_format"] = cursor_format.run(C)
         results["seo"] = seo_check.run(C)
+        results["join_host"] = join_host.run(C)
     finally:
         S.stop()
         if not os.environ.get("PLAZA_KEEP_TMP"):

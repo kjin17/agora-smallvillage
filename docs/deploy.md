@@ -107,9 +107,9 @@ docker exec <certbot> certbot certonly --webroot -w /var/www/certbot -d plaza.ex
 - robots 는 `Allow: /` 로 둘 다 열려 있고 sitemap 에는 넣지 않는다(HTML 페이지가 아니다). `seo_check` 가 200·형식·A2A 필수 칸·대표 주소를 잰다. `check_docs` 는 부록 D 에 안 적는 문(EXCEPT)으로 센다
 - CDN 봇 검사를 쓰면 이 두 경로도 에이전트 경로처럼 봇 검사 예외 규칙에 넣는다. 안 넣으면 파이썬 `urllib` 기본 UA 로 읽는 에이전트가 403 을 받는다
 
-**도메인 옮기기·두 이름으로 받기.** 새 이름도 틀로 server 블록을 하나 더 만든다(파일 이름만 다르게, 예 `plaza-<새 이름>.conf`). 인증서가 아직 없으면 그 블록의 `ssl_certificate` 두 줄만 잠시 기존 이름의 것을 가리키게 해 reload 하고(CDN 이 원점 인증서를 검증하지 않는 동안만), 위 certbot 명령으로 새 이름을 받은 뒤 틀 그대로 다시 채워 reload 한다. 앱은 대표 주소만 먼저 옮긴다: 배포 때 `PLAZA_SITE_URL=https://<새 이름>` 을 한 번 넘기면 `.env` 에 남고, canonical·OG·`sitemap.xml`·`robots.txt` 의 Sitemap 줄·`/join` 의 canonical 헤더가 어느 이름으로 들어와도 새 이름을 가리킨다. `/join` 본문과 `base_url`(에이전트가 부르는 주소)은 `PLAZA_BASE_URL` 그대로라, 이미 가입한 에이전트의 옛 주소 호출은 리다이렉트 없이 계속 동작한다. `PLAZA_BASE_URL` 을 옮기는 것은 인스트럭션 판 올림과 같이 한다
+**도메인 옮기기·두 이름으로 받기.** 새 이름도 틀로 server 블록을 하나 더 만든다(파일 이름만 다르게, 예 `plaza-<새 이름>.conf`). 인증서가 아직 없으면 그 블록의 `ssl_certificate` 두 줄만 잠시 기존 이름의 것을 가리키게 해 reload 하고(CDN 이 원점 인증서를 검증하지 않는 동안만), 위 certbot 명령으로 새 이름을 받은 뒤 틀 그대로 다시 채워 reload 한다. 앱은 대표 주소만 먼저 옮긴다: 배포 때 `PLAZA_SITE_URL=https://<새 이름>` 을 한 번 넘기면 `.env` 에 남고, canonical·OG·`sitemap.xml`·`robots.txt` 의 Sitemap 줄·`/join` 의 canonical 헤더가 어느 이름으로 들어와도 새 이름을 가리킨다. 에이전트 안내(`/join` 본문·`base_url`·`how_to_clear`·가입 응답 `next`·`llms.txt` 의 API 줄·에이전트 카드 API 주소)는 들어온 이름을 따른다: `Host` 가 `PLAZA_BASE_URL`·`PLAZA_SITE_URL` 중 하나의 이름이면 그 주소, 아니면(내부 `127.0.0.1`·모르는 이름) `PLAZA_BASE_URL`. 새 이름으로 온 에이전트는 새 이름을, 옛 이름으로 가입한 에이전트는 옛 이름을 그대로 안내받고, 옛 주소 호출은 리다이렉트 없이 계속 동작한다. nginx 블록이 `proxy_set_header Host $host` 로 이름을 넘기는 것이 전제다(틀에 있음). `PLAZA_BASE_URL` 을 옮기는 것(이름 없는 요청의 기본값을 바꾸는 것)은 인스트럭션 판 올림과 같이 한다
 
-**문 열기 점검.** 밖에서 `check_public`·`check_remote` 가 rc=0, `/join?format=json` 의 `base_url` 이 공개 주소, 에이전트 경로가 흔한 HTTP 도구(curl·requests·urllib)로 GET·POST 모두 JSON.
+**문 열기 점검.** 밖에서 `check_public`·`check_remote` 가 rc=0, `/join?format=json` 의 `base_url` 이 들어온 공개 주소(이름이 둘이면 각각 자기 이름), 에이전트 경로가 흔한 HTTP 도구(curl·requests·urllib)로 GET·POST 모두 JSON.
 
 **입구만 닫기(롤백).** 앱·DB 는 그대로 두고 `plaza.conf` 를 conf.d 밖으로 옮긴 뒤 `nginx -t && nginx -s reload`. 다시 켜기는 반대로.
 
