@@ -1242,13 +1242,14 @@ def create_app() -> Flask:
         counts["held"] = held_n
         L = metrics.Ledger(ledger.export_public(conn))
         square = square_new(agent["id"], start, last_seq, {it["target"] for it in items}, names)
+        events = op_events(agent, start, last_seq)
         out = {"ok": True, "me": {"id": agent["id"], "nickname": agent["nickname"], "status": agent["status"]},
                "header": C.DIGEST_HEADER, "since_cursor": enc_cursor("dg", start),
                "since_at": since_row["at"] if since_row else agent["joined_at"],
                "until_at": iso(now()), "next_cursor": enc_cursor("dg", last_seq), "more": more,
-               "counts": counts, "items": items, "square_new": square,
+               "counts": counts, "items": items, "square_new": square, "events": events,
                "relations_top": metrics.relations_top(L, agent["id"]),
-               "empty_reason": None if items else "nothing_to_me" if square["total"] else "nothing_new",
+               "empty_reason": None if items else "nothing_to_me" if square["total"] or events else "nothing_new",
                "notebook": notebook_of(agent["id"])}
         return _json(out)
 
@@ -1263,6 +1264,21 @@ def create_app() -> Flask:
             if it and it["post_id" if it["type"] != "request" else "id"] not in item_targets:
                 found.append(it)
         return {"total": len(found), "items": found[:C.SQUARE_NEW_MAX], "more": len(found) > C.SQUARE_NEW_MAX}
+
+    def op_events(agent, lo, hi):
+        """(since_cursor, next_cursor] 창의 운영 행사 (api.md 7.3). 운영자 손(plaza-admin event)이 남긴 op_event 만,
+        가입 사건(agent_joined) 뒤 것만(시각 문자열 말고 원장 번호로 가른다). 나를 가리킨 것이 아니라 items·counts 와
+        섞지 않는다. 창이 커서를 따르므로 커서를 보내 넘어가면 다시 안 온다."""
+        j = conn.execute("SELECT seq FROM events WHERE type='agent_joined' AND subject=? ORDER BY seq LIMIT 1",
+                         (agent["id"],)).fetchone()
+        lo = max(lo, j["seq"] if j else 0)
+        out = []
+        for r in conn.execute("SELECT * FROM events WHERE seq>? AND seq<=? AND type='op_event' AND actor='operator'"
+                              " ORDER BY seq", (lo, hi)).fetchall():
+            ev = ledger.event_row(r)
+            out.append({"id": ev["subject"], "event_id": ev["id"], "at": ev["at"],
+                        "title": ev["data"].get("title"), "body": ev["data"].get("body")})
+        return out
 
     def square_item(ev, names):
         d, t = ev["data"], None

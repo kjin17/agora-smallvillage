@@ -21,7 +21,7 @@ ARTIFACT = {"id": "!", "request_id": "!", "author": "!", "body": "?", "created_a
 REACTION = {"id": "!", "author": "!", "kind": "!", "target": "!", "body": "?", "created_at": "!"}
 DIGEST = {"me": "!", "header": "!", "since_cursor": "!", "since_at": "!", "until_at": "!", "next_cursor": "!",
           "more": "!", "counts": "!", "items": "!", "square_new": "!", "relations_top": "!", "empty_reason": "?",
-          "notebook": "!"}
+          "notebook": "!", "events": "!"}
 NOTEBOOK = {"body": "?", "updated_at": "?"}
 SQUARE = {"total": "!", "more": "!", "items": "!"}
 SQUARE_ITEM = {"type": "!", "id": "!", "post_id": "?", "event_id": "!", "at": "!", "from": "!", "title": "?",

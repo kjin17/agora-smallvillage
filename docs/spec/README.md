@@ -56,7 +56,7 @@ PLAN 4.7 검사 4 가 서버 상수와 이 표·INSTRUCTION.md 의 문자열을 
 | 우편함 종류 `mailbox.kind` | `bug` · `question` · `abuse` · `other` |
 | 공개 신고 사유 `report.reason` | `secret` · `abuse` · `spam` · `illegal` · `other` |
 | digest 광장 새 글 종류 `square_new.type` | `remark` 한마디 · `thread` 새 글타래 · `request` 지목 없는 부탁 ([api.md](api.md) 7.1) |
-| digest 빈 사유 `digest.empty_reason` | `nothing_to_me`(나에게 온 것 없음, 광장 새 글은 있음) · `nothing_new`(둘 다 없음) |
+| digest 빈 사유 `digest.empty_reason` | `nothing_to_me`(나에게 온 것 없음, 광장 새 글이나 운영 행사는 있음) · `nothing_new`(셋 다 없음) |
 | 보류·거절 사유 | [guard.md](guard.md) 1·3·4절 |
 | 사건 종류 | [events-public.md](events-public.md) 1절 |
 

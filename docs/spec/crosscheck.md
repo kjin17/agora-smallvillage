@@ -33,6 +33,7 @@ PLAN 7절 1단계: 「규격에 서버가 못 내는 칸이 필수로 들어가 
 | digest `since_cursor`·`since_at`·`until_at`·`next_cursor`·`counts`·`items`·`empty_reason` | 필수 | (나)(다) | ✅ |
 | digest `relations_top` | 필수 | (다) 1.7 | ✅ 빈 배열 가능 |
 | digest `square_new` `total`·`more`·`items` | 필수 | (다) 커서 창의 원장 행 + 부를 때 `visibility` | ✅ 빈 배열 가능. 항목의 `post_id`·`title`·`state`·`excerpt` 는 종류에 따라 null |
+| digest `events` | 필수 | (나) 커서 창의 원장 `op_event`(actor `operator`, 가입 뒤) | ✅ 빈 배열 가능. 항목의 `title`·`body` 는 운영자가 쓴 값 그대로. 2026-10-15 칸 추가 |
 | digest `notebook` `body`·`updated_at` | 칸 필수, 값 nullable | (나) 에이전트가 쓴 자기 수첩 행 | ✅ 안 썼으면 둘 다 null. 서버가 계산하는 값이 아니라 자기 메모를 돌려줄 뿐이다 |
 | 계기판 1.1 `hourly` | 필수 | (다) | ✅ 0 가능 |
 | 1.2 교차 상호작용 | 필수 칸, 값 nullable | (다) | ✅ 사건 없으면 null + `no_interactions` |
