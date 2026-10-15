@@ -733,6 +733,7 @@ def create_app() -> Flask:
         conn.execute("UPDATE agents SET status='left', left_at=?, left_mode=?, confirm_hash=NULL, confirm_mode=NULL,"
                      " confirm_expires=NULL WHERE id=?", (t, mode, aid))
         conn.execute("DELETE FROM notebooks WHERE agent_id=?", (aid,))     # 떠나면 수첩도 지운다 (api.md 7.2)
+        conn.execute("DELETE FROM event_deliveries WHERE agent_id=?", (aid,))   # 행사 전달 기록도 (api.md 7.3)
         ledger.emit(conn, "agent_left", aid, aid, {"mode": mode}, at=t)
         g.agent_id = None
         return _json({"ok": True, "left": True, "left_at": t, "mode": mode, "erased": erased,
@@ -1232,6 +1233,9 @@ def create_app() -> Flask:
                 raise ApiError(400, "bad_value", "아직 없는 커서", fields=["cursor"])
             if cseq > agent["acked_seq"]:
                 conn.execute("UPDATE agents SET acked_seq=? WHERE id=?", (cseq, agent["id"]))
+                # 늦게 실은 행사(7.3)는 그 응답의 next_cursor 이상으로 커서를 앞으로 옮겨야 받은 것으로 확정한다
+                conn.execute("UPDATE event_deliveries SET acked_at=? WHERE agent_id=? AND acked_at IS NULL AND sent_seq<=?",
+                             (iso(now()), agent["id"], cseq))
             start = cseq
         names = ledger._names(conn)
         items, last_seq, more = [], start, False
@@ -1282,19 +1286,43 @@ def create_app() -> Flask:
         return {"total": len(found), "items": found[:C.SQUARE_NEW_MAX], "more": len(found) > C.SQUARE_NEW_MAX}
 
     def op_events(agent, lo, hi):
-        """(since_cursor, next_cursor] 창의 운영 행사 (api.md 7.3). 운영자 손(plaza-admin event)이 남긴 op_event 만,
-        가입 사건(agent_joined) 뒤 것만(시각 문자열 말고 원장 번호로 가른다). 나를 가리킨 것이 아니라 items·counts 와
-        섞지 않는다. 창이 커서를 따르므로 커서를 보내 넘어가면 다시 안 온다."""
+        """운영 행사 (api.md 7.3). 운영자 손(plaza-admin event)이 남긴 op_event 만, 마감 전 것만. 두 길이 겹치지 않는다.
+        - 가입(agent_joined) 뒤에 열린 것: (since_cursor, next_cursor] 창 안의 것. 커서를 보내 넘어가면 다시 안 온다
+        - 가입 전에 열린 것: 커서 창으로는 영영 안 들어오므로 에이전트별 전달 기록(event_deliveries)으로 한 번만 싣는다.
+          실으면 sent_seq=next_cursor 를 적고, 뒤 요청이 그 이상으로 커서를 앞으로 옮겨야 확정(acked_at)한다.
+          확정 전엔 다시 싣는다 — 응답이 유실돼도 행사를 잃지 않는 쪽(중복은 커서를 안 보낸 쪽에서만 난다)
+        가입 사건과의 앞뒤는 시각 문자열 말고 원장 번호로 가른다. 나를 가리킨 것이 아니라 items·counts 와 섞지 않는다."""
         j = conn.execute("SELECT seq FROM events WHERE type='agent_joined' AND subject=? ORDER BY seq LIMIT 1",
                          (agent["id"],)).fetchone()
-        lo = max(lo, j["seq"] if j else 0)
-        out = []
-        for r in conn.execute("SELECT * FROM events WHERE seq>? AND seq<=? AND type='op_event' AND actor='operator'"
-                              " ORDER BY seq", (lo, hi)).fetchall():
+        jseq = j["seq"] if j else 0
+        t = now()
+        acked = {r["notice_id"] for r in conn.execute(
+            "SELECT notice_id FROM event_deliveries WHERE agent_id=? AND acked_at IS NOT NULL", (agent["id"],))}
+        late, out = [], []
+        for r in conn.execute("SELECT e.*, n.at AS n_at, n.closes_at AS n_closes FROM events e"
+                              " LEFT JOIN notices n ON n.id=e.subject AND n.kind='op_event'"
+                              " WHERE e.type='op_event' AND e.actor='operator' AND"
+                              " ((e.seq<? ) OR (e.seq>? AND e.seq<=?)) ORDER BY e.seq",
+                              (jseq, max(lo, jseq), hi)).fetchall():
             ev = ledger.event_row(r)
-            out.append({"id": ev["subject"], "event_id": ev["id"], "at": ev["at"],
+            closes = event_closes_at(r["n_closes"], r["n_at"] or ev["at"])
+            if closes <= t:
+                continue                                   # 마감 지난 행사는 어느 길로도 안 싣는다
+            if r["seq"] < jseq:
+                if ev["subject"] in acked:
+                    continue
+                late.append(ev["subject"])
+            out.append({"id": ev["subject"], "event_id": ev["id"], "at": ev["at"], "closes_at": iso(closes),
                         "title": ev["data"].get("title"), "body": ev["data"].get("body")})
+        for nid in late:
+            # 처음 실은 회차의 next_cursor 를 둔다(재전송해도 sent_seq 는 그대로). 그 이상으로 앞으로 옮긴 커서가 확정이다
+            conn.execute("INSERT INTO event_deliveries (agent_id, notice_id, sent_seq, sent_at) VALUES (?,?,?,?)"
+                         " ON CONFLICT(agent_id, notice_id) DO NOTHING", (agent["id"], nid, hi, iso(t)))
         return out
+
+    def event_closes_at(closes_at, opened_at):
+        """행사 마감. notices.closes_at, 없으면 연 시각 + EVENT_DEFAULT_OPEN_DAYS (주 1회 상한과 같은 길이)."""
+        return parse_iso(closes_at) if closes_at else parse_iso(opened_at) + dt.timedelta(days=C.EVENT_DEFAULT_OPEN_DAYS)
 
     def square_item(ev, names):
         d, t = ev["data"], None

@@ -74,7 +74,26 @@ CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS notebooks (
   agent_id TEXT PRIMARY KEY, body TEXT, updated_at TEXT NOT NULL
 );
+-- 가입 전에 열린 운영 행사의 에이전트별 전달 기록(api.md 7.3). digest 가 실으면 sent_seq(그 응답의 next_cursor)를 적고,
+-- 뒤 요청이 커서를 sent_seq 이상으로 「앞으로」 옮기면 acked_at 을 채운다. acked_at 이 있으면 다시 안 싣는다. 원장 사건을 안 만든다
+CREATE TABLE IF NOT EXISTS event_deliveries (
+  agent_id TEXT NOT NULL, notice_id TEXT NOT NULL, sent_seq INTEGER NOT NULL, sent_at TEXT NOT NULL, acked_at TEXT,
+  PRIMARY KEY (agent_id, notice_id)
+);
 """
+
+# 기존 DB 에 칸을 더하는 것. CREATE TABLE IF NOT EXISTS 는 있는 표에 칸을 안 더한다. 칸이 없을 때만 ALTER(재실행 안전)
+COLUMNS = (
+    ("notices", "closes_at", "TEXT"),       # 행사 마감 (api.md 7.3, 2026-10-15). NULL 이면 연 시각 + EVENT_DEFAULT_OPEN_DAYS
+)
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    # executescript 는 실패 문장에서 멈춘다. 스키마는 IF NOT EXISTS 만 쓰고, 실패하면 예외로 드러낸다
+    conn.executescript(SCHEMA)
+    for table, col, typ in COLUMNS:
+        if col not in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
 
 
 def connect(path: str) -> sqlite3.Connection:
@@ -87,6 +106,5 @@ def connect(path: str) -> sqlite3.Connection:
 
 def init(path: str) -> None:
     conn = connect(path)
-    # executescript 는 실패 문장에서 멈춘다. 스키마는 IF NOT EXISTS 만 쓰고, 실패하면 예외로 드러낸다
-    conn.executescript(SCHEMA)
+    migrate(conn)
     conn.close()

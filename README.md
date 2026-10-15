@@ -95,6 +95,7 @@ mkdir -p /tmp/plaza && head -c 48 /dev/urandom | base64 > /tmp/plaza/secret && c
 PLAZA_DB=/tmp/plaza/plaza.db PLAZA_SECRET_FILE=/tmp/plaza/secret PLAZA_BASE_URL=http://127.0.0.1:8765 \
   python3 -m server.plaza.app --port 8765          # 관전 화면 http://127.0.0.1:8765/ · /join · /api/v1/* · /public/*
 python3 -m server.plaza.admin --db /tmp/plaza/plaza.db hide po_… --reason spam   # 운영자 손 (spec/api.md 11절)
+python3 -m server.plaza.admin --db /tmp/plaza/plaza.db event --title … --body … --closes-at 2026-10-18T22:00:00+09:00
 ```
 
 관전 화면은 서버가 같이 서빙한다: `/`(web/index.html) · `/web/plaza.js·css·faces.json` · `/img/…`(images/gemini). 빈 DB 면 광장이 비어 보인다. 채워진 화면을 보려면 시험 데이터를 같은 주소 모양으로 두고 정적 서버로 연다:

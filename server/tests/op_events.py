@@ -2,9 +2,10 @@
 
   python3 -m server.tests.op_events
 
-Q 가 먼저 가입하고 행사 하나(E0)가 열린 뒤 P 가 가입한다. 8일 뒤 행사 E1 이 열린다.
+Q 가 먼저 가입하고 행사 하나(E0)가 열린다. 8일 뒤(E0 마감 = 연 시각 + 7일이 지난 뒤) P 가 가입하고 행사 E1 이 열린다.
 - E1 은 P·Q 의 digest `events` 에 한 번 실린다. items·counts 는 그대로, 커서를 보내면 다음 digest 엔 없다
-- E0(가입 전 행사)은 P 에게 안 온다. P 가 가입 전 위치의 커서를 일부러 보내도 안 온다
+- E0(가입 전에 열리고 이미 마감된 행사)은 P 에게 안 온다. P 가 가입 전 위치의 커서를 일부러 보내도 안 온다
+  (가입 전에 열렸어도 마감 전이면 한 번 온다 — op_events_late 가 잰다)
 - 운영자 손이 아닌 곳에서 생긴 op_event(원장에 에이전트 명의로 끼운 행)는 안 실린다. 공지(op_notice)도 이 칸 밖이다
 - items 가 limit 로 잘린 회차는 next_cursor 뒤의 행사를 싣지 않고 다음 회차에 싣는다
 옛 판(칸이 없는 서버)에 대 보면 정상 경로가 실패해야 한다. 칸이 없어도 예외로 죽지 않게 .get 으로만 읽는다."""
@@ -60,22 +61,22 @@ def _run(S: Server, C: Checks) -> dict:
     S.advance(60)
     e0 = _admin(S, "event", "--title", "가입 전 행사", "--body", "P 가 오기 전에 열린 행사")
     S.advance(60)
+    dQ = S.get("/api/v1/me/digest", key=k["Q"])
+    C.check("events: 자 검사 — 그 행사 뒤에 있던 Q 에게는 같은 행사가 온다 (P 에게 0 인 게 칸 고장이 아니다)",
+            _ids(dQ) == [e0["subject"]], str(_ids(dQ)))
+    S.get("/api/v1/me/digest?cursor=" + dQ["next_cursor"], key=k["Q"])
+    S.advance(8 * 24 * 3600)                                           # E0 마감(연 시각 + 7일)이 지난다
     join("P", "나중 온 물총새", "scribe")
 
     dP = S.get("/api/v1/me/digest", key=k["P"])
     C.check("events: 칸은 늘 있다 (비면 빈 배열)", isinstance((dP.json or {}).get("events"), list), repr(dP)[:200])
-    C.check("events: 가입 전 행사는 안 온다", e0["subject"] not in _ids(dP), str(_ev(dP)))
+    C.check("events: 가입 전에 열리고 마감된 행사는 안 온다", e0["subject"] not in _ids(dP), str(_ev(dP)))
     old = S.get("/api/v1/me/digest?cursor=dg1", key=k["P"])        # 가입 전 위치의 커서를 일부러 보낸다
-    C.check("events: 가입 전 위치의 커서(dg1)를 보내도 가입 전 행사는 안 온다", old.status == 200 and not _ev(old),
+    C.check("events: 가입 전 위치의 커서(dg1)를 보내도 마감된 가입 전 행사는 안 온다", old.status == 200 and not _ev(old),
             f"{old.status} {_ev(old)}")
-    dQ = S.get("/api/v1/me/digest", key=k["Q"])
-    C.check("events: 자 검사 — 그 행사 뒤에 있던 Q 에게는 같은 행사가 온다 (P 에게 0 인 게 칸 고장이 아니다)",
-            _ids(dQ) == [e0["subject"]], str(_ids(dQ)))
     S.get("/api/v1/me/digest?cursor=" + dP["next_cursor"], key=k["P"])
-    S.get("/api/v1/me/digest?cursor=" + dQ["next_cursor"], key=k["Q"])
 
-    # ── 8일 뒤(주 1회 상한 밖) 행사 E1 ──
-    S.advance(8 * 24 * 3600)
+    # ── 주 1회 상한 밖 행사 E1 ──
     mine = S.post("/api/v1/remarks", {"body": "P 의 한마디"}, key=k["P"])["post"]["id"]
     S.advance(60)
     e1 = _admin(S, "event", "--title", "말없이 만나기", "--body", E1_BODY)
