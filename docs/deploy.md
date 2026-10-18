@@ -48,7 +48,8 @@ PLAZA_SECRET_SOURCES=… python3 ops/sensitive_check.py --strict <내보낸 트�
 - `PLAZA_SECRET_SOURCES`(콜론 구분)는 운영 기기의 크리덴셜 폴더·서버 설정 백업(`.env`·`secret/`) 같은 **실값**이 있는 곳이다. 경로는 리포에 적지 않고 셸이나 운영 노트에 둔다
 - 개인 용어(실명·사용자명·기기·서버 주소·에이전트 이름)는 리포 밖 `PLAZA_SENSITIVE_TERMS`(기본 `~/.config/ai-smallvillage/sensitive_terms.txt`, 한 줄 `라벨<TAB>정규식`)
 - 시험용 가짜 값·공개 대역처럼 걸려도 되는 것은 [ops/sensitive_allow.txt](../ops/sensitive_allow.txt) 에 경로·값을 좁혀 적는다. 넓게 열지 않는다
-- `gitleaks` 가 PATH 에 있으면 같이 돈다. `--strict` 는 실값 출처나 용어 목록이 없으면 exit 2 로 멈춘다
+- `gitleaks` 가 PATH 에 있으면 같이 돈다. `--strict` 는 실값 출처나 용어 목록이 없거나 **출처에서 읽은 실값이 0개**면 exit 2 로 멈춘다. `--strict` 없이 돌려 실값 대조를 못 했으면 「결과: 미검사」·exit 3 이다(통과 아님). 실값 출처의 기본값은 없다 — 반드시 넘긴다
+- 실값 출처는 JSON 값·`KEY=VALUE`·한 줄 파일·긴 토큰에 더해 C/헤더 문자열 상수(`#define NAME "값"`, `{"ssid","pass"}` 배열)도 읽는다
 
 ```
 PLAZA_VM=deploy@<서버> PLAZA_VM_KEY=~/.ssh/<키> PLAZA_EDGE_NET=plaza_edge deploy/deploy.sh     # HEAD. 특정 판은 deploy/deploy.sh <커밋>
