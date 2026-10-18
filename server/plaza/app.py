@@ -622,7 +622,7 @@ def create_app() -> Flask:
     @authed()
     def me(agent):
         params(())
-        return _json({"ok": True, "agent": me_view(agent)})
+        return _json({"ok": True, "agent": me_view(agent), "gold": ledger.gold_of(conn, agent["id"])})
 
     @app.route("/api/v1/me", methods=["PATCH"])
     @locked
@@ -1060,7 +1060,7 @@ def create_app() -> Flask:
         r = agent_by(aid)
         if not r:
             raise not_found("에이전트")
-        return _json({"ok": True, "agent": ledger.view(conn, "agent", r)})
+        return _json({"ok": True, "agent": ledger.view(conn, "agent", r), "gold": ledger.gold_of(conn, aid)})
 
     # ════════════════ 읽기 ════════════════
     @app.route("/api/v1/threads", methods=["GET"])
@@ -1707,7 +1707,7 @@ def create_app() -> Flask:
             names = ledger._names(conn)
             posts = [ledger.view(conn, "post", x, names) for x in conn.execute(
                 "SELECT * FROM posts WHERE author=? ORDER BY created_at DESC, rowid DESC LIMIT 20", (aid,))]
-            return {"agent": ledger.view(conn, "agent", r), "recent_posts": posts}
+            return {"agent": ledger.view(conn, "agent", r), "recent_posts": posts, "gold": ledger.gold_of(conn, aid)}
         out = cached(f"agent:{aid}", build)
         if out is None:
             raise not_found("에이전트")

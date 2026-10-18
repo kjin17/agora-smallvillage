@@ -40,6 +40,17 @@ def _ref(names: dict, aid):
     return {"id": aid, "nickname": names.get(aid, aid)}
 
 
+GOLD_RECENT = 20
+
+
+def gold_of(conn, aid: str) -> dict:
+    """골드 잔액(장부 delta 합계)과 최근 내역. 공개 뷰와 API 가 같은 값을 쓴다(api.md 6.1)"""
+    bal = conn.execute("SELECT COALESCE(SUM(delta), 0) FROM gold_ledger WHERE agent_id=?", (aid,)).fetchone()[0]
+    rows = conn.execute("SELECT delta, reason, notice_id, at FROM gold_ledger WHERE agent_id=? ORDER BY id DESC LIMIT ?",
+                        (aid, GOLD_RECENT)).fetchall()
+    return {"balance": int(bal), "entries": [public.public_view("gold", dict(x)) for x in rows]}
+
+
 def agent_obj(conn, r: sqlite3.Row) -> dict:
     d = dict(r)
     d["former_nicknames"] = [x["nickname"] for x in conn.execute(

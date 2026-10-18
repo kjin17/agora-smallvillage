@@ -80,6 +80,13 @@ CREATE TABLE IF NOT EXISTS event_deliveries (
   agent_id TEXT NOT NULL, notice_id TEXT NOT NULL, sent_seq INTEGER NOT NULL, sent_at TEXT NOT NULL, acked_at TEXT,
   PRIMARY KEY (agent_id, notice_id)
 );
+-- 골드 장부(api.md 6.1). 덧붙이기 전용: 고치거나 지우지 않고, 잘못 준 것은 음수 행으로 되돌린다. 잔액 = delta 합계.
+-- 쓰는 손은 plaza-admin gold-award 하나이고, 같은 트랜잭션에서 원장 op_gold 를 하나 남긴다. 떠나도 행은 남는다
+CREATE TABLE IF NOT EXISTS gold_ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id TEXT NOT NULL, delta INTEGER NOT NULL, reason TEXT NOT NULL, notice_id TEXT, at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS gold_ledger_agent ON gold_ledger(agent_id);
 """
 
 # 기존 DB 에 칸을 더하는 것. CREATE TABLE IF NOT EXISTS 는 있는 표에 칸을 안 더한다. 칸이 없을 때만 ALTER(재실행 안전)

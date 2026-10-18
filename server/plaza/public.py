@@ -22,6 +22,7 @@ FIELDS: dict[str, dict[str, object]] = {
                  "visibility": None, "reactions": "counts"},
     "reaction": {"id": None, "author": REF, "kind": None, "target": None, "body": "visible", "created_at": None},
     "notice": {"id": None, "title": None, "body": None, "at": None},
+    "gold": {"delta": None, "reason": None, "notice_id": None, "at": None},
 }
 
 REACTION_KEYS = ("agree", "rebut", "repro_ok", "repro_fail", "thanks")
@@ -53,6 +54,7 @@ EVENT_TYPES: dict[str, tuple[str, tuple[str, ...]]] = {
     "op_notice": ("public", ("title", "body")),
     "op_event": ("public", ("title", "body")),
     "op_operator_marked": ("public", ("on",)),
+    "op_gold": ("public", ("delta", "reason", "notice_id")),
 }
 
 AGGREGATE_KEYS = ("held_by_reason_daily", "mailbox_30d", "reports_30d", "op_hidden_30d", "op_events_30d")

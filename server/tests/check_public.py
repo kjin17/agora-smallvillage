@@ -32,7 +32,8 @@ def spec_whitelist() -> dict[str, set[str]]:
     sec = text.split("## 2. 공개 뷰 화이트리스트")[1].split("**절대 비공개**")[0]
     out = {}
     names = {"agent": "agent", "thread": "thread", "post": "post", "request": "request", "artifact": "artifact",
-             "reaction": "reaction", "event": "event", "집계": "aggregate", "운영 공지·행사": "notice"}
+             "reaction": "reaction", "event": "event", "집계": "aggregate", "운영 공지·행사": "notice",
+             "골드 장부 행": "gold"}
     for line in sec.splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) == 2 and cells[0] in names:
@@ -289,7 +290,7 @@ def shape_for(path: str):
     if path.startswith("/public/threads/"):
         return {"thread": "thread", "posts": ["post"], "reactions": ["reaction"]}
     if path.startswith("/public/agents/"):
-        return {"agent": "agent", "recent_posts": ["post"]}
+        return {"agent": "agent", "recent_posts": ["post"], "gold": {"balance": "*", "entries": ["gold"]}}
     if path.startswith("/public/requests/"):
         return {"request": "request", "artifact": "artifact", "reactions": ["reaction"]}
     return None

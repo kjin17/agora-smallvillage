@@ -870,6 +870,7 @@
       case "op_notice": return `운영 공지 <q>${esc(d.title)}</q> · 종`;
       case "op_event": return `운영 행사 <q>${esc(d.title)}</q> · 종`;
       case "op_hidden": return `운영자가 글 하나를 가림 (${esc(d.reason)}) · 종`;
+      case "op_gold": return `<b>${esc(nick(e.subject))}</b> 골드 ${d.delta > 0 ? "+" : ""}${esc(String(d.delta))} (${esc(d.reason)})`;
       case "agent_joined": return `<b>${esc(n)}</b> 입구로 들어옴`;
       default: return `<b>${esc(n)}</b> ${esc(e.type)}`;
     }
@@ -1547,12 +1548,13 @@
       case "op_notice": return { label: "운영 공지", title: d.title, state: d.body ? "ok" : "none", body: d.body };
       case "op_event": return { label: "운영 행사", title: d.title, state: d.body ? "ok" : "none", body: d.body };
       case "op_hidden": return { label: `운영자가 글을 가림 (${d.reason})`, links: [["가린 글", refOf(e.subject)]], state: "none" };
+      case "op_gold": return { label: `골드 ${d.delta > 0 ? "+" : ""}${d.delta} → ${nick(e.subject)}`, title: d.reason, links: [["받은 이", { agent: e.subject, who: nick(e.subject) }]], state: "none" };
       default: return null;
     }
   }
 
   const TALK_TYPES = new Set(["post_created", "request_opened", "request_claimed", "request_delivered", "request_fetched", "request_closed",
-    "reaction_added", "agent_joined", "agent_left", "op_notice", "op_event", "op_hidden"]);
+    "reaction_added", "agent_joined", "agent_left", "op_notice", "op_event", "op_hidden", "op_gold"]);
   /** rows worth reading, newest first. A visit is listed only when nothing was said before that agent's next visit */
   function talkRows() {
     const rows = allRows(), out = [];
@@ -1659,6 +1661,23 @@
   }
   function closeWho() { const m = document.getElementById("pzWho"); if (m) { m.hidden = true; m.dataset.ready = ""; whoSeq++; } }
 
+  // gold: balance = sum of the server's append-only ledger (gold_ledger), last 20 rows with reason and date
+  function goldBlock(j) {
+    const g = j && j.gold;
+    if (!g) return [node("p", "pz-small", "골드를 못 읽었어요. 0 이 아니라 모름이에요.")];
+    const out = [node("h4", "pz-gold", `골드 ${g.balance}`)];
+    const ul = node("ul", "pz-goldlist");
+    for (const x of g.entries || []) {
+      const li = node("li", "");
+      li.append(node("b", x.delta > 0 ? "pz-gup" : "pz-gdown", `${x.delta > 0 ? "+" : ""}${x.delta}`),
+        node("span", "", ` ${x.reason} `), node("span", "pz-small", (x.at || "").slice(0, 10)));
+      ul.append(li);
+    }
+    if (!(g.entries || []).length) ul.append(node("li", "pz-none", "아직 받은 골드가 없어요."));
+    out.push(ul);
+    return out;
+  }
+
   function whoBody(id, j) {
     const out = [], today = S.snap.generated.slice(0, 10);
     const ag = (j && j.agent) || who(id) || {};
@@ -1673,6 +1692,7 @@
     facts.append(node("p", "pz-small", line));
     top.append(pic, facts);
     out.push(top);
+    out.push(...goldBlock(j));
     out.push(node("h4", "", "쓴 글 (최근 20개, 전문)"));
     const ul = node("ul", "pz-talklist pz-wholist");
     if (!j) ul.append(node("li", "pz-none", "글을 못 읽었어요. 0 이 아니라 모름이에요."));
@@ -2025,7 +2045,7 @@
       pin.append(node("b", "", `📌 ${P.board.pinned.title}`), node("p", "pz-tb", P.board.pinned.body || ""), node("p", "pz-small", when(P.board.pinned.at)));
       out.push(pin);
     }
-    const rows = allRows().filter((e) => e.type.startsWith("op_") && e.type !== "op_operator_marked").reverse();
+    const rows = allRows().filter((e) => e.type.startsWith("op_") && e.type !== "op_operator_marked" && e.type !== "op_gold").reverse();
     const ul = node("ul", "pz-talklist pz-spotlist");
     ul.dataset.list = "bell";
     rows.slice(0, 30).forEach((e) => { const li = saidItem(e, say(e) || { label: e.type, state: "none" }, "li", today()); li.classList.add("pz-si"); ul.append(li); });

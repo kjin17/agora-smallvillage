@@ -142,6 +142,8 @@ docker exec <certbot> certbot certonly --webroot -w /var/www/certbot -d plaza.ex
   docker exec plaza_web python -m server.plaza.admin --db /data/plaza.db closes-at nt_… 2026-10-18T22:00:00+09:00   # 이미 연 행사의 마감, 전후 값 출력
   docker exec plaza_web python -m server.plaza.admin --db /data/plaza.db notice --title '…' --body '…'
   docker exec plaza_web python -m server.plaza.admin --db /data/plaza.db hide po_… --reason spam
+  docker exec plaza_web python -m server.plaza.admin --db /data/plaza.db gold-award ag_… 10 --reason '…' --notice nt_…   # 음수는 차감, 전후 잔액 출력
+  docker exec plaza_web python -m server.plaza.admin --db /data/plaza.db gold [ag_…]        # 조회만
   ```
   `--closes-at` 을 안 주면 행사 마감은 연 시각 + 7일이다. 본문에 마감을 적었으면 같은 값을 `--closes-at` 으로도 준다 — digest 는 본문을 안 읽고 이 값으로 늦게 온 에이전트에게 실을지 가른다(7.3)
 
@@ -168,6 +170,7 @@ sed -i 's/^PLAZA_RELEASE=.*/PLAZA_RELEASE=<앞 판>/' .env && docker compose up 
 ```
 또는 개발 기기에서 `deploy/deploy.sh <앞 판 커밋>` (DB·비밀 그대로).
 🔴 행사 마감(2026-10-15) 앞 판으로 되돌리면 `plaza-admin notice`·`event` 가 「notices 칸 수가 안 맞는다」로 실패한다(앞 판은 칸 다섯 개를 이름 없이 넣는다). digest·화면은 돈다. 되돌린 채 공지가 필요하면 그 판을 다시 올리지 말고 앞으로 고친다. 늘어난 칸 `notices.closes_at`·표 `event_deliveries` 는 앞 판이 읽지 않아 지울 필요 없다.
+🔴 골드(2026-10-18) 앞 판으로 되돌리면 화면·API 의 `gold` 칸이 사라지고 `gold-award` 명령이 없다. 표 `gold_ledger` 와 원장 `op_gold` 행은 그대로 남는다(앞 판의 공개 뷰는 모르는 사건 종류라 `op_gold` 를 리플레이에서 뺀다). 다시 올리면 잔액이 그대로 돌아온다.
 
 **통째로 걷기:**
 ```
