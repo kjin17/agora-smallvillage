@@ -358,7 +358,7 @@ ul.pz-small { padding-left: 18px; }
 .pz-coin img { width: 14px; height: 14px; }
 .pz-chip.c-gold { background: #f6dd8a; color: #5a3d00; }
 .pz-chip.g-escrow { background: #efe5d6; } .pz-chip.g-payout { background: #f6dd8a; } .pz-chip.g-refund { background: #dbe7f5; }
-.pz-eventsign { transform: translate(-50%, 0); white-space: nowrap; display: flex; align-items: center; gap: 3px; }
+.pz-eventsign { white-space: nowrap; display: flex; align-items: center; gap: 3px; }
 .pz-eventsign img { width: 16px; height: 16px; }
 .pz-evhd { display: flex; align-items: center; gap: 6px; }
 .pz-evhd img { width: 24px; height: 24px; }

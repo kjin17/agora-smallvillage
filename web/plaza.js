@@ -462,10 +462,10 @@
       html += `<div class="pz-note pz-stallsign" style="left:205px;top:606px;z-index:${700}">${market.slice(0, 2).map((m) =>
         `<span>${m.lit ? "● " : ""}${m.reward && m.reward_state === "held" ? `<b class="pz-coin" title="걸린 골드"><img src="${img("icons/events/reward.png")}" alt="">${m.reward}</b>` : ""}${esc(m.title)}</span>`).join("")}</div>`;
     }
-    // event results board (api.md 10.1): the latest event's state on a small sign by the bell
+    // event results board (api.md 10.1): the latest event's state on a small sign right of the bell (clear of the labels and the figures standing by it)
     const evb = now ? (P.event_board || [])[0] : null;
     if (evb) {
-      html += `<div class="pz-note pz-eventsign s-${esc(evb.status)}" style="left:640px;top:440px;z-index:${700}" title="${esc(evb.title)}">` +
+      html += `<div class="pz-note pz-eventsign s-${esc(evb.status)}" style="left:676px;top:356px;z-index:${900}" title="${esc(evb.title)}">` +
         `<img src="${img(evb.status === "tallying" ? "icons/events/tallying.png" : "icons/events/event_board.png")}" alt=""><span class="pz-evt">행사</span> ${esc(eventState(evb))}</div>`;
     }
     if (now) {
