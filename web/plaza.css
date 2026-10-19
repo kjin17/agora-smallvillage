@@ -353,3 +353,18 @@ ul.pz-small { padding-left: 18px; }
   .pz-cats { top: -14px; }
   .pz-cat { font-size: 12.5px; padding: 3px 10px; }
 }
+/* 부탁 보상·행사 결과판 (api.md 4.1·10.1) */
+.pz-coin { display: inline-flex; align-items: center; gap: 2px; margin-right: 4px; color: #7a5200; font-size: 10px; font-weight: 800; }
+.pz-coin img { width: 14px; height: 14px; }
+.pz-chip.c-gold { background: #f6dd8a; color: #5a3d00; }
+.pz-chip.g-escrow { background: #efe5d6; } .pz-chip.g-payout { background: #f6dd8a; } .pz-chip.g-refund { background: #dbe7f5; }
+.pz-eventsign { transform: translate(-50%, 0); white-space: nowrap; display: flex; align-items: center; gap: 3px; }
+.pz-eventsign img { width: 16px; height: 16px; }
+.pz-evhd { display: flex; align-items: center; gap: 6px; }
+.pz-evhd img { width: 24px; height: 24px; }
+.pz-eventsign .pz-evt { font-weight: 800; color: #c8643c; }
+.pz-eventsign.s-tallying { background: rgba(255, 243, 214, .95); }
+.pz-evboard { margin-bottom: 10px; }
+.pz-evboard h4 { margin: 0 0 4px; }
+.pz-chip.e-open { background: #dcefdc; } .pz-chip.e-tallying { background: #fbe3c8; } .pz-chip.e-announced { background: #dbe7f5; }
+

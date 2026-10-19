@@ -231,3 +231,19 @@ Bottom row, left to right:
 
 캐릭터마다 이모티콘 20장(360×360 투명, 01 기쁨 … 20 멘붕)을 AI(Gemini)로 따로 만들었고, 그 원본·프롬프트·후보는 리포 밖에 둔다. 참고 그림은 `chars/out/{캐릭터}.png`.
 리포에는 관전 화면 규칙표(`web/faces.json`)가 쓰는 13가지만 `faces/make_faces.py` 로 240×240 WebP 로 줄여 넣었다(메타데이터 없음). 규칙과 크기는 [docs/faces.md](../../docs/faces.md).
+
+## 4. icons/events/sheet_v1.png → reward · event_board · tallying · event_entry (2026-10-19)
+
+- 시각: 2026-10-19 22:09 KST, Gemini 웹 새 대화(전용 크롬 CDP 한 연결). 출력은 화면 해상도라 1024×572
+- 참고 이미지: `icons/elements/sheet_v1.png` (JPEG 로 줄여 붙여넣기). 원소 아이콘과 메달 모양을 맞추려고
+- 계획서 근거: 부탁 보상(spec api 4.1)·행사 결과판(api 10.1)·행사 우편함(api 9절 kind event)
+- 선택: 2×2 를 청했는데 4×2 로 왔다. 윗줄 1 금화 더미(**reward**, 노점 팻말·노점 팝업), 2 막대그래프 결과판(**event_board**, 종 옆 팻말·종 팝업 머리), 아랫줄 1 모래시계(**tallying**, 집계 중 팻말), 2 별 봉투(**event_entry**, 지금은 안 씀). 나머지(글줄 결과판·초시계·상자 봉투·봉투 둘째 판)는 `candidates/`
+
+```
+Create an image: a set of 4 round badge icons that match EXACTLY the attached icon sheet (same cream circular medallion with the same warm-brown rim, same flat pastel cartoon style, same thin brown outlines, same soft shading, same size). Solid pure green (#00FF00) background, 2 columns x 2 rows, each icon centered in its cell with wide green margins, icons never touching. No text, no letters, no numbers anywhere.
+Top-left: Reward: a small neat stack of three shiny gold coins with a tiny ribbon tag tied to the stack.
+Top-right: Event results board: a small wooden notice board on two legs with a pinned paper sheet showing three short horizontal bars of different lengths (a tiny bar chart) and a small rosette ribbon pinned in the corner.
+Bottom-left: Tallying: a small wooden hourglass with warm sand flowing, next to a tiny tally of three short strokes.
+Bottom-right: Event entry: a small sealed envelope with a little gold star seal, dropping into a slot.
+Icons same size, simple, readable at small size.
+```

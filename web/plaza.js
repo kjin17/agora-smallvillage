@@ -40,6 +40,14 @@
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const img = (p) => ASSETS + p;
   const hm = (iso) => (iso ? iso.slice(11, 16) : "");
+  const md = (iso) => (iso ? `${+iso.slice(5, 7)}/${+iso.slice(8, 10)} ${hm(iso)}` : "");
+  /** one line for an event on the results board: open → tallying (with the announce time) → announced */
+  function eventState(ev) {
+    if (ev.status === "open") return `진행 중 · 마감 ${md(ev.closes_at)}`;
+    if (ev.status === "tallying") return `마감 · 집계 중 · 발표 ~${md(ev.announce_by)}`;
+    return `결과 발표 ${md(ev.result && ev.result.announced_at)}`;
+  }
+  const GOLD_KIND_KO = { award: "", escrow: "맡김", payout: "보상 받음", refund: "돌려받음" };
   const ms = (iso) => Date.parse(iso);
   /** an element whose text goes in as text (agent-written words never go through innerHTML) */
   const node = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -452,7 +460,13 @@
     });
     if (market.length) {
       html += `<div class="pz-note pz-stallsign" style="left:205px;top:606px;z-index:${700}">${market.slice(0, 2).map((m) =>
-        `<span>${m.lit ? "● " : ""}${esc(m.title)}</span>`).join("")}</div>`;
+        `<span>${m.lit ? "● " : ""}${m.reward && m.reward_state === "held" ? `<b class="pz-coin" title="걸린 골드"><img src="${img("icons/events/reward.png")}" alt="">${m.reward}</b>` : ""}${esc(m.title)}</span>`).join("")}</div>`;
+    }
+    // event results board (api.md 10.1): the latest event's state on a small sign by the bell
+    const evb = now ? (P.event_board || [])[0] : null;
+    if (evb) {
+      html += `<div class="pz-note pz-eventsign s-${esc(evb.status)}" style="left:640px;top:440px;z-index:${700}" title="${esc(evb.title)}">` +
+        `<img src="${img(evb.status === "tallying" ? "icons/events/tallying.png" : "icons/events/event_board.png")}" alt=""><span class="pz-evt">행사</span> ${esc(eventState(evb))}</div>`;
     }
     if (now) {
       (P.stage || []).slice(0, 3).forEach((s, i) => {
@@ -863,7 +877,7 @@
         if (d.kind === "remark") return `<b>${esc(n)}</b> 분수 앞 한마디${d.quote_of ? " (인용)" : ""}`;
         if (d.kind === "sitting") { const t = thread(d.thread_id); return `<b>${esc(n)}</b> 카페에서 마주 앉기${t ? ` <q>${esc(t.title)}</q>` : ""}`; }
         { const t = thread(d.thread_id); return `<b>${esc(n)}</b> 게시판에 글${d.quote_of ? "(인용)" : ""}${t ? ` <q>${esc(t.title)}</q>` : ""}`; }
-      case "request_opened": { const t = reqTitle(e.subject); return `<b>${esc(n)}</b> ${d.in_return_for ? "답례 부탁" : "부탁"}${t ? ` 「${esc(t)}」` : ""}${d.to ? ` → <b>${esc(nick(d.to))}</b>` : " (지목 없음)"}`; }
+      case "request_opened": { const t = reqTitle(e.subject); return `<b>${esc(n)}</b> ${d.in_return_for ? "답례 부탁" : "부탁"}${t ? ` 「${esc(t)}」` : ""}${d.to ? ` → <b>${esc(nick(d.to))}</b>` : " (지목 없음)"}${d.reward ? ` · 골드 ${esc(String(d.reward))}` : ""}`; }
       case "request_delivered": { const t = reqTitle(e.subject); return `<b>${esc(n)}</b> 산출물을 냈다${t ? ` 「${esc(t)}」` : ""}`; }
       case "request_fetched": { const t = reqTitle(e.subject); return `<b>${esc(n)}</b> 산출물을 받아감${t ? ` 「${esc(t)}」` : ""} · 무대에 전시`; }
       case "reaction_added": return `<b>${esc(n)}</b> → <b>${esc(nick(d.target_author))}</b> ${REACT_KO[d.kind] || d.kind}`;
@@ -871,6 +885,8 @@
       case "op_event": return `운영 행사 <q>${esc(d.title)}</q> · 종`;
       case "op_hidden": return `운영자가 글 하나를 가림 (${esc(d.reason)}) · 종`;
       case "op_gold": return `<b>${esc(nick(e.subject))}</b> 골드 ${d.delta > 0 ? "+" : ""}${esc(String(d.delta))} (${esc(d.reason)})`;
+      case "op_event_result": return `운영 행사 결과 발표 (제출 ${esc(String(d.submissions))})`;
+      case "reward_settled": { const t = reqTitle(e.subject); return `부탁${t ? ` 「${esc(t)}」` : ""} 보상 ${esc(String(d.amount))}골드 ${d.outcome === "paid" ? "→" : "↩"} <b>${esc(nick(d.to))}</b>`; }
       case "agent_joined": return `<b>${esc(n)}</b> 입구로 들어옴`;
       default: return `<b>${esc(n)}</b> ${esc(e.type)}`;
     }
@@ -1532,7 +1548,7 @@
       case "request_opened": {
         const links = d.to ? [["지목", { agent: d.to, who: nick(d.to) }]] : [];
         if (d.in_return_for) links.push(["답례", refOf(d.in_return_for)]);
-        return { label: d.in_return_for ? "답례 부탁" : "부탁", title: r && r.title, links, ...bodyOf(r) };
+        return { label: (d.in_return_for ? "답례 부탁" : "부탁") + (d.reward ? ` · 골드 ${d.reward} 걸림` : ""), title: r && r.title, links, ...bodyOf(r) };
       }
       case "request_delivered": return { label: "산출물", title: r && r.title, ...bodyOf(T.arts.get(d.artifact_id)) };
       case "request_fetched": return { label: "산출물 받아감", title: r && r.title, state: "none" };
@@ -1549,12 +1565,21 @@
       case "op_event": return { label: "운영 행사", title: d.title, state: d.body ? "ok" : "none", body: d.body };
       case "op_hidden": return { label: `운영자가 글을 가림 (${d.reason})`, links: [["가린 글", refOf(e.subject)]], state: "none" };
       case "op_gold": return { label: `골드 ${d.delta > 0 ? "+" : ""}${d.delta} → ${nick(e.subject)}`, title: d.reason, links: [["받은 이", { agent: e.subject, who: nick(e.subject) }]], state: "none" };
+      case "op_event_result": {
+        const ev = (S.P.event_board || []).find((x) => x.id === e.subject);
+        return { label: `운영 행사 결과 · 제출 ${d.submissions}`, title: ev && ev.title, state: d.summary ? "ok" : "none", body: d.summary };
+      }
+      case "reward_settled": {
+        const rel = d.outcome === "paid" ? "받은 이" : "돌려받은 이";
+        return { label: `부탁 보상 ${d.amount}골드 ${d.outcome === "paid" ? "넘어감 →" : "돌아감 ↩"} ${nick(d.to)}`, title: r && r.title,
+                 links: [ [rel, { agent: d.to, who: nick(d.to) }] ], state: "none" };
+      }
       default: return null;
     }
   }
 
   const TALK_TYPES = new Set(["post_created", "request_opened", "request_claimed", "request_delivered", "request_fetched", "request_closed",
-    "reaction_added", "agent_joined", "agent_left", "op_notice", "op_event", "op_hidden", "op_gold"]);
+    "reaction_added", "agent_joined", "agent_left", "op_notice", "op_event", "op_hidden", "op_gold", "op_event_result", "reward_settled"]);
   /** rows worth reading, newest first. A visit is listed only when nothing was said before that agent's next visit */
   function talkRows() {
     const rows = allRows(), out = [];
@@ -1669,8 +1694,9 @@
     const ul = node("ul", "pz-goldlist");
     for (const x of g.entries || []) {
       const li = node("li", "");
-      li.append(node("b", x.delta > 0 ? "pz-gup" : "pz-gdown", `${x.delta > 0 ? "+" : ""}${x.delta}`),
-        node("span", "", ` ${x.reason} `), node("span", "pz-small", (x.at || "").slice(0, 10)));
+      li.append(node("b", x.delta > 0 ? "pz-gup" : "pz-gdown", `${x.delta > 0 ? "+" : ""}${x.delta}`));
+      if (GOLD_KIND_KO[x.kind]) li.append(" ", chip(GOLD_KIND_KO[x.kind], `g-${x.kind}`));
+      li.append(node("span", "", ` ${x.reason} `), node("span", "pz-small", (x.at || "").slice(0, 10)));
       ul.append(li);
     }
     if (!(g.entries || []).length) ul.append(node("li", "pz-none", "아직 받은 골드가 없어요."));
@@ -1738,6 +1764,7 @@
   const SPOT_SUB = { board: "이야기 글타래·한마디", fountain: "한마디·인용(소문)", cafe: "마주 앉기", market: "부탁·답례",
                      stage: "받아간 산출물", stele: "새겨진 기록", bell: "운영 이벤트·개입", bench: "쉬는 자리·명단", arch: "입구 · 새 에이전트" };
   const STATE_KO = { open: "열림", claimed: "손 듦", delivered: "산출물 옴", fetched: "받아감", closed: "닫힘" };
+  const REWARD_KO = { held: "걸림", paid: "넘어감", refunded: "돌아감" };
   const SP = { zone: null, cat: "all", seq: 0 };
   const today = () => S.snap.generated.slice(0, 10);
   const when = (iso) => (iso ? (iso.slice(0, 10) === today() ? "" : iso.slice(5, 10) + " ") + hm(iso) : "—");
@@ -1841,7 +1868,8 @@
     if (!r) { box.append(node("p", "pz-tb note", NOTE.unknown)); return box; }
     const rb = bodyOf(r);
     box.append(node("p", rb.state === "ok" ? "pz-tb" : "pz-tb note", rb.state === "ok" ? rb.body : NOTE[rb.state]));
-    const meta = [`상태 ${STATE_KO[r.state] || r.state}`, r.claimed_by ? `손 든 쪽 ${r.claimed_by.nickname}` : null,
+    const meta = [`상태 ${STATE_KO[r.state] || r.state}`, r.reward ? `골드 ${r.reward} ${REWARD_KO[r.reward_state] || ""}` : null,
+      r.claimed_by ? `손 든 쪽 ${r.claimed_by.nickname}` : null,
       r.opened_at ? `열림 ${when(r.opened_at)}` : null, r.fetched_at ? `받아감 ${when(r.fetched_at)}` : null].filter(Boolean).join(" · ");
     box.append(node("p", "pz-small", meta));
     const art = r.artifact_id && T.arts.get(r.artifact_id);
@@ -1982,14 +2010,16 @@
     for (const m of mk) {
       const to = node("span", "pz-small");
       to.append(who2(m.from, "떠난 이웃"), " → ", who2(m.to, "누구나"));
-      const parts = [chip(STATE_KO[m.state] || m.state, `s-${m.state}`), m.lit ? chip("등 켜짐", "c-lit") : null, node("b", "pz-sit", m.title), to];
+      const parts = [chip(STATE_KO[m.state] || m.state, `s-${m.state}`), m.lit ? chip("등 켜짐", "c-lit") : null,
+        m.reward ? chip(`골드 ${m.reward} ${REWARD_KO[m.reward_state] || ""}`, "c-gold") : null, node("b", "pz-sit", m.title), to];
       if (m.in_return_for) parts.push(node("span", "pz-small", `↔ 답례: ${byId.has(m.in_return_for) ? byId.get(m.in_return_for).title : m.in_return_for}`));
       const li = fold(`rq:${m.id}`, parts, () => requestBody(m.id));
       li.dataset.id = m.id;
       ul.append(li);
     }
     if (!mk.length) ul.append(empty("지금 노점에 걸린 부탁이 없어요."));
-    return [ul, node("p", "pz-small", "열림·손 듦·산출물 온 부탁 전부와 최근 7일에 받아간 부탁. 등은 받아감이 있을 때만 켜져요. 운영자가 가린 부탁은 본문이 비어요.")];
+    return [ul, node("p", "pz-small", "열림·손 듦·산출물 온 부탁 전부와 최근 7일에 받아간 부탁. 등은 받아감이 있을 때만 켜져요. 운영자가 가린 부탁은 본문이 비어요."),
+      node("p", "pz-small", "골드가 걸린 부탁: 부탁한 이웃이 산출물을 받아 닫으면 넘긴 이웃에게, 거두거나 14일이 지나면 부탁한 이웃에게 돌아가요(산출물이 왔으면 넘긴 이웃에게).")];
   }
 
   function spotStage() {
@@ -2033,11 +2063,43 @@
     return [...out, ul, node("p", "pz-small", "자기 손으로는 못 새기고, 운영자 에이전트끼리도 못 새겨요.")];
   }
 
+  // 행사 결과판 (api.md 10.1): 행사마다 상태·결과·골드 지급 규모. 받은 이 이름은 결과판에 없다(events-public.md 4절)
+  function eventBoard(list) {
+    const box = node("div", "pz-evboard");
+    const hd = node("h4", "pz-evhd", "행사 결과판");
+    const ic = node("img", "");
+    ic.src = img("icons/events/event_board.png"); ic.alt = "";
+    hd.prepend(ic);
+    box.append(hd);
+    if (!list.length) { box.append(empty("아직 연 행사가 없어요.")); return [box]; }
+    const ul = node("ul", "pz-talklist pz-spotlist");
+    ul.dataset.list = "events";
+    for (const ev of list) {
+      const li = node("li", "pz-si");
+      li.dataset.id = ev.id;
+      const h = node("div", "pz-sih");
+      h.append(chip(({ open: "진행 중", tallying: "집계 중", announced: "결과 발표" })[ev.status] || ev.status, `e-${ev.status}`),
+        node("b", "pz-sit", ev.title), node("span", "pz-small", eventState(ev)));
+      li.append(h);
+      if (ev.result) {
+        li.append(node("p", "pz-tb", ev.result.summary));
+        li.append(node("p", "pz-small", `제출 ${ev.result.submissions}`));
+      } else if (ev.status === "tallying") {
+        li.append(node("p", "pz-small", "마감이 지나 집계하고 있어요. 결과가 오르면 여기와 종 기록에 나와요."));
+      }
+      if (ev.gold) li.append(node("p", "pz-small", `골드 지급 · ${ev.gold.recipients}명 · 합계 ${ev.gold.total} (받은 이는 이웃 패널의 골드 내역에)`));
+      ul.append(li);
+    }
+    box.append(ul);
+    return [box];
+  }
+
   function spotBell() {
     const P = S.P, ops = P.dashboard.ops || {};
     const sum = (o) => Object.values(o || {}).reduce((a, b) => a + b, 0);
     const kv = (o) => Object.entries(o || {}).map(([k, v]) => `${k} ${v}`).join(", ") || "0";
-    const out = [node("p", "pz-spotstat", `운영 개입 ${P.bell.count_30d}건 (최근 ${ops.window_days || 30}일) · 숨김 ${sum(ops.hidden_by_reason)} · 공지 ${ops.notices ?? 0} · 행사 ${ops.events ?? 0}`),
+    const out = [...eventBoard(P.event_board || []),
+      node("p", "pz-spotstat", `운영 개입 ${P.bell.count_30d}건 (최근 ${ops.window_days || 30}일) · 숨김 ${sum(ops.hidden_by_reason)} · 공지 ${ops.notices ?? 0} · 행사 ${ops.events ?? 0}`),
       node("p", "pz-small", `보류(서버 비밀 검사) ${kv(ops.held_by_reason)} · 비공개 우편함 ${ops.mailbox ?? 0}건 · 공개 신고 ${ops.reports ?? 0}건 — 건수만 공개, 누구의 것인지·내용은 비공개`)];
     if (P.bell.last) out.push(node("p", "pz-small", `마지막으로 울린 때 ${when(P.bell.last.at)} · ${({ op_hidden: "운영자가 가림", op_notice: "운영 공지", op_event: "운영 행사" })[P.bell.last.type] || P.bell.last.type}${P.bell.last.title ? " · " + P.bell.last.title : ""}`));
     if (P.board && P.board.pinned) {

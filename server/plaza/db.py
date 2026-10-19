@@ -87,12 +87,40 @@ CREATE TABLE IF NOT EXISTS gold_ledger (
   agent_id TEXT NOT NULL, delta INTEGER NOT NULL, reason TEXT NOT NULL, notice_id TEXT, at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS gold_ledger_agent ON gold_ledger(agent_id);
+-- 장부는 덧붙이기만 한다: 고치기·지우기와 잔액이 0 밑으로 가는 행을 DB 가 막는다(코드 검사 뒤의 마지막 그물, 2026-10-19)
+CREATE TRIGGER IF NOT EXISTS gold_ledger_no_update BEFORE UPDATE ON gold_ledger
+  BEGIN SELECT RAISE(ABORT, 'gold_ledger is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS gold_ledger_no_delete BEFORE DELETE ON gold_ledger
+  BEGIN SELECT RAISE(ABORT, 'gold_ledger is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS gold_ledger_no_negative BEFORE INSERT ON gold_ledger
+  WHEN (SELECT COALESCE(SUM(delta), 0) FROM gold_ledger WHERE agent_id=NEW.agent_id) + NEW.delta < 0
+  BEGIN SELECT RAISE(ABORT, 'gold balance below zero'); END;
+-- 행사 결과판(api.md 10.1). 결과는 plaza-admin event-result 로만 쓴다. 행사 하나에 한 행, 고칠 때는 --replace(원장에 한 행 더)
+CREATE TABLE IF NOT EXISTS event_results (
+  notice_id TEXT PRIMARY KEY, summary TEXT NOT NULL, submissions INTEGER NOT NULL, announced_at TEXT NOT NULL
+);
 """
 
 # 기존 DB 에 칸을 더하는 것. CREATE TABLE IF NOT EXISTS 는 있는 표에 칸을 안 더한다. 칸이 없을 때만 ALTER(재실행 안전)
 COLUMNS = (
     ("notices", "closes_at", "TEXT"),       # 행사 마감 (api.md 7.3, 2026-10-15). NULL 이면 연 시각 + EVENT_DEFAULT_OPEN_DAYS
+    ("notices", "announce_by", "TEXT"),     # 결과 발표 예정 (api.md 10.1, 2026-10-19). NULL 이면 마감 + EVENT_ANNOUNCE_DEFAULT_DAYS
+    ("mailbox", "notice_id", "TEXT"),       # kind event 제출이 붙은 행사 (api.md 9절). 열린 행사가 없으면 NULL
+    ("requests", "reward", "INTEGER"),      # 부탁 보상 (api.md 4.1). NULL 이면 보상 없음
+    ("requests", "reward_state", "TEXT"),   # held → paid | refunded
+    ("requests", "reward_expires_at", "TEXT"),
+    ("gold_ledger", "kind", "TEXT"),        # NULL(운영자 지급) · escrow · payout · refund
+    ("gold_ledger", "request_id", "TEXT"),
 )
+
+# 칸이 생긴 뒤에야 만들 수 있는 것(옛 DB 는 executescript 때 칸이 없다)
+AFTER_COLUMNS = """
+-- 부탁 하나에 맡김·넘김·돌려줌은 각각 한 번, 넘김과 돌려줌은 둘 중 하나만 (이중 지급 막기)
+CREATE UNIQUE INDEX IF NOT EXISTS gold_ledger_request_kind ON gold_ledger(request_id, kind) WHERE request_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS gold_ledger_request_settle ON gold_ledger(request_id)
+  WHERE request_id IS NOT NULL AND kind IN ('payout', 'refund');
+CREATE INDEX IF NOT EXISTS requests_reward_due ON requests(reward_state, reward_expires_at);
+"""
 
 
 def migrate(conn: sqlite3.Connection) -> None:
@@ -101,6 +129,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     for table, col, typ in COLUMNS:
         if col not in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+    conn.executescript(AFTER_COLUMNS)
 
 
 def connect(path: str) -> sqlite3.Connection:

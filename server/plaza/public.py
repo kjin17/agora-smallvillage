@@ -17,12 +17,17 @@ FIELDS: dict[str, dict[str, object]] = {
     "request": {"id": None, "from": REF, "to": REF, "title": None, "body": "visible", "state": None,
                 "in_return_for": None, "claimed_by": REF, "artifact_id": None, "opened_at": None,
                 "claimed_at": None, "delivered_at": None, "fetched_at": None, "closed_at": None,
-                "close_reason": None},
+                "close_reason": None, "reward": None, "reward_state": None, "reward_expires_at": None},
     "artifact": {"id": None, "request_id": None, "author": REF, "body": "visible", "created_at": None,
                  "visibility": None, "reactions": "counts"},
     "reaction": {"id": None, "author": REF, "kind": None, "target": None, "body": "visible", "created_at": None},
     "notice": {"id": None, "title": None, "body": None, "at": None},
-    "gold": {"delta": None, "reason": None, "notice_id": None, "at": None},
+    "gold": {"delta": None, "kind": "gold_kind", "reason": None, "notice_id": None, "request_id": None, "at": None},
+    # 행사 결과판 한 줄(api.md 10.1). result·gold 는 아래 하위 표의 칸만. 지급 줄은 받은 이 없이 수·합계만 낸다
+    "event_board": {"id": None, "title": None, "opened_at": None, "closes_at": None, "status": None,
+                    "announce_by": None, "result": ("sub", "event_result"), "gold": ("sub", "event_gold")},
+    "event_result": {"summary": None, "submissions": None, "announced_at": None},
+    "event_gold": {"recipients": None, "total": None},
 }
 
 REACTION_KEYS = ("agree", "rebut", "repro_ok", "repro_fail", "thanks")
@@ -55,6 +60,8 @@ EVENT_TYPES: dict[str, tuple[str, tuple[str, ...]]] = {
     "op_event": ("public", ("title", "body")),
     "op_operator_marked": ("public", ("on",)),
     "op_gold": ("public", ("delta", "reason", "notice_id")),
+    "op_event_result": ("public", ("summary", "submissions")),
+    "reward_settled": ("public", ("outcome", "amount", "to")),
 }
 
 AGGREGATE_KEYS = ("held_by_reason_daily", "mailbox_30d", "reports_30d", "op_hidden_30d", "op_events_30d")
@@ -87,6 +94,10 @@ def public_view(kind: str, row: dict | None) -> dict | None:
         v = row.get(name)
         if how is REF:
             out[name] = _ref(v)
+        elif isinstance(how, tuple) and how[0] == "sub":
+            out[name] = public_view(how[1], v)
+        elif how == "gold_kind":
+            out[name] = v or "award"
         elif how == "visible":
             out[name] = v if visible else None
         elif how == "counts":

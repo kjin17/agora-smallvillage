@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 
 from . import metrics as M
-from .consts import OWNER_UNVERIFIED
+from .consts import EVENT_BOARD_MAX, OWNER_UNVERIFIED
 from .util import iso, parse_iso
 
 SNAPSHOT_FORMAT = "ai-smallvillage/plaza"
@@ -132,7 +132,8 @@ def build_snapshot(L: M.Ledger, generated: str, batch_ran: bool = True) -> dict:
         if r["state"] in ("open", "claimed", "delivered") or (
                 r["state"] == "fetched" and r.get("fetched_at") and parse_iso(r["fetched_at"]) >= lo7):
             market.append({"id": r["id"], "from": r["from"], "to": r["to"], "title": r["title"], "state": r["state"],
-                           "in_return_for": r["in_return_for"], "lit": r["state"] == "fetched"})
+                           "in_return_for": r["in_return_for"], "lit": r["state"] == "fetched",
+                           "reward": r.get("reward"), "reward_state": r.get("reward_state")})
     stage = []
     for r in sorted(L.requests.values(), key=lambda r: r.get("fetched_at") or "", reverse=True):
         if r.get("fetched_at") and parse_iso(r["fetched_at"]) >= L.since(30) and len(stage) < 6:
@@ -156,6 +157,7 @@ def build_snapshot(L: M.Ledger, generated: str, batch_ran: bool = True) -> dict:
         "bell": {"count_30d": dash["ops"]["bell"],
                  "last": ({"type": last_bell["type"], "title": last_bell["data"].get("title"), "at": last_bell["at"]}
                           if last_bell else None)},
+        "event_board": L.event_board[:EVENT_BOARD_MAX],
         "dashboard": dash, "sociogram": M.sociogram(L), "scenes": sc["cards"][-10:],
     }
     # 광장 자체 형식(스냅샷 2). 처음에 얹으려던 다른 렌더러의 snapshot v1 껍데기(office·agents·rooms·최상위 activity)는

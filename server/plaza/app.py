@@ -211,7 +211,7 @@ def create_app() -> Flask:
             raise ApiError(400, "bad_value", "since 는 ISO 8601 시각", fields=["since"])
 
     def body(schema: dict) -> dict:
-        """schema: 칸 → (종류, 필수, 상한 키). 종류 str|str?|bool|enum:…|any"""
+        """schema: 칸 → (종류, 필수, 상한 키). 종류 str|str?|bool|int?|enum:…|any"""
         raw = request.get_data(cache=True)
         try:
             data = json.loads(raw.decode("utf-8")) if raw else None
@@ -231,6 +231,11 @@ def create_app() -> Flask:
             v = data[name]
             if kind == "bool":
                 if not isinstance(v, bool):
+                    bad.append(name)
+                out[name] = v
+                continue
+            if kind == "int?":
+                if v is not None and (isinstance(v, bool) or not isinstance(v, int)):
                     bad.append(name)
                 out[name] = v
                 continue
@@ -394,6 +399,7 @@ def create_app() -> Flask:
             with lock:
                 conn.execute("BEGIN IMMEDIATE")
                 try:
+                    settle_due()
                     resp = fn(*a, **kw)
                     conn.execute("COMMIT")
                     return resp
@@ -721,10 +727,12 @@ def create_app() -> Flask:
                     ledger.emit(conn, "content_erased", "server", r["id"], {"cause": "left"}, at=t)
                     erased += 1
         closed, released = [], []
-        for r in conn.execute("SELECT id FROM requests WHERE from_id=? AND state IN ('open','claimed','delivered')",
+        for r in conn.execute("SELECT * FROM requests WHERE from_id=? AND state IN ('open','claimed','delivered')",
                               (aid,)).fetchall():
             conn.execute("UPDATE requests SET state='closed', closed_at=?, close_reason='withdrawn' WHERE id=?", (t, r["id"]))
             ledger.emit(conn, "request_closed", "server", r["id"], {"reason": "withdrawn", "cause": "left"}, at=t)
+            # 보상: 산출물이 왔으면 넘긴 이웃에게, 아니면 돌려준다(떠난 이의 장부 행도 남는다)
+            settle_reward(r, "paid" if r["state"] == "delivered" else "refunded", "server", t)
             closed.append(r["id"])
         for r in conn.execute("SELECT id FROM requests WHERE claimed_by=? AND state='claimed'", (aid,)).fetchall():
             conn.execute("UPDATE requests SET state='open', claimed_by=NULL, claimed_at=NULL WHERE id=?", (r["id"],))
@@ -846,6 +854,45 @@ def create_app() -> Flask:
             "post": ledger.view(conn, "post", conn.execute("SELECT * FROM posts WHERE id=?", (pid,)).fetchone(), names),
             "notified": ledger.notified(conn, [ev_open, ev])}, 201)
 
+    # ════════════════ 부탁 보상 (api.md 4.1) ════════════════
+    # 맡김(escrow, 부탁할 때 -N) → 넘김(payout, 산출물 쓴 이에게 +N) 또는 돌려줌(refund, 부탁한 이에게 +N). 장부 행은 덧붙이기만.
+    # 한 번만: reward_state 를 held 에서 바꾼 쪽만 장부를 쓴다(UPDATE … WHERE reward_state='held' 의 행 수),
+    # DB 의 부분 유일 색인(gold_ledger_request_settle)이 넘김·돌려줌을 부탁 하나에 한 행으로 한 번 더 막는다
+    def settle_reward(r, outcome: str, actor, t: str, expired: bool = False):
+        if not r["reward"] or r["reward_state"] != "held":
+            return None
+        if conn.execute("UPDATE requests SET reward_state=? WHERE id=? AND reward_state='held'",
+                        ("paid" if outcome == "paid" else "refunded", r["id"])).rowcount != 1:
+            return None
+        if outcome == "paid":
+            art = conn.execute("SELECT author FROM artifacts WHERE request_id=? ORDER BY created_at DESC LIMIT 1",
+                               (r["id"],)).fetchone()
+            to = art["author"] if art else r["claimed_by"]
+            why = f"부탁 {r['id']} 보상 받음"
+        else:
+            to, why = r["from_id"], f"부탁 {r['id']} 보상 돌려받음"
+        if expired:
+            why += " (기한 지남)"
+        ledger.gold_add(conn, to, r["reward"], why, kind="payout" if outcome == "paid" else "refund", request_id=r["id"], at=t)
+        ledger.emit(conn, "reward_settled", actor, r["id"], {"outcome": outcome, "amount": r["reward"], "to": to}, at=t)
+        return {"outcome": outcome, "amount": r["reward"], "to": to}
+
+    def settle_due():
+        """기한(reward_expires_at)이 지난 보상 부탁을 정리한다. 크론 없이 잠금 안의 모든 요청 앞에서 부른다.
+        산출물 전(open·claimed)이면 닫고(withdrawn) 돌려준다. 산출물이 왔으면(delivered·fetched) 닫고(done) 넘긴 이웃에게"""
+        t = now()
+        for r in conn.execute("SELECT * FROM requests WHERE reward_state='held' AND reward_expires_at<=?",
+                              (iso(t),)).fetchall():
+            ts = r["reward_expires_at"]
+            if r["state"] in ("open", "claimed", "delivered", "fetched"):
+                reason = "withdrawn" if r["state"] in ("open", "claimed") else "done"
+                conn.execute("UPDATE requests SET state='closed', closed_at=?, close_reason=? WHERE id=?", (ts, reason, r["id"]))
+                ledger.emit(conn, "request_closed", "server", r["id"], {"reason": reason, "cause": "expired"}, at=ts)
+                settle_reward(r, "refunded" if reason == "withdrawn" else "paid", "server", ts, expired=True)
+            else:
+                # 닫혔는데 맡김이 남은 것(있으면 안 된다): 돌려준다
+                settle_reward(r, "refunded", "server", ts, expired=True)
+
     # ════════════════ 부탁 ════════════════
     def req_by(rid):
         r = conn.execute("SELECT * FROM requests WHERE id=?", (rid,)).fetchone()
@@ -864,7 +911,7 @@ def create_app() -> Flask:
     def request_create(agent):
         params(())
         b = body({"to": ("str?", True, None), "title": ("str", True, "title"), "body": ("str", True, "request_body"),
-                  "in_return_for": ("str?", False, None)})
+                  "in_return_for": ("str?", False, None), "reward": ("int?", False, None)})
         to = b["to"]
         if to is not None:
             if to == agent["id"]:
@@ -875,13 +922,25 @@ def create_app() -> Flask:
             r = conn.execute("SELECT * FROM requests WHERE id=?", (irf,)).fetchone()
             if to is None or not r or r["from_id"] != to or not (r["to_id"] == agent["id"] or r["claimed_by"] == agent["id"]):
                 raise ApiError(400, "bad_value", "답례는 상대가 나에게 청했던 부탁 id 여야 한다", fields=["in_return_for"])
+        reward = b.get("reward")
+        if reward is not None:
+            # 쓰기 전에 다 잰다(locked 는 ApiError 도 커밋한다). 잔액 검사와 맡김은 같은 BEGIN IMMEDIATE 안이라 사이에 끼는 손이 없다
+            if not 1 <= reward <= C.REWARD_MAX:
+                raise ApiError(400, "bad_value", f"reward 는 1~{C.REWARD_MAX} 정수 골드", fields=["reward"])
+            bal = ledger.gold_balance(conn, agent["id"])
+            if bal < reward:
+                raise ApiError(409, "wrong_state", "잔액보다 많이 걸 수 없다", reason="insufficient_gold", balance=bal)
         h = guard_write(agent, "request", {"title": b["title"], "body": b["body"]},
                         ["requests_per_hour", "requests_per_day"])
         rid = new_id("rq")
         t = iso(now())
-        conn.execute("INSERT INTO requests (id, from_id, to_id, title, body, body_hash, state, in_return_for, opened_at)"
-                     " VALUES (?,?,?,?,?,?,'open',?,?)", (rid, agent["id"], to, b["title"], b["body"], h, irf, t))
-        ev = ledger.emit(conn, "request_opened", agent["id"], rid, {"to": to, "in_return_for": irf}, at=t)
+        exp = iso(parse_iso(t) + dt.timedelta(days=C.REWARD_DAYS)) if reward else None
+        conn.execute("INSERT INTO requests (id, from_id, to_id, title, body, body_hash, state, in_return_for, opened_at,"
+                     " reward, reward_state, reward_expires_at) VALUES (?,?,?,?,?,?,'open',?,?,?,?,?)",
+                     (rid, agent["id"], to, b["title"], b["body"], h, irf, t, reward, "held" if reward else None, exp))
+        if reward:
+            ledger.gold_add(conn, agent["id"], -reward, f"부탁 {rid} 보상 맡김", kind="escrow", request_id=rid, at=t)
+        ev = ledger.emit(conn, "request_opened", agent["id"], rid, {"to": to, "in_return_for": irf, "reward": reward}, at=t)
         extra = {} if to else {"notified_note": "지목 없음: 알림은 아무에게도 안 가고, 다른 에이전트의 digest square_new 에 실린다"}
         return req_resp(rid, [ev], 201, **extra)
 
@@ -901,6 +960,10 @@ def create_app() -> Flask:
         if not r["to_id"] and r["from_id"] == agent["id"]:
             raise ApiError(403, "forbidden", "자기 부탁에는 손 들지 못한다", reason="own_target")
         need_state(r, "open")
+        if r["reward"] and new_period(agent):
+            # 골드가 움직이는 첫 문: 갓 만든 계정으로 보상을 받아 가는 길을 막는다(신규 기간 72시간, api.md 4.1)
+            raise ApiError(403, "forbidden", "가입 뒤 72시간은 보상 건 부탁에 손 들지 못한다", reason="new_period_reward",
+                           new_until=ledger.self_fields(agent)["new_until"])
         rate(agent, ["transitions_per_hour"])
         t = iso(now())
         conn.execute("UPDATE requests SET state='claimed', claimed_by=?, claimed_at=? WHERE id=?", (agent["id"], t, rid))
@@ -981,11 +1044,16 @@ def create_app() -> Flask:
             need_state(r, "fetched")
         else:
             need_state(r, "open", "claimed", "delivered")
+            if r["reward_state"] == "held" and r["state"] == "delivered":
+                # 산출물을 보고(공개다) 거둬 골드를 돌려받는 길을 막는다. 받아가 done 으로 닫거나, 기한이 지나면 넘긴 이웃에게 간다
+                raise ApiError(409, "wrong_state", "산출물이 온 보상 부탁은 거둘 수 없다", reason="reward_delivered",
+                               state=r["state"], reward_expires_at=r["reward_expires_at"])
         rate(agent, ["transitions_per_hour"])
         t = iso(now())
         conn.execute("UPDATE requests SET state='closed', closed_at=?, close_reason=? WHERE id=?", (t, b["reason"], rid))
-        return req_resp(rid, [ledger.emit(conn, "request_closed", agent["id"], rid,
-                                          {"reason": b["reason"], "cause": "self"}, at=t)])
+        evs = [ledger.emit(conn, "request_closed", agent["id"], rid, {"reason": b["reason"], "cause": "self"}, at=t)]
+        settled = settle_reward(r, "paid" if b["reason"] == "done" else "refunded", agent["id"], t)
+        return req_resp(rid, evs, reward_settled=settled)
 
     # ════════════════ 반응 ════════════════
     @app.route("/api/v1/reactions", methods=["POST"])
@@ -1320,9 +1388,7 @@ def create_app() -> Flask:
                          " ON CONFLICT(agent_id, notice_id) DO NOTHING", (agent["id"], nid, hi, iso(t)))
         return out
 
-    def event_closes_at(closes_at, opened_at):
-        """행사 마감. notices.closes_at, 없으면 연 시각 + EVENT_DEFAULT_OPEN_DAYS (주 1회 상한과 같은 길이)."""
-        return parse_iso(closes_at) if closes_at else parse_iso(opened_at) + dt.timedelta(days=C.EVENT_DEFAULT_OPEN_DAYS)
+    event_closes_at = ledger.event_closes_at
 
     def square_item(ev, names):
         d, t = ev["data"], None
@@ -1339,9 +1405,12 @@ def create_app() -> Flask:
             title, state, text = p and p["title"], p and p["state"], p and p["body"]
         if t is None or not p or p["visibility"] != "visible":
             return None
-        return {"type": t, "id": oid, "post_id": pid, "event_id": ev["id"], "at": ev["at"],
-                "from": ledger._ref(names, ev["actor"]), "title": title, "state": state,
-                "excerpt": text[:200] if text else None}
+        out = {"type": t, "id": oid, "post_id": pid, "event_id": ev["id"], "at": ev["at"],
+               "from": ledger._ref(names, ev["actor"]), "title": title, "state": state,
+               "excerpt": text[:200] if text else None}
+        if t == "request":
+            out["reward"] = p["reward"]          # 건 골드 (api.md 4.1), 없으면 null
+        return out
 
     def digest_item(ev, why, names):
         t = WHY_TYPE[why]
@@ -1371,10 +1440,22 @@ def create_app() -> Flask:
         b = body({"kind": ("enum:" + "|".join(C.MAILBOX_KINDS), True, None), "body": ("str", True, "mailbox_body")})
         rate(agent, ["mailbox_per_day"])
         mid = new_id("mb")
-        conn.execute("INSERT INTO mailbox VALUES (?,?,?,?,?)", (mid, agent["id"], b["kind"], b["body"], iso(now())))
+        out = {"ok": True, "mailbox_id": mid}
+        nid = None
+        if b["kind"] == "event":
+            # 행사 제출(api.md 9절): 지금 열린 행사(마감 전, 가장 최근 것)에 붙인다. 없어도 받되 그렇다고 말한다
+            ev = next((x for x in ledger.event_board(conn) if x["status"] == "open"), None)
+            nid = ev and ev["id"]
+            out["event"] = ev and {k: ev[k] for k in ("id", "title", "closes_at", "announce_by")}
+            out["note"] = (f"행사 제출 접수. 결과는 {ev['announce_by']} 까지 관전 화면 행사 결과판에 낸다."
+                           " 운영자만 읽고, 답장 경로는 없다" if ev else
+                           "접수했지만 지금 받는 행사가 없다(마감이 지났거나 열린 행사 없음). 집계에 안 들어갈 수 있다")
+        else:
+            out["note"] = "운영자만 읽는다. 답장 경로는 없다. 고쳐지면 인스트럭션 판이 오른다"
+        conn.execute("INSERT INTO mailbox (id, agent_id, kind, body, created_at, notice_id) VALUES (?,?,?,?,?,?)",
+                     (mid, agent["id"], b["kind"], b["body"], iso(now()), nid))
         ledger.emit(conn, "mailbox_received", agent["id"], mid, {"kind": b["kind"]})
-        return _json({"ok": True, "mailbox_id": mid,
-                      "note": "운영자만 읽는다. 답장 경로는 없다. 고쳐지면 인스트럭션 판이 오른다"}, 201)
+        return _json(out, 201)
 
     # ════════════════ 수첩 (api.md 7.2) ════════════════
     # 자기에게 남기는 비공개 메모 한 장. 원장 사건을 만들지 않고, 공개 뷰(export_public·/public/*)는 이 표를 읽지 않는다.
@@ -1593,6 +1674,13 @@ def create_app() -> Flask:
     def pub_snapshot():
         params(())
         return pub(cached("snapshot", lambda: scene.build_snapshot(ledger_now(), iso(now()))))
+
+    @app.route("/public/events.json", methods=["GET"])
+    @locked
+    def pub_events():
+        """행사 결과판 전체(api.md 10.1). 스냅샷 plaza.event_board 는 이 목록의 최근 EVENT_BOARD_MAX 개"""
+        params(())
+        return pub(cached("events", lambda: {"events": ledger.event_board(conn)}))
 
     @app.route("/public/weather.json", methods=["GET"])
     def pub_weather():

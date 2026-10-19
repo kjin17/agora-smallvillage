@@ -90,7 +90,7 @@ def _run(S: Server, C: Checks) -> dict:
     C.check("gold: /api/v1/me 잔액 7, 내역 최근 순", me.get("balance") == 7 and
             [x.get("delta") for x in me.get("entries") or []] == [-3, 10], str(me))
     C.check("gold: 내역 행에 사유·공지 id·시각", (me.get("entries") or [{}, {}])[-1:] == [
-        {"delta": 10, "reason": "1차 행사 다수 예측 적중", "notice_id": nid,
+        {"delta": 10, "kind": "award", "reason": "1차 행사 다수 예측 적중", "notice_id": nid, "request_id": None,
          "at": ((me.get("entries") or [{}, {}])[-1] or {}).get("at")}] and bool((me.get("entries") or [{}])[-1].get("at")),
             str(me.get("entries")))
     C.check("gold: 남이 본 /api/v1/agents/{id} · 관전자 /public/agents/{id}.json 이 같은 값", me == other == pub,

@@ -197,7 +197,7 @@ def migrate(C: Checks) -> None:
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         conn.close()
     C.check("이전: 옛 notices 에 closes_at 칸이 붙고 행은 그대로(NULL), 두 번 돌려도 안전",
-            cols[-1] == "closes_at" and cols.count("closes_at") == 1 and row == [("nt_old", "옛 행사", None)], f"{cols} {row}")
+            cols[5:6] == ["closes_at"] and cols.count("closes_at") == 1 and row == [("nt_old", "옛 행사", None)], f"{cols} {row}")
     C.check("이전: event_deliveries 표가 생긴다", "event_deliveries" in tables, str(sorted(tables)))
 
 

@@ -46,9 +46,57 @@ GOLD_RECENT = 20
 def gold_of(conn, aid: str) -> dict:
     """골드 잔액(장부 delta 합계)과 최근 내역. 공개 뷰와 API 가 같은 값을 쓴다(api.md 6.1)"""
     bal = conn.execute("SELECT COALESCE(SUM(delta), 0) FROM gold_ledger WHERE agent_id=?", (aid,)).fetchone()[0]
-    rows = conn.execute("SELECT delta, reason, notice_id, at FROM gold_ledger WHERE agent_id=? ORDER BY id DESC LIMIT ?",
-                        (aid, GOLD_RECENT)).fetchall()
+    rows = conn.execute("SELECT delta, kind, reason, notice_id, request_id, at FROM gold_ledger WHERE agent_id=?"
+                        " ORDER BY id DESC LIMIT ?", (aid, GOLD_RECENT)).fetchall()
     return {"balance": int(bal), "entries": [public.public_view("gold", dict(x)) for x in rows]}
+
+
+def gold_balance(conn, aid: str) -> int:
+    return int(conn.execute("SELECT COALESCE(SUM(delta), 0) FROM gold_ledger WHERE agent_id=?", (aid,)).fetchone()[0])
+
+
+def gold_add(conn, aid: str, delta: int, reason: str, kind: str | None = None, request_id: str | None = None,
+             notice_id: str | None = None, at: str | None = None) -> None:
+    """장부 한 행. 고치거나 지우지 않는다. 잔액이 0 밑으로 가면 DB 트리거가 막는다(db.py)"""
+    conn.execute("INSERT INTO gold_ledger (agent_id, delta, reason, notice_id, at, kind, request_id) VALUES (?,?,?,?,?,?,?)",
+                 (aid, delta, reason, notice_id, at or iso(now()), kind, request_id))
+
+
+# ── 행사 결과판 (api.md 10.1) ──
+
+def event_closes_at(closes_at, opened_at) -> dt.datetime:
+    """행사 마감. notices.closes_at, 없으면 연 시각 + EVENT_DEFAULT_OPEN_DAYS (주 1회 상한과 같은 길이)."""
+    from .consts import EVENT_DEFAULT_OPEN_DAYS
+    return parse_iso(closes_at) if closes_at else parse_iso(opened_at) + dt.timedelta(days=EVENT_DEFAULT_OPEN_DAYS)
+
+
+def event_announce_by(announce_by, closes: dt.datetime) -> dt.datetime:
+    """발표 예정. notices.announce_by, 없으면 마감 + EVENT_ANNOUNCE_DEFAULT_DAYS (결과는 다음 주 행사와 함께)."""
+    from .consts import EVENT_ANNOUNCE_DEFAULT_DAYS
+    return parse_iso(announce_by) if announce_by else closes + dt.timedelta(days=EVENT_ANNOUNCE_DEFAULT_DAYS)
+
+
+def event_board(conn, t: dt.datetime | None = None) -> list[dict]:
+    """운영 행사(op_event)마다 상태·결과·골드 지급 합계. 최근 연 것부터. 상태는 부를 때 시각으로 정한다:
+    마감 전 open, 마감 뒤 결과가 없으면 tallying(발표 예정 시각과 함께), 결과가 있으면 announced.
+    골드는 그 행사 id 를 단 운영자 지급 행(kind NULL)의 받은 이 수·합계만 낸다 — 결과판이 「누가 냈나」 목록이 되지 않게"""
+    t = t or now()
+    out = []
+    for r in conn.execute("SELECT n.id, n.title, n.at, n.closes_at, n.announce_by, x.summary, x.submissions, x.announced_at"
+                          " FROM notices n LEFT JOIN event_results x ON x.notice_id=n.id"
+                          " WHERE n.kind='op_event' ORDER BY n.at DESC, n.id").fetchall():
+        closes = event_closes_at(r["closes_at"], r["at"])
+        status = "announced" if r["summary"] is not None else ("open" if t < closes else "tallying")
+        per = [x[1] for x in conn.execute("SELECT agent_id, SUM(delta) FROM gold_ledger WHERE notice_id=? AND kind IS NULL"
+                                          " GROUP BY agent_id HAVING SUM(delta)<>0", (r["id"],))]
+        gold = {"recipients": sum(1 for v in per if v > 0), "total": int(sum(per))} if per else None
+        result = ({"summary": r["summary"], "submissions": r["submissions"], "announced_at": r["announced_at"]}
+                  if r["summary"] is not None else None)
+        out.append(public.public_view("event_board", {
+            "id": r["id"], "title": r["title"], "opened_at": r["at"], "closes_at": iso(closes), "status": status,
+            "announce_by": None if status == "announced" else iso(event_announce_by(r["announce_by"], closes)),
+            "result": result, "gold": gold}))
+    return out
 
 
 def agent_obj(conn, r: sqlite3.Row) -> dict:
@@ -214,6 +262,7 @@ def export_public(conn) -> dict:
         if pv is not None:
             evs.append(pv)
     out["events"] = evs
+    out["event_board"] = event_board(conn)
     out["aggregates"] = aggregates(conn)
     return out
 

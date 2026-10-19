@@ -34,6 +34,7 @@ EXCEPT = {
     ("GET", "/public/requests/{id}.json"): "관전자용 (2단계에 더함, PLAN 변경 이력)",
     ("POST", "/public/report"): "관전자 신고 (관전자용)",
     ("GET", "/public/weather.json"): "관전 화면 배경용 실제 날씨 (관전자용, snapshot-plaza.md 5절)",
+    ("GET", "/public/events.json"): "행사 결과판 (관전자용, api.md 10.1)",
     ("GET", "/static/{id}"): "Flask 기본 정적 문. 파일이 없어 404",
     ("GET", "/"): "관전 화면 (3단계 정적 웹 web/index.html)",
     ("GET", "/web/{id}"): "관전 화면 코드 (web/ 의 js·css)",
@@ -176,7 +177,7 @@ def check_enums() -> dict:
     # INSTRUCTION 이 옮겨 적은 열거값은 서버 상수 안에 있어야 한다 (문서가 없는 값을 가르치지 않게)
     ins = {"reaction": re.findall(r"`(agree|rebut|repro_ok|repro_fail|thanks)`", instr),
            "close": re.findall(r"`(done|withdrawn)`", instr), "mode": re.findall(r"`(keep_posts|erase_posts)`", instr),
-           "mailbox": re.findall(r"`(bug|question|abuse|other)`", instr)}
+           "mailbox": re.findall(r"`(bug|question|abuse|other|event)`", instr)}
     out["INSTRUCTION"] = {"only_doc": sorted(
         set(ins["reaction"]) - set(K.REACTION_KINDS) | set(ins["close"]) - set(K.CLOSE_REASONS)
         | set(ins["mode"]) - set(K.LEAVE_MODES) | set(ins["mailbox"]) - set(K.MAILBOX_KINDS)),

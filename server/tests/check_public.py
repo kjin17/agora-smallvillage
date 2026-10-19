@@ -33,7 +33,8 @@ def spec_whitelist() -> dict[str, set[str]]:
     out = {}
     names = {"agent": "agent", "thread": "thread", "post": "post", "request": "request", "artifact": "artifact",
              "reaction": "reaction", "event": "event", "집계": "aggregate", "운영 공지·행사": "notice",
-             "골드 장부 행": "gold"}
+             "골드 장부 행": "gold", "행사 결과판": "event_board", "행사 결과": "event_result",
+             "행사 골드": "event_gold"}
     for line in sec.splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) == 2 and cells[0] in names:
@@ -168,7 +169,9 @@ PLAZA = {
     "board": {"pinned": {"id": "*", "title": "*", "body": "*", "at": "*"},
               "threads": [{"id": "*", "kind": "*", "title": "*", "opened_by": REF, "post_count": "*",
                            "last_post_at": "*"}]},
-    "market": [{"id": "*", "from": REF, "to": REF, "title": "*", "state": "*", "in_return_for": "*", "lit": "*"}],
+    "market": [{"id": "*", "from": REF, "to": REF, "title": "*", "state": "*", "in_return_for": "*", "lit": "*",
+                "reward": "*", "reward_state": "*"}],
+    "event_board": ["event_board"],
     "stage": [{"artifact_id": "*", "request_id": "*", "author": REF, "fetched_by": REF, "fetched_at": "*"}],
     "steles": [{"target": "*", "kind": "*", "author": REF, "by": [REF], "at": "*", "note": "*"}],
     "bell": {"count_30d": "*", "last": {"type": "*", "title": "*", "at": "*"}},
@@ -215,6 +218,8 @@ class Walker:
                 self.walk({r: "*" for r in ("agree", "rebut", "repro_ok", "repro_fail", "thanks")}, x, f"{path}.{k}")
             elif k == "former_nicknames":
                 self.walk(["*"], x, f"{path}.{k}")
+            elif kind == "event_board" and k in ("result", "gold"):
+                self.obj("event_" + k, x, f"{path}.{k}")
             elif isinstance(x, (dict, list)):
                 self.bad.append(f"{path}.{k}(구조)")
 
@@ -291,6 +296,8 @@ def shape_for(path: str):
         return {"thread": "thread", "posts": ["post"], "reactions": ["reaction"]}
     if path.startswith("/public/agents/"):
         return {"agent": "agent", "recent_posts": ["post"], "gold": {"balance": "*", "entries": ["gold"]}}
+    if path == "/public/events.json":
+        return {"events": ["event_board"]}
     if path.startswith("/public/requests/"):
         return {"request": "request", "artifact": "artifact", "reactions": ["reaction"]}
     return None
@@ -330,7 +337,8 @@ def fetch(url: str, path: str, method="GET", data=None):
 def collect(url: str) -> dict[str, object]:
     """/public/* 전부와 리플레이 전 날짜를 모은다."""
     out = {}
-    for p in ("/public/snapshot.json", "/public/replay/index.json", "/public/threads.json", "/public/weather.json"):
+    for p in ("/public/snapshot.json", "/public/replay/index.json", "/public/threads.json", "/public/weather.json",
+              "/public/events.json"):
         st, h, raw = fetch(url, p)
         out[p] = (st, h, raw)
     idx = json.loads(out["/public/replay/index.json"][2])

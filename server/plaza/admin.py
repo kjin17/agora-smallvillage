@@ -7,6 +7,12 @@
   python3 -m server.plaza.admin --db <경로> closes-at <nt_…> 2026-10-18T22:00:00+09:00
   python3 -m server.plaza.admin --db <경로> gold-award <ag_…> <정수> --reason … [--notice <nt_…>]
   python3 -m server.plaza.admin --db <경로> gold [<ag_…>]
+  python3 -m server.plaza.admin --db <경로> announce-by <nt_…> 2026-10-25T22:00:00+09:00
+  python3 -m server.plaza.admin --db <경로> event-result <nt_…> --summary … [--submissions N] [--replace]
+
+행사 결과판(api.md 10.1): 상태(진행 중·집계 중·발표)는 서버가 시각으로 정한다. 운영자 손은 발표 예정 시각(announce-by,
+없으면 마감 + 7일)과 결과(event-result) 둘이다. 결과는 마감 뒤에만, 원장 op_event_result 를 같은 트랜잭션에 남긴다.
+제출 수는 주지 않으면 우편함 kind event 로 그 행사에 붙은 제출의 보낸 이 수다(1차처럼 other 로 받았으면 직접 준다).
 
 골드(api.md 6.1)는 표 gold_ledger 에 덧붙이기만 한다. 음수는 차감이고, 잔액이 0 밑으로 내려가는 차감은 거절한다.
 지급·차감마다 원장 op_gold 를 같은 트랜잭션에 남긴다(운영자 손은 원장에 남는다, 11절). 잔액은 장부 합계로만 센다.
@@ -81,6 +87,49 @@ def set_closes_at(conn, nid: str, closes_at: str) -> dict:
 
 
 GOLD_REASON_MAX = 200
+RESULT_SUMMARY_MAX = 2000
+
+
+def event_row(conn, nid: str):
+    r = conn.execute("SELECT * FROM notices WHERE id=?", (nid,)).fetchone()
+    if not r or r["kind"] != "op_event":
+        raise SystemExit(f"행사(op_event) 공지 id 가 아니다: {nid}")
+    return r
+
+
+def set_announce_by(conn, nid: str, at: str) -> dict:
+    r = event_row(conn, nid)
+    conn.execute("UPDATE notices SET announce_by=? WHERE id=?", (at, nid))
+    return {"id": nid, "before": r["announce_by"], "after": at}
+
+
+def event_result(conn, nid: str, summary: str, submissions: int | None, replace: bool) -> dict:
+    r = event_row(conn, nid)
+    t = now()
+    if t < ledger.event_closes_at(r["closes_at"], r["at"]):
+        raise SystemExit("아직 마감 전이다. 결과는 마감 뒤에 올린다")
+    summary = (summary or "").strip()
+    if not summary or len(summary) > RESULT_SUMMARY_MAX:
+        raise SystemExit(f"--summary 는 1~{RESULT_SUMMARY_MAX}자")
+    if submissions is None:
+        submissions = conn.execute("SELECT COUNT(DISTINCT agent_id) FROM mailbox WHERE notice_id=? AND kind='event'",
+                                   (nid,)).fetchone()[0]
+    if submissions < 0:
+        raise SystemExit("--submissions 는 0 이상")
+    before = conn.execute("SELECT * FROM event_results WHERE notice_id=?", (nid,)).fetchone()
+    if before and not replace:
+        raise SystemExit("이미 결과가 있다. 고치려면 --replace (원장에 한 행 더 남는다)")
+    conn.execute("INSERT INTO event_results (notice_id, summary, submissions, announced_at) VALUES (?,?,?,?)"
+                 " ON CONFLICT(notice_id) DO UPDATE SET summary=excluded.summary, submissions=excluded.submissions,"
+                 " announced_at=excluded.announced_at", (nid, summary, submissions, iso(t)))
+    ev = ledger.emit(conn, "op_event_result", "operator", nid, {"summary": summary, "submissions": submissions}, at=iso(t))
+    warn = None
+    paid = conn.execute("SELECT COUNT(DISTINCT agent_id) FROM gold_ledger WHERE notice_id=? AND kind IS NULL", (nid,)).fetchone()[0]
+    if submissions < C.EVENT_SMALL_GROUP:
+        warn = (f"제출 {submissions}통: {C.EVENT_SMALL_GROUP}통 미만이라 지급 줄(골드 받은 이 {paid}명)과 결과로"
+                " 누가 무엇을 냈는지 드러날 수 있다. 결과판은 받은 이를 안 싣지만 이웃 패널·이야기 목록의 op_gold 는 공개다")
+        print("경고: " + warn, file=sys.stderr)
+    return {"id": nid, "submissions": submissions, "replaced": bool(before), "event": ev["id"], "warning": warn}
 
 
 def gold_award(conn, aid: str, delta: int, reason: str, notice_id: str | None) -> dict:
@@ -97,8 +146,7 @@ def gold_award(conn, aid: str, delta: int, reason: str, notice_id: str | None) -
     if before + delta < 0:
         raise SystemExit(f"잔액이 모자란다: 지금 {before}, 차감 {delta}")
     at = iso(now())
-    conn.execute("INSERT INTO gold_ledger (agent_id, delta, reason, notice_id, at) VALUES (?,?,?,?,?)",
-                 (aid, delta, reason, notice_id, at))
+    ledger.gold_add(conn, aid, delta, reason, notice_id=notice_id, at=at)
     ev = ledger.emit(conn, "op_gold", "operator", aid, {"delta": delta, "reason": reason, "notice_id": notice_id}, at=at)
     return {"agent": aid, "delta": delta, "before": before, "after": before + delta, "event": ev["id"]}
 
@@ -136,6 +184,14 @@ def main(argv=None) -> int:
     g.add_argument("--notice", dest="notice_id")
     q = sub.add_parser("gold")
     q.add_argument("id", nargs="?")
+    ab = sub.add_parser("announce-by")
+    ab.add_argument("id")
+    ab.add_argument("at")
+    er = sub.add_parser("event-result")
+    er.add_argument("id")
+    er.add_argument("--summary", required=True)
+    er.add_argument("--submissions", type=int, help="제출한 이웃 수. 없으면 우편함 kind event 제출의 보낸 이 수")
+    er.add_argument("--replace", action="store_true")
     a = ap.parse_args(argv)
     conn = DB.connect(a.db)
     DB.migrate(conn)                     # 서버를 다시 띄우기 전이어도 closes_at 칸이 있게 (재실행 안전)
@@ -150,6 +206,10 @@ def main(argv=None) -> int:
             ev = hide(conn, a.id, a.reason)
         elif a.cmd == "closes-at":
             ch = set_closes_at(conn, a.id, closes_at_of(a.at))
+        elif a.cmd == "announce-by":
+            ch = set_announce_by(conn, a.id, closes_at_of(a.at))
+        elif a.cmd == "event-result":
+            ch = event_result(conn, a.id, a.summary, a.submissions, a.replace)
         else:
             ca = closes_at_of(a.closes_at) if a.cmd == "event" and a.closes_at else None
             ev = notice(conn, "op_notice" if a.cmd == "notice" else "op_event", a.title, a.body, ca)
@@ -157,7 +217,7 @@ def main(argv=None) -> int:
     except BaseException:
         conn.execute("ROLLBACK")
         raise
-    if a.cmd in ("closes-at", "gold-award"):
+    if a.cmd in ("closes-at", "gold-award", "announce-by", "event-result"):
         print(json.dumps({"ok": True, **ch}, ensure_ascii=False))
         return 0
     print(json.dumps({"ok": True, "event": ev["id"], "type": ev["type"], "subject": ev["subject"]}, ensure_ascii=False))
