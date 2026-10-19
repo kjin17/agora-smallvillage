@@ -3,6 +3,7 @@
 (소스 문자열을 grep 하지 않는다).
 
   1 문 목록 대조 · 2 권한 대조 · 3 미정 0 · 4 열거값 대조 · 5 오류는 JSON · 6 치환 잔여 0
+  + 한 화면 상한(PLAN 4.6·4.7): 서빙된 본문의 부록 앞, 빈 줄 빼고 45줄·3,500자(코드포인트, 줄바꿈 제외) 이하
 """
 from __future__ import annotations
 
@@ -273,12 +274,40 @@ def check_lock(S: Server | None = None, instr_text: str | None = None, lock_text
     return bad
 
 
+SCREEN_LINES, SCREEN_CHARS = 45, 3500
+# 운영 주소(https:// + 24자 이름)는 시험 서버(127.0.0.1:포트)보다 길다. 자리표시자를 그 길이의 주소로 채운 본문도 같이 잰다.
+# 더 긴 이름으로 서빙하면 그 주소로 /join 을 받아 screen_size 로 다시 잴 것
+LONG_BASE = "https://" + "x" * 24
+
+
+def screen_size(served: str) -> tuple[int, int]:
+    """서빙본(주석 빠지고 주소 채워진 것)의 부록 앞 본문: (빈 줄 뺀 줄 수, 그 줄들의 글자 수 — 코드포인트, 줄바꿈 제외)"""
+    body = served.split("\n## 부록 A")[0]
+    lines = [ln for ln in body.split("\n") if ln.strip()]
+    return len(lines), sum(len(ln) for ln in lines)
+
+
+def check_one_screen(S: Server | None = None, instr_text: str | None = None) -> list[str]:
+    raw = instr_text if instr_text is not None else INSTR.read_text(encoding="utf-8")
+    long_served = re.sub(r"<!--.*?-->\n?", "", raw, flags=re.S) \
+        .replace("{JOIN_URL}", LONG_BASE + "/join").replace("{BASE_URL}", LONG_BASE)
+    texts = [(f"주소 {len(LONG_BASE)}자로 채운 본문", long_served)]
+    if S is not None:
+        texts.append(("서빙된 /join", S.get("/join").text))
+    bad = []
+    for name, text in texts:
+        n_lines, n_chars = screen_size(text)
+        if n_lines > SCREEN_LINES or n_chars > SCREEN_CHARS:
+            bad.append(f"{name}: {n_lines}줄·{n_chars}자 > {SCREEN_LINES}줄·{SCREEN_CHARS}자")
+    return bad
+
+
 def run_all(S: Server) -> dict:
     doors = parse_doors(INSTR.read_text(encoding="utf-8"))
     routes = route_table()
     res = {"1_doors": check_doors(doors, routes), "1_doors_http": check_doors_http(S, doors),
            "3_undecided": check_undecided(S), "4_enums": check_enums(), "5_errors_json": check_errors_json(S),
-           "6_substitution": check_substitution(S), "lock": check_lock(S)}
+           "6_substitution": check_substitution(S), "lock": check_lock(S), "one_screen": check_one_screen(S)}
     return res
 
 
@@ -294,4 +323,5 @@ def failures(res: dict) -> dict[str, list]:
     f["5 오류는 JSON"] = res["5_errors_json"]
     f["6 치환 잔여 0"] = res["6_substitution"]
     f["lock"] = res["lock"]
+    f["한 화면 상한"] = res["one_screen"]
     return f

@@ -173,6 +173,9 @@ def mutation_tests(C: Checks, S: Server, snapshot: dict, replay_obj: dict):
     C.check("변조: 문서에서 문 하나(mailbox) 뺌 → 반대 방향 실패", bool(r["missing_in_doc"]))
     C.check("변조: INSTRUCTION 한 글자 바꿈 → lock 검사 실패",
             bool(check_docs.check_lock(instr_text=check_docs.INSTR.read_text(encoding="utf-8") + " ")))
+    over = check_docs.INSTR.read_text(encoding="utf-8").replace("\n## 이곳\n", "\n## 이곳" + "가" * 40 + "\n", 1)
+    over_bad = check_docs.check_one_screen(instr_text=over)
+    C.check("변조: INSTRUCTION 본문 한 줄에 40자 더함(줄 수 그대로) → 한 화면 상한 실패", bool(over_bad), "; ".join(over_bad))
     L = M.Ledger(json.loads(json.dumps(plaza_calc.from_plaza_db(str(S.db)))))
     d = scene.replay_dates(L)[0]
     try:

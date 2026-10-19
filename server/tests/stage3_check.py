@@ -32,7 +32,7 @@
 전체 보기 검사는 2배 첫 화면·옛 구역 넷 자르기를 「전체 아님」, 가장자리 검사는 40px 밀린 장면을 「밖」, 말풍선 수는 틀 안만 세면 「다름」,
 말풍선 글은 17자로 자르면 「틀림」, 표정은 규칙표를 바꾼 기대값·표정 앞 판을 「틀림」, EXIF 를 붙인 WebP 를 「그림 아닌 청크」, 같은 글자를 innerHTML 로 넣으면 「요소 생김」, 보류 글자를 화면에 넣으면 「있음」,
 옛 층 순서(한 층, 발 y 만)로 되돌리면 겹친 시설마다 「뒤로 들어감」, 타임라인은 앞 판 모양 글자를 끼우면 「눌림」.
-픽셀 비교는 결정적 래스터 깃발(DET_FLAGS)로 찍고 대조군(같은 입력 두 번)을 판정마다 같이 적는다."""
+픽셀 비교는 결정적 래스터 깃발(DET_FLAGS)과 찍기 직전 그림 풀기 캐시 비우기(settle_raster)로 찍고 대조군(같은 입력 두 번)을 판정마다 같이 적는다."""
 from __future__ import annotations
 
 import argparse
@@ -78,6 +78,23 @@ def before_label(ref: str) -> str:
 DET_FLAGS = ["--force-color-profile=srgb", "--disable-gpu", "--disable-lcd-text", "--disable-partial-raster",
              "--disable-skia-runtime-opts", "--font-render-hinting=none",
              "--disable-checker-imaging"]   # 09-26 대화 보기: 그림 수십 장이 늘자 비동기 그림 풀기가 몇 점씩 흔들렸다(아래 still 의 기다림과 함께 8/8)
+
+
+def settle_raster(pg, w: int, h: int):
+    """픽셀 비교용으로 찍기 직전에 그림 풀기 캐시를 비우고 화면을 새로 그린다.
+    같은 아이콘(원본 약 277px)이 말풍선 24px×장면 배율·소식 30px·장면 카드 20px 처럼 여러 배율로 그려진다. 렌더러의
+    그림 풀기 캐시는 앞서 다른 배율로 풀어 둔 것을 줄여 다시 쓰는데, 불러오는 동안 어느 배율이 먼저 풀렸는지가
+    불러올 때마다 달라 말풍선 아이콘 18px 자리가 몇 점씩 흔들렸다(같은 입력 8번에 서로 다른 그림 5벌, 한 페이지 안에서는
+    시간이 지나도 불변). 래스터 스레드 1개로는 안 잡히고(3벌), 크기만 다시 잡아 새로 그려도 안 잡히며(3벌), 캐시를 비운 뒤
+    새로 그리면 8번 모두 같다(1벌). 화면 코드가 그리는 자리·크기는 그대로고 캐시 이력만 지운다"""
+    pg.context.new_cdp_session(pg).send("Memory.simulatePressureNotification", {"level": "critical"})
+    pg.wait_for_timeout(300)
+    pg.set_viewport_size({"width": w + 1, "height": h})
+    pg.clock.run_for(100)
+    pg.wait_for_timeout(200)
+    pg.set_viewport_size({"width": w, "height": h})
+    pg.clock.run_for(200)
+    pg.wait_for_timeout(300)
 
 # 광장 페이지 안에서 「프레임 밖 활동 막대」를 찾는다: #plaza 밖에 보이는 요소가 있거나, 활동 띠 모양(원본 렌더러 .strip)이
 # 있거나, 「지난 24시간 활동/행동」 제목이 계기판·날씨 칸 밖에 있으면 걸린다
@@ -1384,6 +1401,7 @@ def plaza_checks(C: Checks, browser, args, work: Path, extra=(), capture=None):
         until(pg, "[...document.images].every((i) => i.complete) && Plaza.stats().facesPending === 0", tries=60)
         pg.wait_for_timeout(400)
         pg.clock.run_for(200)
+        settle_raster(pg, 1440, 900)
         pg.screenshot(path=str(shots / name), full_page=True)
         st = pg.evaluate("({b: Plaza.stats().bubblesOnStage, w: document.getElementById('pzWeather').textContent,"
                          " sky: !document.getElementById('pzSky').hidden, fx: !document.getElementById('pzFx').hidden})")
@@ -1487,6 +1505,7 @@ def length_checks(C: Checks, page, url: str, work: Path, data: Path, snap: dict)
         pg.wait_for_timeout(400)
         pg.clock.run_for(200)
         if name:
+            settle_raster(pg, w, h)
             pg.screenshot(path=str(shots / name), full_page=True)
         st = pg.evaluate(LEN_PROBE_JS)
         ctx.close()
