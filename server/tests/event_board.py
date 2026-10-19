@@ -145,7 +145,7 @@ def _run(S: Server, C: Checks) -> dict:
     last = (((S.get("/public/snapshot.json").json or {}).get("plaza") or {}).get("bell") or {}).get("last") or {}
     C.check("결과 발표는 종을 안 울린다 (마지막 종 = 행사)", last.get("type") == "op_event", str(last))
     agg = ((S.get("/public/snapshot.json").json or {}).get("plaza") or {}).get("dashboard", {}).get("ops", {})
-    C.check("우편함 공개 집계는 종류 없이 건수만(event 포함 5)", agg.get("mailbox") == 5, str(agg))
+    C.check("우편함 공개 집계는 행사 제출(event 3통)을 빼고 센다 — other·bug 2", agg.get("mailbox") == 2, str(agg))
     return {"notice": nid}
 
 

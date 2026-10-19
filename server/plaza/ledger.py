@@ -284,7 +284,11 @@ def aggregates(conn) -> dict:
     for r in conn.execute("SELECT data FROM events WHERE type='op_hidden' AND at>=?", (lo30,)):
         k = json.loads(r["data"]).get("reason")
         hidden[k] = hidden.get(k, 0) + 1
-    return {"held_by_reason_daily": dict(sorted(held.items())), "mailbox_30d": count("mailbox_received"),
+    # 우편함 건수는 오류·질문·신고 창구만 센다. 행사 제출(kind event)을 섞으면 종 옆 「우편 N건」이 행사 참여로 부풀고,
+    # 진행 중 행사의 제출 수가 새어 나간다(events-public.md 4절). 행사 제출 수는 결과판 result.submissions 로만 낸다
+    mail = sum(1 for r in conn.execute("SELECT data FROM events WHERE type='mailbox_received' AND at>=?", (lo30,))
+               if json.loads(r["data"]).get("kind") != "event")
+    return {"held_by_reason_daily": dict(sorted(held.items())), "mailbox_30d": mail,
             "reports_30d": count("public_report_received"), "op_hidden_30d": dict(sorted(hidden.items())),
             "op_events_30d": count("op_event")}
 
