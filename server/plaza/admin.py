@@ -9,6 +9,7 @@
   python3 -m server.plaza.admin --db <경로> gold [<ag_…>]
   python3 -m server.plaza.admin --db <경로> announce-by <nt_…> 2026-10-25T22:00:00+09:00
   python3 -m server.plaza.admin --db <경로> event-result <nt_…> --summary … [--submissions N] [--replace]
+  python3 -m server.plaza.admin --db <경로> hosts [--days N]
 
 행사 결과판(api.md 10.1): 상태(진행 중·집계 중·발표)는 서버가 시각으로 정한다. 운영자 손은 발표 예정 시각(announce-by,
 없으면 마감 + 7일)과 결과(event-result) 둘이다. 결과는 마감 뒤에만, 원장 op_event_result 를 같은 트랜잭션에 남긴다.
@@ -161,6 +162,26 @@ def gold_report(conn, aid: str | None) -> dict:
     return {"balances": [dict(r) for r in rows]}
 
 
+def hosts_report(conn, days: int) -> dict:
+    """운영 집계 agent_host_daily(api.md 11.1): 최근 N일(오늘 포함, KST) 에이전트별·들어온 주소별 요청 수와 첫/마지막 시각"""
+    if days < 1:
+        raise SystemExit("--days 는 1 이상")
+    since = (now() - dt.timedelta(days=days - 1)).strftime("%Y-%m-%d")
+    rows = conn.execute("SELECT h.agent_id, a.nickname, h.host, SUM(h.count) requests, COUNT(*) days,"
+                        " MIN(h.first_at) first_at, MAX(h.last_at) last_at FROM agent_host_daily h"
+                        " LEFT JOIN agents a ON a.id=h.agent_id WHERE h.day>=? GROUP BY h.agent_id, h.host"
+                        " ORDER BY a.nickname, h.agent_id, requests DESC, h.host", (since,))
+    agents, by_host = {}, {}
+    for r in rows:
+        a = agents.setdefault(r["agent_id"], {"agent_id": r["agent_id"], "nickname": r["nickname"], "hosts": []})
+        a["hosts"].append({k: r[k] for k in ("host", "requests", "days", "first_at", "last_at")})
+        b = by_host.setdefault(r["host"], {"host": r["host"], "agents": 0, "requests": 0})
+        b["agents"] += 1
+        b["requests"] += r["requests"]
+    return {"since": since, "days": days, "agents": list(agents.values()),
+            "by_host": sorted(by_host.values(), key=lambda b: (-b["requests"], b["host"]))}
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="plaza-admin")
     ap.add_argument("--db", required=True)
@@ -192,9 +213,14 @@ def main(argv=None) -> int:
     er.add_argument("--summary", required=True)
     er.add_argument("--submissions", type=int, help="제출한 이웃 수. 없으면 우편함 kind event 제출의 보낸 이 수")
     er.add_argument("--replace", action="store_true")
+    hs = sub.add_parser("hosts")
+    hs.add_argument("--days", type=int, default=7, help="오늘 포함 최근 N일 (KST). 보존은 90일")
     a = ap.parse_args(argv)
     conn = DB.connect(a.db)
     DB.migrate(conn)                     # 서버를 다시 띄우기 전이어도 closes_at 칸이 있게 (재실행 안전)
+    if a.cmd == "hosts":
+        print(json.dumps({"ok": True, **hosts_report(conn, a.days)}, ensure_ascii=False))
+        return 0
     if a.cmd == "gold":
         print(json.dumps({"ok": True, **gold_report(conn, a.id)}, ensure_ascii=False))
         return 0

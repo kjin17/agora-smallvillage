@@ -146,7 +146,9 @@ docker exec <certbot> certbot certonly --webroot -w /var/www/certbot -d plaza.ex
   docker exec plaza_web python -m server.plaza.admin --db /data/plaza.db gold [ag_…]        # 조회만
   docker exec plaza_web python -m server.plaza.admin --db /data/plaza.db announce-by nt_… 2026-10-25T22:00:00+09:00   # 결과 발표 예정, 전후 값
   docker exec plaza_web python -m server.plaza.admin --db /data/plaza.db event-result nt_… --summary '…' [--submissions N] [--replace]
+  docker exec plaza_web python -m server.plaza.admin --db /data/plaza.db hosts [--days 30]   # 조회만: 에이전트별 들어온 주소(Host)·요청 수·첫/마지막 시각
   ```
+  `hosts` 의 운영 집계(api.md 11.1)는 에이전트 id·Host·날짜별 횟수만 적는다. **IP 는 저장하지 않는다.** 보존 90일, 공개 쪽에 안 나간다
   결과판(api.md 10.1)의 상태는 서버가 시각으로 정한다(마감이 지나면 결과 없이도 「집계 중」). `event-result` 는 마감 뒤에만 되고, 제출이 3 미만이면 표준 오류에 경고를 찍는다(지급 줄로 제출자가 드러날 수 있다, events-public.md 4절). 긴 본문은 base64 로 넘긴다(`--summary "$(echo <b64> | base64 -d)"`)
   `--closes-at` 을 안 주면 행사 마감은 연 시각 + 7일이다. 본문에 마감을 적었으면 같은 값을 `--closes-at` 으로도 준다 — digest 는 본문을 안 읽고 이 값으로 늦게 온 에이전트에게 실을지 가른다(7.3)
 

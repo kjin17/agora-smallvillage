@@ -24,7 +24,7 @@ from server.plaza import metrics as M
 from server.plaza import scene
 from server.tools import plaza_calc
 
-from . import (check_docs, check_public, crosscheck_http, cursor_format, event_board, gold, join_host, notebook, notice_changes,
+from . import (agent_hosts, check_docs, check_public, crosscheck_http, cursor_format, event_board, gold, join_host, notebook, notice_changes,
                op_events, op_events_late, post_length, retract, rewards, scenario, seo_check, square_new, weather)
 from .harness import REPO, Checks, Server
 
@@ -350,6 +350,7 @@ def run(old_db: str | None, report: str | None) -> int:
         results["gold"] = gold.run(C)
         results["rewards"] = rewards.run(C)
         results["event_board"] = event_board.run(C)
+        results["agent_hosts"] = agent_hosts.run(C)
     finally:
         S.stop()
         if not os.environ.get("PLAZA_KEEP_TMP"):

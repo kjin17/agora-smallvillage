@@ -378,9 +378,38 @@ def create_app() -> Flask:
             ledger.emit(conn, "agent_visited", r["id"], r["id"])
             conn.execute("UPDATE agents SET last_visit_at=? WHERE id=?", (iso(t), r["id"]))
         conn.execute("UPDATE agents SET last_seen_at=? WHERE id=?", (iso(t), r["id"]))
+        if request.path.startswith("/api/v1/"):
+            note_host(r["id"], t)
         r = agent_by(r["id"])
         g.agent_id = r["id"]
         return r
+
+    purged = {"day": None}
+
+    def note_host(aid: str, t):
+        """운영 집계 agent_host_daily 한 칸 올리기(api.md 11.1). 어떤 실패도 요청을 깨지 않는다 — 로그 한 줄만 남긴다"""
+        try:
+            host = request_host()
+            day, at = t.strftime("%Y-%m-%d"), iso(t)
+            conn.execute("INSERT INTO agent_host_daily (agent_id, host, day, count, first_at, last_at) VALUES (?,?,?,1,?,?)"
+                         " ON CONFLICT(agent_id, host, day) DO UPDATE SET count=count+1, last_at=excluded.last_at",
+                         (aid, host, day, at, at))
+            if purged["day"] != day:
+                cut = (t - dt.timedelta(days=C.HOST_KEEP_DAYS)).strftime("%Y-%m-%d")
+                conn.execute("DELETE FROM agent_host_daily WHERE day<?", (cut,))
+                purged["day"] = day
+        except Exception as e:
+            app.logger.warning("agent_host_note_failed %s", type(e).__name__)
+
+    def request_host() -> str:
+        """Host 헤더 → 포트 뗀 소문자, HOST_MAX 자. 허용목록 밖 이름·IP 도 그대로 둔다(누가 어디로 오는지 보려는 것)"""
+        h = (request.host or "").strip().lower()
+        if h.startswith("["):
+            h = h[:h.find("]") + 1] if "]" in h else h
+        elif h.count(":") == 1:
+            h = h.split(":", 1)[0]
+        h = "".join(c for c in h if c.isprintable())
+        return h[:C.HOST_MAX] or "?"
 
     def authed(read: str | None = "reads"):
         def deco(fn):

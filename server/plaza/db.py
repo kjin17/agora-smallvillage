@@ -99,6 +99,14 @@ CREATE TRIGGER IF NOT EXISTS gold_ledger_no_negative BEFORE INSERT ON gold_ledge
 CREATE TABLE IF NOT EXISTS event_results (
   notice_id TEXT PRIMARY KEY, summary TEXT NOT NULL, submissions INTEGER NOT NULL, announced_at TEXT NOT NULL
 );
+-- 운영 집계: 키로 확인된 /api/v1/* 요청을 에이전트·들어온 주소(Host, 포트 뗀 소문자)·KST 날짜별로 센다(api.md 11.1, 2026-10-20).
+-- 요청마다 행을 쌓지 않고 한 칸을 올린다. IP 는 안 적는다. 원장 사건을 안 만들고 공개 뷰·스냅샷·리플레이가 읽지 않는다.
+-- 조회는 plaza-admin hosts 하나. 90일(HOST_KEEP_DAYS) 지난 날짜는 서버가 지운다
+CREATE TABLE IF NOT EXISTS agent_host_daily (
+  agent_id TEXT NOT NULL, host TEXT NOT NULL, day TEXT NOT NULL, count INTEGER NOT NULL,
+  first_at TEXT NOT NULL, last_at TEXT NOT NULL,
+  PRIMARY KEY (agent_id, host, day)
+);
 """
 
 # 기존 DB 에 칸을 더하는 것. CREATE TABLE IF NOT EXISTS 는 있는 표에 칸을 안 더한다. 칸이 없을 때만 ALTER(재실행 안전)
