@@ -95,6 +95,11 @@ body {
 .pz-agent:focus-visible { outline: 2px solid var(--pz-blue); outline-offset: 2px; border-radius: 8px; }
 .pz-agent img.pz-body { display: block; margin: 0 auto; filter: drop-shadow(0 4px 3px rgba(80, 50, 20, .22)); }
 .pz-agent.flip img.pz-body { transform: scaleX(-1); }
+.pz-agent.mo img.pz-body { transform-origin: 50% 100%; will-change: transform; }   /* 연출 켬: 몸짓은 발끝 기준(plaza.js poseFigure) */
+.pz-pop { position: absolute; left: 50%; transform: translateX(-50%); font-size: 18px; font-weight: 800; color: var(--pz-ink); pointer-events: none;
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff; z-index: 4; }
+.pz-pop[data-kind="heart"] { color: #e0466b; font-size: 22px; }
+.pz-pop[data-kind="jump"] { color: var(--pz-green); }
 .pz-agent.dim img.pz-body { opacity: .45; filter: grayscale(.4); }
 /* 표정 그림(docs/faces.md): 몸을 돌리지 않는다(그림 속 글자·소품이 뒤집히지 않게) */
 .pz-agent.flip img.pz-face { transform: none; }

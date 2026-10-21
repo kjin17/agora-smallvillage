@@ -722,15 +722,133 @@
 
   function moveFigure(f) {
     if (!f.pos) return;
+    // 걷기 흔들림·몸짓은 몸 그림의 transform 으로만(poseFigure). 자리(left/top)는 장면 좌표 그대로 —
+    // 연출 켬일 때 비켜서기(f.av)만 더한다. 연출 끔이면 앞 판과 같은 자리·같은 그림
     const [x, y] = f.pos;
-    const bob = f.walking && S.motion ? Math.abs(Math.sin(f.walked / 9)) * -4 : f.fsm === "doze" && S.motion ? Math.sin(performance.now() / 700) * 1.5 : 0;
-    f.el.style.left = `${x.toFixed(1)}px`;
-    f.el.style.top = `${(y + bob).toFixed(1)}px`;
+    const [ax, ay] = S.motion && f.av ? f.av : [0, 0];
+    f.el.style.left = `${(x + ax).toFixed(1)}px`;
+    f.el.style.top = `${(y + ay).toFixed(1)}px`;
     f.el.style.zIndex = String(Math.round(y) + 2);
     f.el.classList.toggle("flip", !!f.flip);
+    f.el.classList.toggle("mo", !!S.motion);
     const hNow = heightAt(y);
     if (Math.abs(hNow - (f.painted || 0)) >= 2) { const b = f.el.querySelector(".pz-body"); if (b) { sizeBody(b, hNow); f.painted = hNow; } }
     f.el.hidden = !f.shown;
+    poseFigure(f, performance.now());
+  }
+
+  // ── 몸짓 (docs/design/motion-and-map.md A안): 그림 추가 없이 코드로. 연출 켬일 때만 돈다 ──
+  // 걷기 = 보폭에 맞춘 통통 튐 + 좌우 뒤뚱 + 디딜 때 살짝 눌림, 서 있기 = 숨쉬기, 졸기 = 고개 끄덕,
+  // 말풍선이 새로 뜨면(원장 행 하나) 그 종류의 짧은 몸짓 하나. 몸짓은 말풍선을 더하거나 빼지 않는다(말풍선 수 불변식 그대로)
+  const STRIDE = 22;                                    // 한 걸음에 지나는 바닥 px
+  const GESTURE = {
+    "actions/post": "scribble", "actions/deliverable": "scribble", "actions/shout": "shout", "actions/quote": "shout",
+    "actions/request": "wave", "actions/return_favor": "wave", "actions/taken": "hop", "actions/face_to_face": "nod",
+    "reactions/agree": "hop", "reactions/thanks": "heart", "reactions/repro_ok": "jump", "reactions/repro_fail": "droop", "reactions/rebut": "shake",
+  };
+  const GESTURE_MS = { scribble: 1500, shout: 700, wave: 1300, hop: 700, nod: 1200, heart: 1300, jump: 900, droop: 1400, shake: 650, look: 800 };
+  const POP = { heart: "♥", jump: "✓", droop: "…", shout: "!", scribble: "✎", wave: "?" };
+  const phaseOf = (id) => rng(id + "~pose")() * 6.283;
+
+  function gesture(f, kind, ts, delay = 0) {
+    if (!S.motion || !GESTURE_MS[kind]) return;
+    f.gest = { kind, t0: ts + delay };
+  }
+  // 말풍선을 받는 쪽(반응 대상·지목)을 바라본다. 없으면 같은 구역에서 가장 가까운 이웃(마주 앉기)
+  function faceToward(f, otherId) {
+    let o = otherId && S.agents.get(otherId);
+    if (!o || !o.shown || !o.pos) {
+      o = null;
+      let best = 1e9;
+      for (const g of S.agents.values()) {
+        if (g === f || !g.shown || !g.pos || g.zone !== f.zone) continue;
+        const d = Math.hypot(g.pos[0] - f.pos[0], g.pos[1] - f.pos[1]);
+        if (d < best) { best = d; o = g; }
+      }
+    }
+    if (o && Math.abs(o.pos[0] - f.pos[0]) > 4) f.flip = o.pos[0] < f.pos[0];
+    return o;
+  }
+
+  function poseFigure(f, ts) {
+    const body = f.el.querySelector(".pz-body");
+    if (!body) return;
+    if (!S.motion) { if (body.style.transform) body.style.transform = ""; return; }
+    // 새 말풍선 = 새 원장 행 → 몸짓 하나 (첫 화면에 여럿이 한꺼번에 뜨면 사람마다 조금씩 늦게)
+    const ev = f.bubble && f.bubble.event_id;
+    if (ev && ev !== f.gestFor) {
+      f.gestFor = ev;
+      const kind = GESTURE[f.bubble.icon];
+      if (kind) {
+        if (kind === "nod" || f.bubble.toward) faceToward(f, f.bubble.toward);
+        gesture(f, kind, ts, f.seenOnce ? 0 : (phaseOf(f.id) / 6.283) * 900);
+      }
+    }
+    f.seenOnce = true;
+    const ph = f.ph == null ? (f.ph = phaseOf(f.id)) : f.ph;
+    let dx = 0, ty = 0, rot = 0, sx = 1, sy = 1;
+    if (f.walking) {
+      const s = (f.walked || 0) / STRIDE * Math.PI, a = f.pace ? 0.55 : 1, up = Math.abs(Math.sin(s));
+      ty = -up * 5 * a;
+      rot = Math.sin(s) * 4 * a;
+      sy = 1 - 0.045 * (1 - up) * a; sx = 1 + 0.03 * (1 - up) * a;      // 디딜 때 눌림
+    } else if (f.fsm === "doze") {
+      rot = Math.sin(ts / 1700 + ph) * 3.5;
+      ty = Math.max(0, Math.sin(ts / 1700 + ph)) * 1.5;
+      sy = 1 + 0.012 * Math.sin(ts / 1100 + ph);
+    } else {
+      const b = Math.sin(ts / 950 + ph);                                // 숨쉬기
+      sy = 1 + 0.018 * b; sx = 1 - 0.008 * b;
+    }
+    const g = f.gest;
+    let pop = null, u = 0;
+    if (g && ts >= g.t0) {
+      u = (ts - g.t0) / GESTURE_MS[g.kind];
+      if (u >= 1) f.gest = null;
+      else {
+        const P = Math.PI;
+        switch (g.kind) {
+          case "hop": ty -= Math.abs(Math.sin(u * 2 * P)) * 9 * (1 - u * 0.4); break;
+          case "jump": ty -= Math.sin(u * P) * 18; if (u < 0.15) { sy *= 0.93; sx *= 1.05; } break;
+          case "heart": ty -= Math.sin(Math.min(1, u * 2) * P) * 10; break;
+          case "shake": dx = Math.sin(u * P * 8) * 3.5 * (1 - u); break;
+          case "droop": sy *= 1 - 0.07 * Math.sin(u * P); rot += Math.sin(u * P) * -3; break;
+          case "scribble": rot += Math.sin(u * P * 12) * 2.5; ty -= Math.abs(Math.sin(u * P * 12)) * 1.5; break;
+          case "shout": sy *= 1 + 0.09 * Math.sin(u * P); sx *= 1 - 0.03 * Math.sin(u * P); ty -= 3 * Math.sin(u * P); break;
+          case "wave": rot += Math.sin(u * P * 4) * 7 * (1 - u); break;
+          case "nod": ty += Math.abs(Math.sin(u * P * 3)) * 3; rot += Math.sin(u * P * 3) * 2; break;
+          case "look": ty -= Math.sin(u * P) * 4; break;
+        }
+        pop = POP[g.kind] || null;
+      }
+    }
+    const fx = f.flip && !body.classList.contains("pz-face") ? -1 : 1;
+    body.style.transform = `translate(${dx.toFixed(2)}px, ${ty.toFixed(2)}px) rotate(${rot.toFixed(2)}deg) scale(${(fx * sx).toFixed(4)}, ${sy.toFixed(4)})`;
+    // 몸짓 기호(♥ ✓ …): 머리 위로 떠오르며 사라진다. 말풍선과 다른 층(.pz-pop)이라 말풍선 수에 안 든다
+    let p = f.el.querySelector(":scope > .pz-pop");
+    if (pop) {
+      if (!p) { p = node("span", "pz-pop"); f.el.insertBefore(p, body); }
+      if (p.textContent !== pop) { p.textContent = pop; p.dataset.kind = f.gest.kind; }
+      p.style.top = `${(body.offsetTop - 6 - u * 22).toFixed(1)}px`;
+      p.style.opacity = (u < 0.2 ? u / 0.2 : 1 - (u - 0.2) / 0.8).toFixed(2);
+    } else if (p) p.remove();
+  }
+
+  // 비켜서기: 걷는 사람이 서 있는(또는 마주 오는) 사람과 겹치면 옆으로 조금 비켜 지나간다. 자리(pos)는 안 바꾸고 보이는 자리만
+  function avoid(list) {
+    for (const f of list) {
+      let tx = 0, tyy = 0;
+      if (f.walking) for (const g of list) {
+        if (g === f) continue;
+        const ddx = f.pos[0] - g.pos[0], ddy = (f.pos[1] - g.pos[1]) * 2.2, d = Math.hypot(ddx, ddy), r = 0.75 * heightAt(f.pos[1]);
+        if (d >= r) continue;
+        const k = (r - d) / r, side = d > 0.5 ? ddx / d : (f.id < g.id ? 1 : -1);
+        tx += side * k * r * 0.6; tyy += (ddy >= 0 ? 1 : -1) * k * 6;
+      }
+      const a = f.av || [0, 0];
+      f.av = [a[0] + (tx - a[0]) * 0.12, a[1] + (tyy - a[1]) * 0.12];
+      if (Math.abs(f.av[0]) < 0.05 && Math.abs(f.av[1]) < 0.05) f.av = null;
+    }
   }
 
   // slots are handed out per zone in a stable order, so a refresh does not reshuffle the square
@@ -759,6 +877,8 @@
     if (s && s.body) b.snippet = `“${clip(s.body, BUBBLE_CHARS)}”`;
     else if (ev.type === "reaction_added" && s.links[0][1].who) b.snippet = `→ ${s.links[0][1].who}`;
     if (s && s.post) b.post = s.post;
+    const d = ev.data || {};
+    b.toward = d.target_author || d.to || null;     // 연출(몸짓 방향)만 쓴다
     return b;
   }
 
@@ -980,7 +1100,23 @@
   }
 
   let bellUntil = 0;
-  function ringBell(now) { bellUntil = now + 2500; }
+  // 종이 울리면(운영 행) 깨어 있는 이웃이 종 쪽을 돌아보고, 가까운 이웃 몇은 종 쪽으로 몇 걸음 모였다가 제자리로 돌아간다(연출만)
+  function ringBell(now) {
+    bellUntil = now + 2500;
+    if (!S.motion) return;
+    const [bx, by] = SLOTS.bell[0];
+    for (const f of S.agents.values()) {
+      if (!f.shown || !f.pos || f.fsm === "doze") continue;
+      const dx = bx - f.pos[0], dy = by - f.pos[1], d = Math.hypot(dx, dy);
+      if (Math.abs(dx) > 4) f.flip = dx < 0;
+      gesture(f, "look", now, (phaseOf(f.id) / 6.283) * 400);
+      if (d < 420 && d > 60 && !(f.path && f.path.length) && rng(f.id + "~bell" + Math.floor(now / 1000))() < 0.6) {
+        const k = Math.min(0.45, 110 / d);
+        f.path = [[f.pos[0] + dx * k, f.pos[1] + dy * k]];
+        f.wait = 2600;                       // 잠시 서 있다가 fsm 이 제자리(home)로 데려간다
+      }
+    }
+  }
 
   function showScene(cards) {
     const pop = document.getElementById("pzScenePop");
@@ -1013,11 +1149,14 @@
       if (Math.floor(ts / 250) !== Math.floor((ts - dt) / 250)) drawRbarHead();
     }
     let busy = S.mode === "replay" && rp.playing;
+    const live = [];
     for (const f of S.agents.values()) {
       if (!f.pos) continue;
       busy = fsm(f, dt, ts) || busy;
-      moveFigure(f);
+      if (f.shown) live.push(f);
     }
+    if (S.motion) avoid(live);
+    for (const f of S.agents.values()) if (f.pos) moveFigure(f);
     const bell = document.querySelector('#pzThings .pz-zone[data-zone="bell"]');
     if (bell) bell.classList.toggle("ring", ts < bellUntil && S.motion);
     if (ts < bellUntil) busy = true;
@@ -1028,11 +1167,23 @@
   function fsm(f, dt, ts) {
     if (f.path && f.path.length) {
       if (!S.motion) { f.pos = f.path[f.path.length - 1].slice(); f.path = []; f.walking = false; return false; }
-      const p = f.path[0], dx = p[0] - f.pos[0], dy = p[1] - f.pos[1], d = Math.hypot(dx, dy);
-      const step = (f.pace ? 28 : 110) * dt / 1000;
-      if (Math.abs(dx) > 0.5) f.flip = dx < 0;
-      if (d <= step) { f.pos = p.slice(); f.path.shift(); f.walked = (f.walked || 0) + d; }
-      else { f.pos = [f.pos[0] + dx / d * step, f.pos[1] + dy / d * step]; f.walked = (f.walked || 0) + step; }
+      // 곧은 선 대신 살짝 휜 길(2차 베지어, 굽기는 사람마다 결정적), 출발·도착에서 가감속
+      const p = f.path[0];
+      if (!f.seg || f.seg.to !== p) {
+        const a = f.pos.slice(), dx = p[0] - a[0], dy = p[1] - a[1], d = Math.hypot(dx, dy) || 1;
+        const bend = d > 60 ? (f.R() - 0.5) * 0.36 * d : 0;
+        f.seg = { a, to: p, c: [(a[0] + p[0]) / 2 - dy / d * bend, (a[1] + p[1]) / 2 + dx / d * bend], len: d * (1 + 0.5 * (bend / d) ** 2), s: 0 };
+      }
+      const g = f.seg, vmax = f.pace ? 28 : 110;
+      const ramp = Math.min(1, 0.3 + Math.min(g.s, g.len - g.s) / (f.pace ? 10 : 36));
+      const step = vmax * ramp * dt / 1000;
+      g.s = Math.min(g.len, g.s + step);
+      const t = g.s / g.len, m = 1 - t;
+      const np = [m * m * g.a[0] + 2 * m * t * g.c[0] + t * t * p[0], m * m * g.a[1] + 2 * m * t * g.c[1] + t * t * p[1]];
+      if (Math.abs(np[0] - f.pos[0]) > 0.05) f.flip = np[0] < f.pos[0];
+      f.walked = (f.walked || 0) + Math.hypot(np[0] - f.pos[0], np[1] - f.pos[1]);
+      f.pos = np;
+      if (t >= 1) { f.pos = p.slice(); f.path.shift(); f.seg = null; }
       f.walking = f.path.length > 0;
       if (!f.walking) f.pace = null;
       return true;
@@ -2395,6 +2546,9 @@
     openSpot, closeSpot,
     spot: () => { const m = document.getElementById("pzSpot"); return { zone: m.hidden ? null : m.dataset.zone, ready: m.dataset.ready === "1", cat: SP.cat }; },
     zoom: { state: zoom.state, set: zoom.set, reset: zoom.reset },
+    // 연출 녹화·판정용: 몸짓 하나를 지금 틀어 본다(연출 끔이면 아무것도 안 함). 말풍선·원장과 무관
+    gesture: (id, kind) => { const f = S.agents.get(id); if (f) { gesture(f, kind, performance.now()); kick(); } return !!(f && f.gest); },
+    ringBell: () => { ringBell(performance.now()); kick(); },
   };
 
   build();
