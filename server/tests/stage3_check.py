@@ -1442,6 +1442,13 @@ def plaza_checks(C: Checks, browser, args, work: Path, extra=(), capture=None):
 
     length_checks(C, page, url, work, data, snap)
 
+    before = plaza_site(work / "site_motion_before", data)
+    for f in ("plaza.js", "plaza.css"):
+        (before / "web" / f).write_text(before_web(args.motion_before, f), encoding="utf-8")
+    url_mb, srv_mb = serve(before)
+    motion_checks(C, page, still, url, url_mb, before_label(args.motion_before), shots)
+    srv_mb.shutdown()
+
     # 입구 버튼
     ctx, pg = page(1840, 1080, "view=plaza&mode=now")
     pg.click("#pzJoin")
@@ -1460,6 +1467,87 @@ def plaza_checks(C: Checks, browser, args, work: Path, extra=(), capture=None):
     C.check("페이지 오류", "광장 화면 페이지 오류 0", not errs_all, "; ".join(errs_all[:3]))
     srv.shutdown()
     return shots
+
+
+# 몸짓(docs/design/motion-and-map.md 2.3): 연출 끔이면 몸짓 앞 판과 같은 그림, 연출 켬이면 몸짓이 실제로 돌고, 몸짓은 말풍선 수를 안 바꾼다
+MOTION_PROBE_JS = """() => {
+  const figs = [...document.querySelectorAll('#pzFigures .pz-agent:not([hidden])')];
+  const talk = figs.filter((a) => a.querySelector('.pz-bubble'));
+  return {ids: talk.map((a) => a.dataset.id), tf: talk.map((a) => (a.querySelector('.pz-body') || {style: {}}).style.transform || ''),
+          anyTf: figs.filter((a) => ((a.querySelector('.pz-body') || {style: {}}).style.transform || '') !== '').length,
+          pops: document.querySelectorAll('#pzFigures .pz-pop').length, mo: document.querySelectorAll('#pzFigures .mo').length,
+          b: Plaza.stats().bubblesOnStage};
+}"""
+
+
+def motion_checks(C: Checks, page, still, url: str, url_before: str, before_name: str, shots: Path):
+    """① 연출 끔(motion=0) 화면 = 몸짓 앞 판(--motion-before) 화면 픽셀 동일 + 몸 그림 인라인 transform·.pz-pop·.mo 0.
+       자 검사: 같은 자로 연출 켬 화면은 「다름」. 앞 판 고정이라 web/ 이 몸짓 말고 다른 이유로 바뀌면 --motion-before 를 그 판으로 올린다
+    ② 연출 켬에서 말풍선이 뜬 사람의 .pz-body transform 이 시간에 따라 바뀜(몸짓이 실제로 돈다), 연출을 끄면 빈 문자열
+    ③ 몸짓(Plaza.gesture 전원 + 종 울림)이 도는 동안 bubblesOnStage 불변. 몸짓이 실제로 걸렸는지(기호 .pz-pop)도 같이 본다"""
+    G = "몸짓"
+    q0 = "mode=now&motion=0"
+    s_new = still(url, "mo_off_new.png", q=q0)
+    still(url, "mo_off_new2.png", q=q0)
+    still(url_before, "mo_off_before.png", q=q0)
+    ok_c, why_c = same_pixels(shots / "mo_off_new.png", shots / "mo_off_new2.png")
+    ok_b, why_b = same_pixels(shots / "mo_off_new.png", shots / "mo_off_before.png")
+    ctx, pg = page(1440, 900, q0, False)
+    pg.clock.run_for(3000)
+    off = pg.evaluate(MOTION_PROBE_JS)
+    ctx.close()
+    # 자: 연출 켬 화면을 같은 크기로 찍어 「다름」인지
+    ctx, pg = page(1440, 900, "mode=now&motion=1", True)
+    pg.clock.run_for(2000)
+    until(pg, "[...document.images].every((i) => i.complete) && Plaza.stats().facesPending === 0", tries=60)
+    pg.clock.run_for(700)
+    settle_raster(pg, 1440, 900)
+    pg.screenshot(path=str(shots / "mo_on_new.png"), full_page=True)
+    ctx.close()
+    ok_r, why_r = same_pixels(shots / "mo_off_new.png", shots / "mo_on_new.png")
+    C.check(G, "대조군: 연출 끔 화면 두 번 찍어 같은 그림", ok_c, why_c)
+    C.check(G, f"연출 끔(motion=0) = 몸짓 앞 판({before_name}) 그림 픽셀 동일, 몸 인라인 transform·몸짓 기호·.mo 0",
+            ok_b and off["anyTf"] == 0 and off["pops"] == 0 and off["mo"] == 0,
+            f"{why_b} · transform {off['anyTf']} · 기호 {off['pops']} · .mo {off['mo']}")
+    C.check(G, "자 검사: 같은 자로 연출 켬 화면은 「다름」", not ok_r, why_r)
+
+    # ② 시간에 따라 바뀌는 transform, 끄면 빈 문자열
+    ctx, pg = page(1440, 900, "mode=now&motion=1", True)
+    pg.clock.run_for(2000)
+    a = pg.evaluate(MOTION_PROBE_JS)
+    pg.clock.run_for(400)
+    b = pg.evaluate(MOTION_PROBE_JS)
+    moved = [i for i, (x, y) in enumerate(zip(a["tf"], b["tf"])) if x and y and x != y]
+    pg.click("#pzMotion")
+    pg.clock.run_for(600)
+    c = pg.evaluate(MOTION_PROBE_JS)
+    ctx.close()
+    n = len(a["ids"])
+    C.check(G, "연출 켬: 말풍선이 뜬 사람마다 몸 transform 이 0.4초 사이에 바뀜 (몸짓·숨쉬기가 실제로 돈다)",
+            n > 0 and len(moved) == n, f"말풍선 {n}명 · 바뀜 {len(moved)} · 예 {(a['tf'] or [''])[0][:60]}")
+    C.check(G, "연출 끔으로 바꾸면 몸 transform 이 빈 문자열, 몸짓 기호·.mo 0", c["anyTf"] == 0 and c["pops"] == 0 and c["mo"] == 0,
+            f"transform {c['anyTf']} · 기호 {c['pops']} · .mo {c['mo']}")
+
+    # ③ 몸짓 도는 동안 말풍선 수 불변
+    ctx, pg = page(1440, 900, "mode=now&motion=1", True)
+    pg.clock.run_for(3000)
+    b0 = pg.evaluate("Plaza.stats().bubblesOnStage")
+    ids = pg.evaluate(MOTION_PROBE_JS)["ids"]
+    try:   # 종이 먼저: 종 울림은 전원에게 「돌아보기」(기호 없음)를 걸어 앞서 건 몸짓을 덮는다
+        pg.evaluate("Plaza.ringBell()")
+        hit = pg.evaluate("(ids) => ids.map((id) => Plaza.gesture(id, 'heart'))", ids)
+    except Exception as e:   # 몸짓 앞 판엔 Plaza.gesture 가 없다
+        hit = [f"없음: {str(e).splitlines()[0][:60]}"]
+    seen, pops = [], 0
+    for _ in range(12):
+        pg.clock.run_for(250)
+        st = pg.evaluate(MOTION_PROBE_JS)
+        seen.append(st["b"])
+        pops = max(pops, st["pops"])
+    ctx.close()
+    C.check(G, "몸짓(전원 ♥ + 종 울림) 3초 동안 말풍선 수 불변, 몸짓 기호가 실제로 뜸",
+            b0 > 0 and all(x is True for x in hit) and set(seen) == {b0} and pops > 0,
+            f"전 {b0} · 동안 {sorted(set(seen))} · 몸짓 걸림 {hit[:3]} · 기호 최대 {pops}")
 
 
 # 글 길이 띠(metrics.md 1.16) 판정용 고정 값. 녹화 스냅샷(stage3_data)엔 이 칸이 없어 다른 판정의 그림은 그대로다
@@ -1759,6 +1847,8 @@ def main(argv=None) -> int:
                     help="캐릭터 앞 「전」 캡처에 쓸 옛 판 (plaza.js·plaza.css 가 든 폴더, 또는 이 리포의 커밋)")
     ap.add_argument("--faces-before", default=str(BEFORE_DIR / "faces_b0af64d"),
                     help="아바타 표정 자 검사에 쓸 표정 앞 판 (폴더 또는 이 리포의 커밋)")
+    ap.add_argument("--motion-before", default="444e083",
+                    help="몸짓 판정 ①의 「연출 끔 = 앞 판」에 쓸 몸짓 앞 판 (폴더 또는 이 리포의 커밋)")
     a = ap.parse_args(argv)
     work = Path(a.work).expanduser()
     work.mkdir(parents=True, exist_ok=True)
