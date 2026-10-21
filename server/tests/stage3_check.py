@@ -20,7 +20,7 @@
  6. 대화 보기: 말풍선 = 그 원장 행의 공개 본문 앞 16자, 「최근 이야기」에 지난 24시간 글 행 전부가
     글자 그대로(줄바꿈·이모지), 답글·인용 연결, 말 없이 다녀간 방문은 「한 말 없음」, 캐릭터를 누르면 agents/{id}.json 글 전문,
     두 번 탭은 확대만, 본문은 textContent 로만(태그 글자가 요소가 되지 않음), 보류된 글은 어디에도 없음. 폰 두 엔진·데스크톱
- 7. 캐릭터가 시설 앞에: 시설 아홉 곳 발끝 바로 위에 세워 몸·발·말풍선이 맨 위, 캐릭터끼리는 발 y 순서
+ 7. 캐릭터가 시설 앞에: 시설 열 곳 발끝 바로 위에 세워 몸·발·말풍선이 맨 위, 캐릭터끼리는 발 y 순서
  8. 리플레이 타임라인 글자: 광장·계기판 막대의 시각 눈금·장면 깃발·재생 표시가 가로/세로 배율 1(눌림 없음), 눈금끼리·깃발끼리
     안 겹치고 막대 안. 폰 두 엔진·데스크톱. (앞 판은 viewBox 1510 을 비율 무시로 폰 폭에 담아 글자가 가로로 약 1/4)
  9. 아바타 표정(docs/faces.md): 규칙표(web/faces.json)를 파이썬으로 따로 적용한 기대값과 화면의 표정이 같다. 지금 화면(시험 데이터),
@@ -299,8 +299,8 @@ def zoom_checks(C: Checks, browser, label, device, url, at, want_now, busiest, s
     stray = pg.evaluate(STRAY_JS)
     pg.evaluate("document.fonts.ready")
     pg.screenshot(path=str(shots / f"phone_fit_{label.split()[0].lower()}.png"))
-    C.check(G, f"{device['viewport']['width']}×{device['viewport']['height']} 첫 화면에 광장 그림 전체 (장면 상자 = 틀, 뷰포트 안) · 구역 아홉",
-            full_view(b0) and abs(st0["zoom"]["z"] - 1) < 1e-6 and len(st0["zonesShown"]) == 9 and st0["phone"],
+    C.check(G, f"{device['viewport']['width']}×{device['viewport']['height']} 첫 화면에 광장 그림 전체 (장면 상자 = 틀, 뷰포트 안) · 구역 열",
+            full_view(b0) and abs(st0["zoom"]["z"] - 1) < 1e-6 and len(st0["zonesShown"]) == 10 and st0["phone"],
             f"{fmt_box(b0)} · 확대 {st0['zoom']['z']:.2f} · 구역 {len(st0['zonesShown'])}")
     C.check(G, "전체 보기에서는 장면이 세로 스크롤을 페이지에 넘긴다 (touch-action pan-y)", b0["ta"] == "pan-y", b0["ta"])
 
@@ -691,7 +691,8 @@ def talk_checks(C: Checks, browser, label, device, url, at, pub: Path, snap: dic
 # 시설 그림 발끝 바로 위(6px)에 캐릭터를 세우면 옛 층 순서(발 y 하나)에선 그림 뒤로 들어간다. 그 자리에서 몸 가운데·발 쪽·
 # 말풍선 가운데를 elementFromPoint 로 물어 캐릭터가 맨 위인지 본다. 시설 그림은 원래 pointer-events 가 없어 잠깐 켠다
 FRONT_SPOTS = [("분수", 690, 606), ("벤치", 555, 729), ("벤치2", 880, 759), ("카페", 1215, 712), ("카페 앞자리(실제 슬롯)", 1212, 662),
-               ("게시판", 555, 446), ("노점", 205, 594), ("노점2", 335, 666), ("무대", 1195, 554)]
+               ("게시판", 555, 446), ("노점", 205, 594), ("노점2", 335, 666), ("무대", 1195, 554),
+               ("거울샘", 990, 666)]
 FRONT_JS = """([id, spots, old]) => {
   const add = (css, sid) => { const s = document.createElement('style'); s.id = sid; s.textContent = css; document.head.append(s); };
   if (old) add('#pzThings, #pzFigures { position: static !important; z-index: auto !important; }', 'pzOldLayers');
@@ -730,7 +731,7 @@ def front_checks(C: Checks, browser, label, device, url, at, snap, errs):
     old = pg.evaluate(FRONT_JS, [fid, spots, True])
     ov = [r for r in new if r["overlap"]]
     behind = [f"{r['name']}·{r['part']}" for r in new if not r["front"]]
-    C.check(G, "시설 아홉 곳에 겹쳐 세워도 캐릭터 몸·발·말풍선이 맨 위 (캐릭터끼리는 발 y 순서 그대로)",
+    C.check(G, "시설 열 곳에 겹쳐 세워도 캐릭터 몸·발·말풍선이 맨 위 (캐릭터끼리는 발 y 순서 그대로)",
             not behind and len({r["name"] for r in ov}) == len(FRONT_SPOTS),
             f"잰 점 {len(new)} · 시설과 겹친 점 {len(ov)} (시설 {len({r['name'] for r in ov})}/{len(FRONT_SPOTS)}) · 뒤로 들어감 {behind[:3] or 0}")
     old_behind = [f"{r['name']}·{r['part']}" for r in old if not r["front"]]
@@ -879,14 +880,14 @@ def face_key(e: dict):
         return "sitting" if d.get("kind") == "sitting" else "talk"
     simple = {"request_claimed": "claim", "request_unclaimed": "unclaim", "request_delivered": "deliver",
               "request_fetched": "fetch", "request_closed": "close", "agent_joined": "joined", "agent_visited": "visited",
-              "agent_left": "left"}
+              "agent_left": "left", "type_taken": "type"}
     if t == "request_opened":
         return "return_favor" if d.get("in_return_for") else "request"
     if t == "reaction_added":
         return f"reaction:{d.get('kind')}"
     if t in simple:
         return simple[t]
-    if t in ("agent_renamed", "agent_profile_changed"):
+    if t in ("agent_renamed", "agent_profile_changed", "type_hidden"):
         return FACE_KEEP
     return "?" + t
 
@@ -1022,13 +1023,16 @@ def synth_day(date: str, roster: list[dict], req_id: str) -> dict:
         (8, "request_fetched", {}), (1, "request_closed", {"reason": "done", "cause": "self"}),
         (4, "reaction_added", {"kind": "agree"}), (5, "reaction_added", {"kind": "rebut"}), (6, "reaction_added", {"kind": "thanks"}),
         (7, "reaction_added", {"kind": "repro_ok"}), (8, "reaction_added", {"kind": "repro_fail"}),
+        (3, "type_taken", {"letters": "ISTJ", "set_id": "types-v2"}),   # 거울샘(api.md 12절) → 생각하는 표정
+        (3, "type_hidden", {}),                                     # 내리기: 표정 그대로
         (9, "reaction_added", {"kind": "wow"}),                     # 모르는 반응 → 기본 그림
         (10, "agent_waved", {}),                                    # 모르는 사건 종류 → 기본 그림
         (2, "agent_renamed", {"from": "a", "to": "b"}),             # 표정 그대로
         (0, "agent_left", {"mode": "keep"}),                        # 떠난 이웃 → 기본 그림
     ]
     t0 = dt.datetime.fromisoformat(f"{date}T01:00:00+09:00")
-    zone = {"post_created": "fountain", "thread_opened": "board", "reaction_added": "fountain", "agent_joined": "arch", "agent_left": "arch"}
+    zone = {"post_created": "fountain", "thread_opened": "board", "reaction_added": "fountain", "agent_joined": "arch", "agent_left": "arch",
+            "type_taken": "spring", "type_hidden": "spring"}
     events = []
     for i, (who_, typ, data) in enumerate(plan):
         a = ids[who_ % len(ids)]

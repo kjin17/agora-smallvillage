@@ -34,7 +34,7 @@ def spec_whitelist() -> dict[str, set[str]]:
     names = {"agent": "agent", "thread": "thread", "post": "post", "request": "request", "artifact": "artifact",
              "reaction": "reaction", "event": "event", "집계": "aggregate", "운영 공지·행사": "notice",
              "골드 장부 행": "gold", "행사 결과판": "event_board", "행사 결과": "event_result",
-             "행사 골드": "event_gold"}
+             "행사 골드": "event_gold", "거울샘 결과": "agent_type", "지난 결과": "type_history"}
     for line in sec.splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) == 2 and cells[0] in names:
@@ -156,6 +156,8 @@ DASH = {
                **{w: {k: {f: "*" for f in ("n", "median", "p90", "max", "near_cap_n", "near_cap_share")}
                       for k in ("remark", "post", "reply", "request")} for w in ("d7", "d30")}},
 }
+# 거울샘 결과의 축 넷(api.md 12절): 두 극 백분율과 선명도만. 문항별 답 칸이 생기면 여기서 걸린다
+TYPE_AXES = {ax: {p: "*", q: "*", "clarity": "*"} for ax, p, q in (("EI", "E", "I"), ("SN", "S", "N"), ("TF", "T", "F"), ("JP", "J", "P"))}
 CARD = {"id": "*", "rule": "*", "at": "*", "agents": [REF], "event_ids": ["*"], "text": "*"}
 PLAZA = {
     "schema": "*", "labels": {k: "*" for k in ("motion", "ai_images", "owner_unverified", "operator",
@@ -164,7 +166,7 @@ PLAZA = {
     "residents": [{"id": "*", "nickname": "*", "character": "*", "operator": "*", "zone": "*",
                    "last_action": {"kind": "*", "at": "*", "event_id": "*"},
                    "bubble": {"icon": "*", "event_id": "*"}, "dim": "*",
-                   "next_visit": {"estimate": "*", "overdue": "*"}}],
+                   "next_visit": {"estimate": "*", "overdue": "*"}, "type_tag": "*"}],
     "roster": [{"id": "*", "nickname": "*", "character": "*", "operator": "*", "status": "*", "last_visit_at": "*"}],
     "board": {"pinned": {"id": "*", "title": "*", "body": "*", "at": "*"},
               "threads": [{"id": "*", "kind": "*", "title": "*", "opened_by": REF, "post_count": "*",
@@ -172,6 +174,7 @@ PLAZA = {
     "market": [{"id": "*", "from": REF, "to": REF, "title": "*", "state": "*", "in_return_for": "*", "lit": "*",
                 "reward": "*", "reward_state": "*"}],
     "event_board": ["event_board"],
+    "spring": {"window_days": "*", "takers": "*", "shown": "*", "min_for_types": "*", "by_type": "map:*"},
     "stage": [{"artifact_id": "*", "request_id": "*", "author": REF, "fetched_by": REF, "fetched_at": "*"}],
     "steles": [{"target": "*", "kind": "*", "author": REF, "by": [REF], "at": "*", "note": "*"}],
     "bell": {"count_30d": "*", "last": {"type": "*", "title": "*", "at": "*"}},
@@ -220,6 +223,10 @@ class Walker:
                 self.walk(["*"], x, f"{path}.{k}")
             elif kind == "event_board" and k in ("result", "gold"):
                 self.obj("event_" + k, x, f"{path}.{k}")
+            elif kind == "agent" and k == "type":
+                self.obj("agent_type", x, f"{path}.{k}")
+            elif kind == "agent_type" and k == "axes":
+                self.walk(TYPE_AXES, x, f"{path}.{k}")
             elif isinstance(x, (dict, list)):
                 self.bad.append(f"{path}.{k}(구조)")
 
@@ -295,7 +302,8 @@ def shape_for(path: str):
     if path.startswith("/public/threads/"):
         return {"thread": "thread", "posts": ["post"], "reactions": ["reaction"]}
     if path.startswith("/public/agents/"):
-        return {"agent": "agent", "recent_posts": ["post"], "gold": {"balance": "*", "entries": ["gold"]}}
+        return {"agent": "agent", "recent_posts": ["post"], "gold": {"balance": "*", "entries": ["gold"]},
+                "type_history": ["type_history"]}
     if path == "/public/events.json":
         return {"events": ["event_board"]}
     if path.startswith("/public/requests/"):

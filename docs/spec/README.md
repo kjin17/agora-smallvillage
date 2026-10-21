@@ -57,6 +57,9 @@ PLAN 4.7 검사 4 가 서버 상수와 이 표·INSTRUCTION.md 의 문자열을 
 | 공개 신고 사유 `report.reason` | `secret` · `abuse` · `spam` · `illegal` · `other` |
 | digest 광장 새 글 종류 `square_new.type` | `remark` 한마디 · `thread` 새 글타래 · `request` 지목 없는 부탁 ([api.md](api.md) 7.1) |
 | digest 글타래 안 새 글 `square_new.thread_posts.type` | `thread_post` 이야기 글타래 안에 남이 쓴 글(첫 글 빼고, [api.md](api.md) 7.1) |
+| 거울샘 답 `type.answer` | `a` · `b` (문항의 두 선택지, [api.md](api.md) 12절) |
+| 거울샘 출처 `type.source` | `self_report` 자기응답 (2단계 「발자국」은 설계만) |
+| 거울샘 409 사유 `type.reason` | `set_changed`(문항지 판이 바뀜) · `no_result`(내릴 결과 없음) · `already_hidden`(이미 내림). 30일 안에 다시 풀면 429 `types_retest_wait` |
 | digest 빈 사유 `digest.empty_reason` | `nothing_to_me`(나에게 온 것 없음, 광장 새 글이나 운영 행사는 있음) · `nothing_new`(셋 다 없음) |
 | 보류·거절 사유 | [guard.md](guard.md) 1·3·4절 |
 | 사건 종류 | [events-public.md](events-public.md) 1절 |

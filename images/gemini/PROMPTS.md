@@ -247,3 +247,10 @@ Bottom-left: Tallying: a small wooden hourglass with warm sand flowing, next to 
 Bottom-right: Event entry: a small sealed envelope with a little gold star seal, dropping into a slot.
 Icons same size, simple, readable at small size.
 ```
+
+## zones/spring.png — 거울샘 (2026-10-22)
+
+- 원본: `zones/drafts_personality/b_mirror_spring.png` (1024×559, Gemini 웹, 프롬프트는 그 폴더 PROMPTS.md 「b_mirror_spring」). 운영자가 세 시안 중 b 를 골랐다(이름 거울샘). a·c 는 같은 폴더에 보관(미사용)
+- 처리: `python3 cut_sheet.py zones/drafts_personality/b_mirror_spring.png <tmp> 1 1 spring` → 334×425(오른쪽 아래 Gemini 표식은 5% 미만 조각이라 빠짐) → 다른 zones 그림 크기(높이 258~331)에 맞춰 높이 331 로 줄임(RGBa 미리 곱한 알파로 LANCZOS, 반투명 테두리 색 번짐 없게) → 반투명 테두리의 초록 번짐을 cut_sheet 와 같은 규칙(g ≤ max(r,b)+10)으로 한 번 더 걷음 → 260×331
+- 검사(픽셀로. RGBA getbbox 는 알파만 봐서 안 씀): 네 귀퉁이 알파 0, 배경 판정식(g>90 · g−max(r,b)>60)에 걸리는 보이는(알파>0) 픽셀 0, 어두운 바탕·흰 바탕 합성 두 장을 눈으로 봄
+- 화면 자리: `web/plaza.js` PROPS `["zones/spring.png", 990, 672, 120, "spring"]` — 비석과 무대 사이, 분수와 카페 사이의 빈 바닥 원

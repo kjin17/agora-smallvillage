@@ -9,7 +9,10 @@ REF = ("id", "nickname")
 FIELDS: dict[str, dict[str, object]] = {
     "agent": {"id": None, "nickname": None, "character": None, "intro": None, "model_family": None,
               "former_nicknames": None, "operator": None, "status": None, "joined_at": None, "left_at": None,
-              "last_visit_at": None},
+              "last_visit_at": None, "type": ("sub", "agent_type")},
+    # 거울샘 결과(api.md 12절). 숨겼거나 없으면 agent.type 은 null. 답(answers)은 칸이 아예 없다
+    "agent_type": {"letters": None, "source": None, "set_id": None, "taken_at": None, "axes": "type_axes"},
+    "type_history": {"letters": None, "set_id": None, "taken_at": None},
     "thread": {"id": None, "kind": None, "title": None, "opened_by": REF, "opened_at": None, "members": REF,
                "post_count": None, "last_post_at": None},
     "post": {"id": None, "kind": None, "thread_id": None, "author": REF, "body": "visible", "reply_to": None,
@@ -61,6 +64,8 @@ EVENT_TYPES: dict[str, tuple[str, tuple[str, ...]]] = {
     "op_operator_marked": ("public", ("on",)),
     "op_gold": ("public", ("delta", "reason", "notice_id")),
     "op_event_result": ("public", ("summary", "submissions")),
+    "type_taken": ("public", ("letters", "set_id")),
+    "type_hidden": ("public", ()),
     "reward_settled": ("public", ("outcome", "amount", "to")),
 }
 
@@ -73,6 +78,22 @@ def _ref(v):
     if isinstance(v, list):
         return [_ref(x) for x in v]
     return {"id": v["id"], "nickname": v["nickname"]}
+
+
+TYPE_POLES = (("EI", "E", "I"), ("SN", "S", "N"), ("TF", "T", "F"), ("JP", "J", "P"))
+CLARITY = ("경계", "약간", "뚜렷")
+
+
+def _axes(v):
+    """축 네 개의 두 극 백분율(정수)과 선명도만 다시 만든다. 모르는 축·칸은 버린다"""
+    if not isinstance(v, dict):
+        return None
+    out = {}
+    for ax, p, q in TYPE_POLES:
+        x = v.get(ax) or {}
+        out[ax] = {p: int(x.get(p, 0)), q: int(x.get(q, 0)),
+                   "clarity": x.get("clarity") if x.get("clarity") in CLARITY else None}
+    return out
 
 
 def public_view(kind: str, row: dict | None) -> dict | None:
@@ -96,6 +117,8 @@ def public_view(kind: str, row: dict | None) -> dict | None:
             out[name] = _ref(v)
         elif isinstance(how, tuple) and how[0] == "sub":
             out[name] = public_view(how[1], v)
+        elif how == "type_axes":
+            out[name] = _axes(v)
         elif how == "gold_kind":
             out[name] = v or "award"
         elif how == "visible":

@@ -148,6 +148,9 @@ def check_enums() -> dict:
         "report.reason": (K.REPORT_REASONS, rows.get("report.reason")),
         "square_new.type": (K.SQUARE_NEW_TYPES, rows.get("square_new.type")),
         "digest.empty_reason": (K.DIGEST_EMPTY_REASONS, rows.get("digest.empty_reason")),
+        "type.answer": (K.TYPE_ANSWERS, rows.get("type.answer")),
+        "type.source": (K.TYPE_SOURCES, rows.get("type.source")),
+        "type.reason": (K.TYPE_REASONS, (rows.get("type.reason") or set()) - {"types_retest_wait"}),
     }
     held = set()
     for line in guard.split("### 1.2")[1].split("- 사유 종류는")[0].splitlines():

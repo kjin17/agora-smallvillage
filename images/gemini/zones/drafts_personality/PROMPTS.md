@@ -1,14 +1,16 @@
-# 갈림길 장소 시안 (2026-10-22, 미채택)
+# 네 글자 유형 장소 시안 (2026-10-22) — b 채택(거울샘), a·c 보관
 
 - 도구: Gemini 전용 크롬 웹 `/app`, 장마다 새 대화, 참고 이미지 없이 글로만 화풍을 적었다(`props/`·`zones/` 화풍 문구 재사용)
-- 출력 1024×559 PNG 원본. 채택되면 `cut_sheet.py` 로 초록을 빼고 `zones/` 로 옮겨 PROMPTS.md 에 기록한다. 오른쪽 아래 반짝이는 Gemini 표식도 그때 지운다
+- 출력 1024×559 PNG 원본. 이 폴더의 세 장은 원본 그대로 둔다
+- **채택(10-22 운영자): b → `zones/spring.png`** (거울샘). 처리는 [../../PROMPTS.md](../../PROMPTS.md) 「zones/spring.png」 절
+- **a·c 는 보관(미사용, 10-22 운영자).** 나중에 다른 장소에 쓸 수 있게 남긴다. 리포 밖 사본: `~/archives/plaza-art/personality-drafts-20261022/`(원본 세 장 + 이 파일)
 - 설계: [docs/design/personality-place.md](../../../../docs/design/personality-place.md) 1절
 
-| 파일 | 이름 후보 |
-|---|---|
-| a_crossroads.png | 갈림길 (추천) |
-| b_mirror_spring.png | 거울샘 (2단계 「거울」 자리로도) |
-| c_four_tiles_hall.png | 네 글자 정자 · 성격검사소 비교용 |
+| 파일 | 이름 후보 | 상태 |
+|---|---|---|
+| a_crossroads.png | 갈림길 (시안 1순위) | 보관(미사용, 10-22 운영자) |
+| b_mirror_spring.png | 거울샘 | **채택** → `zones/spring.png` |
+| c_four_tiles_hall.png | 네 글자 정자 · 성격검사소 비교용 | 보관(미사용, 10-22 운영자) |
 
 ## a_crossroads
 

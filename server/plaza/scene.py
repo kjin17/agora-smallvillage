@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 
 from . import metrics as M
-from .consts import EVENT_BOARD_MAX, OWNER_UNVERIFIED
+from .consts import EVENT_BOARD_MAX, OWNER_UNVERIFIED, TYPE_DIST_MIN, TYPE_WINDOW_DAYS
 from .util import iso, parse_iso
 
 SNAPSHOT_FORMAT = "ai-smallvillage/plaza"
@@ -55,7 +55,29 @@ def zone_bubble(L: M.Ledger, e: dict) -> tuple[str | None, str | None]:
         return "arch", None
     if t.startswith("op_"):
         return "bell", None
+    if t in TYPE_EVENTS:
+        return "spring", None
     return None, None
+
+
+# 거울샘(api.md 12절): 말풍선 종류가 아니다(리플레이 말풍선 수 불변식 그대로). 자리만 정한다
+TYPE_EVENTS = ("type_taken", "type_hidden")
+PLACE_TYPES = set(M.ACTION_TYPES) | {"thread_opened", *TYPE_EVENTS}
+
+
+def spring(L: M.Ledger) -> dict:
+    """거울샘 팝업: 최근 30일 푼 이웃 수와, 지금 프로필에 보이는 결과의 유형별 수(TYPE_DIST_MIN 미만이면 null).
+    입력은 공개 원장 type_taken 행과 공개 agent.type 뿐이다"""
+    lo = L.since(TYPE_WINDOW_DAYS)
+    takers = {e["actor"] for e in L.events if e["type"] == "type_taken" and e["_t"] >= lo}
+    shown: dict[str, int] = {}
+    for a in takers:
+        ty = (L.agents.get(a) or {}).get("type")
+        if ty and ty.get("taken_at") and parse_iso(ty["taken_at"]) >= lo:
+            shown[ty["letters"]] = shown.get(ty["letters"], 0) + 1
+    n = sum(shown.values())
+    return {"window_days": TYPE_WINDOW_DAYS, "takers": len(takers), "shown": n, "min_for_types": TYPE_DIST_MIN,
+            "by_type": dict(sorted(shown.items(), key=lambda kv: (-kv[1], kv[0]))) if n >= TYPE_DIST_MIN else None}
 
 
 def build_replay(L: M.Ledger, date: str, bubble_rows: int, final: bool, generated: str) -> dict:
@@ -83,7 +105,7 @@ def _residents(L: M.Ledger) -> list[dict]:
     visited = {e["actor"] for e in L.events if e["type"] == "agent_visited" and e["_t"] >= lo7}
     last_action: dict[str, dict] = {}
     for e in L.events:
-        if e["type"] in M.ACTION_TYPES or e["type"] == "thread_opened":
+        if e["type"] in PLACE_TYPES:
             last_action[e["actor"]] = e
     joined = {e["actor"]: e["_t"] for e in L.events if e["type"] == "agent_joined"}
     out = []
@@ -93,13 +115,17 @@ def _residents(L: M.Ledger) -> list[dict]:
             continue
         e = last_action.get(a)
         row = {"id": a, "nickname": ag["nickname"], "character": ag["character"], "operator": bool(ag["operator"]),
-               "zone": None, "last_action": None, "bubble": None, "dim": False, "next_visit": None}
+               "zone": None, "last_action": None, "bubble": None, "dim": False, "next_visit": None, "type_tag": None}
         if e and e["_t"] >= lo1:
             zone, icon = zone_bubble(L, e)
             kind = e["data"].get("kind") if e["type"] == "post_created" else e["type"]
             row.update(zone=zone, last_action={"kind": kind, "at": e["at"], "event_id": e["id"]})
             if icon and e["type"] in M.BUBBLE_TYPES and L.now - e["_t"] <= dt.timedelta(minutes=WITHIN_MINUTES):
                 row["bubble"] = {"icon": icon, "event_id": e["id"]}
+            # 거울샘에서 막 푼 이웃: 머리 위 팻말에 네 글자(말풍선 아님). 그 뒤 숨겼으면(agent.type null) 팻말 없이 선다
+            ty = ag.get("type")
+            if e["type"] == "type_taken" and ty and ty.get("letters") == e["data"].get("letters"):
+                row["type_tag"] = ty["letters"]
         elif e is None and a in joined and L.now - joined[a] <= dt.timedelta(hours=24):
             row["zone"] = "arch"
         elif e is None:
@@ -157,7 +183,7 @@ def build_snapshot(L: M.Ledger, generated: str, batch_ran: bool = True) -> dict:
         "bell": {"count_30d": dash["ops"]["bell"],
                  "last": ({"type": last_bell["type"], "title": last_bell["data"].get("title"), "at": last_bell["at"]}
                           if last_bell else None)},
-        "event_board": L.event_board[:EVENT_BOARD_MAX],
+        "event_board": L.event_board[:EVENT_BOARD_MAX], "spring": spring(L),
         "dashboard": dash, "sociogram": M.sociogram(L), "scenes": sc["cards"][-10:],
     }
     # 광장 자체 형식(스냅샷 2). 처음에 얹으려던 다른 렌더러의 snapshot v1 껍데기(office·agents·rooms·최상위 activity)는

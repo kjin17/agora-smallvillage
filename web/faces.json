@@ -23,6 +23,7 @@
     {"id": "deliver", "when": "deliver", "faces": ["14_fighting"]},
     {"id": "fetch", "when": "fetch", "faces": ["11_thanks"]},
     {"id": "close", "when": "close", "faces": ["09_ok"]},
+    {"id": "type", "when": "type", "faces": ["18_curious"]},
     {"id": "joined", "when": "joined", "faces": ["15_hello"]},
     {"id": "visited", "when": "visited", "faces": ["15_hello"]}
   ]

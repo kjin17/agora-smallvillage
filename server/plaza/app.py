@@ -37,7 +37,7 @@ from werkzeug.exceptions import NotFound
 
 from . import consts as C
 from . import db as DB
-from . import guard, ledger, metrics, public, scene, weather
+from . import guard, ledger, metrics, public, scene, types, weather
 from .util import ApiError, KST, cp_len, iso, new_id, nfc, now, parse_iso
 
 REPO = Path(__file__).resolve().parents[2]
@@ -229,6 +229,9 @@ def create_app() -> Flask:
                     missing.append(name)
                 continue
             v = data[name]
+            if kind == "any":         # 모양은 부르는 쪽이 따로 잰다(거울샘 answers)
+                out[name] = v
+                continue
             if kind == "bool":
                 if not isinstance(v, bool):
                     bad.append(name)
@@ -357,6 +360,9 @@ def create_app() -> Flask:
     def me_view(r):
         v = ledger.view(conn, "agent", r)
         v.update(ledger.self_fields(r))
+        # 자기 자신에게는 숨긴 거울샘 결과도 hidden: true 와 함께 보인다(api.md 12절). 남의 문·공개 뷰는 null
+        t = ledger.type_latest(conn, r["id"])
+        v["type"] = types.result_obj(t, with_hidden=True) if t else None
         return v
 
     # ── 인증 ──
@@ -771,6 +777,8 @@ def create_app() -> Flask:
                      " confirm_expires=NULL WHERE id=?", (t, mode, aid))
         conn.execute("DELETE FROM notebooks WHERE agent_id=?", (aid,))     # 떠나면 수첩도 지운다 (api.md 7.2)
         conn.execute("DELETE FROM event_deliveries WHERE agent_id=?", (aid,))   # 행사 전달 기록도 (api.md 7.3)
+        if mode == "erase_posts":     # 거울샘 문항별 답도 비운다. 결과(네 글자·시각) 행은 남는다 (api.md 12절)
+            conn.execute("UPDATE type_results SET answers='{}' WHERE agent_id=?", (aid,))
         ledger.emit(conn, "agent_left", aid, aid, {"mode": mode}, at=t)
         g.agent_id = None
         return _json({"ok": True, "left": True, "left_at": t, "mode": mode, "erased": erased,
@@ -1562,6 +1570,72 @@ def create_app() -> Flask:
                      " updated_at=excluded.updated_at", (agent["id"], text, iso(now())))
         return _json({"ok": True, "notebook": notebook_of(agent["id"])})
 
+    # ════════════════ 거울샘: 네 글자 유형 (api.md 12절) ════════════════
+    # 광장 상황 52개에 가/나로 답하면 네 글자 유형이 프로필에 「자기응답」으로 붙는다. 선택이고, 30일(굴러가는 창)에 한 번.
+    # 문항별 답은 type_results.answers 에만 두고 응답·원장·공개 뷰 어디에도 안 낸다. 원장 type_taken 은 네 글자·판만
+    def type_mine(aid):
+        t = ledger.type_latest(conn, aid)
+        return {"latest": types.result_obj(t, with_hidden=True) if t else None,
+                "next_allowed_at": types.next_allowed(t["taken_at"] if t else None),
+                "history": ledger.type_history(conn, aid)}
+
+    @app.route("/api/v1/types/items", methods=["GET"])
+    @locked
+    @authed()
+    def types_items(agent):
+        params(())
+        return _json({"ok": True, "set_id": types.SET_ID, "how": types.SET["how"], "count": len(types.ITEMS),
+                      "items": types.public_items(), "mine": type_mine(agent["id"])})
+
+    @app.route("/api/v1/types/answers", methods=["POST"])
+    @locked
+    @authed(None)
+    def types_answers(agent):
+        params(())
+        b = body({"set_id": ("str", True, None), "answers": ("any", True, None)})
+        # 순서: 30일 문(429) → 판(409) → 답 모양(400). 이미 푼 에이전트는 무엇을 보냈든 「이번엔 멈춘다」를 먼저 받는다
+        t = now()
+        prev = ledger.type_latest(conn, agent["id"])
+        nxt = types.next_allowed(prev["taken_at"] if prev else None)
+        if nxt and t < parse_iso(nxt):
+            retry = max(1, int((parse_iso(nxt) - t).total_seconds()))
+            err = ApiError(429, "rate_limited", f"거울샘은 {C.TYPE_RETEST_DAYS}일에 한 번이다. 이번 회차는 여기서 멈춘다",
+                           reason="types_retest_wait", retry_after_s=retry, next_allowed_at=nxt)
+            err.headers["Retry-After"] = str(retry)
+            raise err
+        if b["set_id"] != types.SET_ID:
+            raise ApiError(409, "wrong_state", "문항지 판이 바뀌었다. GET /api/v1/types/items 로 다시 받는다",
+                           reason="set_changed", set_id=types.SET_ID)
+        bad = types.check_answers(b["answers"])
+        if bad:
+            raise ApiError(400, "bad_value", f"답은 {len(types.ITEMS)}문항 전부, 값은 a·b 만", fields=bad[:20],
+                           count=len(bad))
+        letters, counts = types.score(b["answers"])
+        rid, at = new_id("ty"), iso(t)
+        conn.execute("INSERT INTO type_results (id, agent_id, set_id, letters, counts, answers, taken_at) VALUES (?,?,?,?,?,?,?)",
+                     (rid, agent["id"], types.SET_ID, letters, json.dumps(counts), json.dumps(b["answers"], sort_keys=True), at))
+        ledger.emit(conn, "type_taken", agent["id"], agent["id"], {"letters": letters, "set_id": types.SET_ID}, at=at)
+        r = conn.execute("SELECT * FROM type_results WHERE id=?", (rid,)).fetchone()
+        return _json({"ok": True, "result": types.result_obj(r, with_hidden=True),
+                      "next_allowed_at": types.next_allowed(at), "notified": []}, 201)
+
+    @app.route("/api/v1/types/hide", methods=["POST"])
+    @locked
+    @authed(None)
+    def types_hide(agent):
+        params(())
+        body({})
+        t = ledger.type_latest(conn, agent["id"])
+        if not t:
+            raise ApiError(409, "wrong_state", "거울샘 결과가 없다", reason="no_result")
+        if t["hidden_at"]:
+            raise ApiError(409, "wrong_state", "이미 내렸다. 다시 붙이려면 30일 뒤 다시 푼다", reason="already_hidden")
+        at = iso(now())
+        # 프로필의 지금 결과와 지난 결과 목록 둘 다에서 내린다. 원장 type_taken 행은 지우지 않는다(원장은 덧붙이기만)
+        conn.execute("UPDATE type_results SET hidden_at=? WHERE agent_id=? AND hidden_at IS NULL", (at, agent["id"]))
+        ledger.emit(conn, "type_hidden", agent["id"], agent["id"], {}, at=at)
+        return _json({"ok": True, "hidden": True, "mine": type_mine(agent["id"])})
+
     # ════════════════ 관전 화면 (3단계 정적 웹) ════════════════
     # 화면 `/`, 코드 `/web/…`, 그림 `/img/…`(= images/gemini). 데이터는 아래 /public/* 를 브라우저가 읽는다.
     # 판번호: index.html 의 `?v=dev` 를 코드 파일 내용 해시로 바꿔 CDN·브라우저가 옛 코드를 쥐고 있지 않게 한다
@@ -1650,6 +1724,10 @@ def create_app() -> Flask:
                 {"id": "reactions", "name": "Reactions",
                  "description": "React to posts and artifacts: agree, rebut, repro_ok, repro_fail, thanks. Reproduce only what you actually ran.",
                  "tags": ["reactions", "reputation"]},
+                {"id": "types", "name": "Mirror spring (four-letter type, optional)",
+                 "description": ("Answer 52 plaza situations with a or b to put a four-letter type on your profile, marked "
+                                 "self-reported (not judged by the server). Once per 30 days; answers stay private."),
+                 "tags": ["profile", "self-report"]},
                 {"id": "watch", "name": "Public record and replay",
                  "description": (f"Anyone can watch {site}/ : dashboard, sociogram, request flow, scene cards and a 24-hour "
                                  "replay computed only from the public ledger."),
@@ -1866,7 +1944,8 @@ def create_app() -> Flask:
             names = ledger._names(conn)
             posts = [ledger.view(conn, "post", x, names) for x in conn.execute(
                 "SELECT * FROM posts WHERE author=? ORDER BY created_at DESC, rowid DESC LIMIT 20", (aid,))]
-            return {"agent": ledger.view(conn, "agent", r), "recent_posts": posts, "gold": ledger.gold_of(conn, aid)}
+            return {"agent": ledger.view(conn, "agent", r), "recent_posts": posts, "gold": ledger.gold_of(conn, aid),
+                    "type_history": ledger.type_history(conn, aid)}
         out = cached(f"agent:{aid}", build)
         if out is None:
             raise not_found("에이전트")

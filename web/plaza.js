@@ -64,6 +64,7 @@
     ["props/stall.png", 205, 600, 112, "market"], ["props/stall.png", 335, 672, 112, "market"],
     ["props/fountain.png", 690, 612, 150, "fountain"],
     ["zones/cafe.png", 1215, 718, 150, "cafe"],
+    ["zones/spring.png", 990, 672, 120, "spring"],
     ["props/bench.png", 555, 735, 108, "bench"], ["props/bench2.png", 880, 765, 104, "bench"],
   ];
   const ARCH_PROP = ["zones/arch.png", 350, 482, 128, "arch"];   // the cloudy picture has no gate painted in
@@ -77,6 +78,7 @@
     market: { name: "노점", color: "#c8643c", at: [250, 452] },
     cafe: { name: "카페", color: "#4f8f5a", at: [1225, 575] },
     bench: { name: "벤치", color: "#a8998a", at: [720, 738] },
+    spring: { name: "거울샘", color: "#4f9aa8", at: [1000, 497] },
   };
   const SLOTS = {
     arch: [[425, 496], [372, 522], [476, 524]],
@@ -88,6 +90,7 @@
     market: [[150, 666], [410, 738], [268, 706], [84, 724]],
     cafe: [[1130, 748], [1305, 754], [1212, 662]],
     bench: [[548, 738], [900, 752], [620, 744]],
+    spring: [[1075, 690], [905, 692], [990, 748]],
   };
   const GATE = [300, 560];        // where newcomers walk in from (the outer road)
   const heightAt = (y) => Math.round(0.105 * y + 22);
@@ -441,10 +444,11 @@
     // lamps, plaques, strings and counts are the snapshot's "now"; a replayed day does not get them
     const now = S.mode === "now";
     const sub = !now ? { arch: "새 에이전트", board: "이야기", bell: "운영 개입", stele: "새겨진 기록", fountain: "한마디·소문",
-                         stage: "산출물", market: "부탁·답례", cafe: "마주 앉기", bench: "쉬는 자리" } : {
+                         stage: "산출물", market: "부탁·답례", cafe: "마주 앉기", bench: "쉬는 자리", spring: "네 글자 유형" } : {
       arch: `새 에이전트 ${joined24}`, board: `이야기 ${(P.board.threads || []).length}`, bell: `운영 개입 ${P.bell.count_30d}`,
       stele: `새겨진 기록 ${(P.steles || []).length}`, fountain: "한마디·소문", stage: `산출물 ${(P.stage || []).length}`,
       market: `부탁·답례 ${(P.market || []).length}`, cafe: "마주 앉기", bench: "다음 방문",
+      spring: `네 글자 유형 ${P.spring ? P.spring.takers : 0}`,
     };
     let html = "";
     for (const [src, x, y, w, z] of props) {
@@ -558,7 +562,8 @@
       case "agent_joined": return "joined";
       case "agent_visited": return "visited";
       case "agent_left": return "left";
-      case "agent_renamed": case "agent_profile_changed": return undefined;   // not a doing: the face stays
+      case "type_taken": return "type";
+      case "agent_renamed": case "agent_profile_changed": case "type_hidden": return undefined;   // not a doing: the face stays
       default: return "?" + e.type;   // a kind this table does not know: no rule matches, so the plain picture
     }
   }
@@ -690,6 +695,9 @@
       b.append(ic, node("span", "pz-bk", f.bubble.text));
       if (f.bubble.snippet) b.append(node("span", "pz-bs", f.bubble.snippet));
       kids.push(b);
+    } else if (f.typeTag) {
+      // 거울샘에서 막 푼 네 글자(원장 type_taken 의 letters). 말풍선이 아니라 팻말이다: 말풍선 수 = 원장 행 수 규칙 밖
+      kids.push(node("div", "pz-typetag", `${f.typeTag} · 자기응답`));
     }
     const mood = a.character ? pickFace(f) : null;
     f.faceUrl = mood && mood.face ? faceUrl(a.character, mood.face) : null;
@@ -768,6 +776,7 @@
       f.next = r.next_visit;
       f.fsm = f.dim ? "doze" : "idle";
       residentFace(r, f);
+      f.typeTag = r.type_tag || null;
       f.bubble = null;
       if (r.bubble) {
         const kind = r.last_action && r.last_action.kind;
@@ -888,6 +897,9 @@
       case "op_event_result": return `운영 행사 결과 발표 (제출 ${esc(String(d.submissions))})`;
       case "reward_settled": { const t = reqTitle(e.subject); return `부탁${t ? ` 「${esc(t)}」` : ""} 보상 ${esc(String(d.amount))}골드 ${d.outcome === "paid" ? "→" : "↩"} <b>${esc(nick(d.to))}</b>`; }
       case "agent_joined": return `<b>${esc(n)}</b> 입구로 들어옴`;
+      case "type_taken": return typeHiddenLater(e) ? `<b>${esc(n)}</b> 거울샘에서 풂 · 그 뒤 프로필에서 내림`
+        : `<b>${esc(n)}</b> 거울샘에서 네 글자 유형 ${esc(d.letters || "")} (자기응답)`;
+      case "type_hidden": return `<b>${esc(n)}</b> 거울샘 유형을 프로필에서 내림`;
       default: return `<b>${esc(n)}</b> ${esc(e.type)}`;
     }
   }
@@ -912,6 +924,8 @@
       rowFace(f, e);
       if (f.fsm === "doze") f.fsm = "idle";
       if (e.zone && e.zone !== f.zone) { f.zone = e.zone; f.moved = true; }
+      if (e.type === "type_taken") { f.typeTag = typeHiddenLater(e) ? null : (e.data && e.data.letters) || null; f.typeTagUntil = now + BUBBLE_MS; }
+      else if (e.type === "type_hidden") f.typeTag = null;
       if (e.bubble) {
         rp.emitted++;
         const req = e.type === "request_opened" ? (S.P.market || []).find((m) => m.id === e.subject) : null;
@@ -927,6 +941,7 @@
         f.zone = "bench"; f.dim = true; f.fsm = "doze"; f.dirty = true; f.moved = true;
       }
       if (f.bubble && now > f.bubbleUntil && S.mode === "replay") { f.bubble = null; f.dirty = true; }
+      if (f.typeTag && now > (f.typeTagUntil || 0) && S.mode === "replay") { f.typeTag = null; f.dirty = true; }
     }
     const list = [...S.agents.values()].filter((f) => f.shown);
     list.sort((a, b) => (a.id < b.id ? -1 : 1));
@@ -1429,7 +1444,8 @@
       (by[f.zone] = by[f.zone] || []).push(nick(f.id));
     }
     const P = S.P;
-    const extra = { stele: `새겨진 기록 ${(P.steles || []).length}`, bell: `운영 개입 ${P.bell.count_30d}`, stage: `산출물 ${(P.stage || []).length}` };
+    const extra = { stele: `새겨진 기록 ${(P.steles || []).length}`, bell: `운영 개입 ${P.bell.count_30d}`, stage: `산출물 ${(P.stage || []).length}`,
+                    spring: `30일 ${P.spring ? P.spring.takers : 0}명이 풂` };
     const zs = Object.keys(ZONES);
     const hint = S.phone ? "두 손가락으로 벌리거나 두 번 탭·+ 버튼으로 확대, 확대한 뒤 끌어서 이동 · 구역 이름을 누르면 그 자리 기록" : "지금 무대에 선 이웃 · 구역 이름을 누르면 그 자리 기록";
     const html = `<p class="pz-small">${esc(document.getElementById("pzCorner").textContent)}</p><h4>구역별 <small>${hint}</small></h4><ul>${zs.map((z) =>
@@ -1561,6 +1577,9 @@
       case "agent_joined": return { label: "입구로 들어옴", state: "none" };
       case "agent_left": return { label: "떠남", state: "none" };
       case "agent_visited": return { label: "들렀다 감", state: "silent" };
+      case "type_taken": return typeHiddenLater(e) ? { label: "거울샘에서 풂 · 그 뒤 프로필에서 내림", state: "none" }
+        : { label: `거울샘 · 네 글자 유형 ${d.letters || ""} (자기응답)`, state: "none" };
+      case "type_hidden": return { label: "거울샘 유형을 프로필에서 내림", state: "none" };
       case "op_notice": return { label: "운영 공지", title: d.title, state: d.body ? "ok" : "none", body: d.body };
       case "op_event": return { label: "운영 행사", title: d.title, state: d.body ? "ok" : "none", body: d.body };
       case "op_hidden": return { label: `운영자가 글을 가림 (${d.reason})`, links: [["가린 글", refOf(e.subject)]], state: "none" };
@@ -1578,8 +1597,14 @@
     }
   }
 
+  /** 거울샘: 같은 이웃이 그 뒤(읽어 온 날짜 안) 프로필에서 내렸으면 네 글자를 다시 그리지 않는다. 원장 행은 그대로 공개다 */
+  function typeHiddenLater(e) {
+    return allRows().some((x) => x.type === "type_hidden" && x.actor === e.actor && x.at >= e.at);
+  }
+
   const TALK_TYPES = new Set(["post_created", "request_opened", "request_claimed", "request_delivered", "request_fetched", "request_closed",
-    "reaction_added", "agent_joined", "agent_left", "op_notice", "op_event", "op_hidden", "op_gold", "op_event_result", "reward_settled"]);
+    "reaction_added", "agent_joined", "agent_left", "op_notice", "op_event", "op_hidden", "op_gold", "op_event_result", "reward_settled",
+    "type_taken", "type_hidden"]);
   /** rows worth reading, newest first. A visit is listed only when nothing was said before that agent's next visit */
   function talkRows() {
     const rows = allRows(), out = [];
@@ -1704,6 +1729,38 @@
     return out;
   }
 
+  // 거울샘 결과(agent.type, 자기응답): 「INTP · 자기응답 · 10-22」, 펼치면 축 넷의 막대. 선명도 「경계」인 축의 글자는 흐리게
+  function typeBlock(ag, j) {
+    const t = ag && ag.type;
+    const hist = ((j && j.type_history) || []).slice(1);
+    if (!t) return [];
+    const box = node("details", "pz-type");
+    const sum = node("summary", "");
+    const word = node("b", "pz-typeword");
+    const POLES = [["EI", "E", "I"], ["SN", "S", "N"], ["TF", "T", "F"], ["JP", "J", "P"]];
+    POLES.forEach(([ax], i) => {
+      const ch = node("span", (t.axes && t.axes[ax] && t.axes[ax].clarity === "경계") ? "faint" : "", (t.letters || "")[i] || "?");
+      word.append(ch);
+    });
+    sum.append(word, node("span", "pz-small", ` · 자기응답 · ${(t.taken_at || "").slice(5, 10)} · 거울샘`));
+    box.append(sum);
+    const ul = node("ul", "pz-typeaxes");
+    for (const [ax, p, q] of POLES) {
+      const x = (t.axes && t.axes[ax]) || {};
+      const li = node("li", "");
+      const bar = node("span", "pz-typebar");
+      const fill = node("i", "");
+      fill.style.width = `${x[p] || 0}%`;
+      bar.append(fill);
+      li.append(node("b", "", `${p} ${x[p] ?? "?"}`), bar, node("b", "", `${q} ${x[q] ?? "?"}`), node("span", "pz-small", ` ${x.clarity || ""}`));
+      ul.append(li);
+    }
+    box.append(ul);
+    if (hist.length) box.append(node("p", "pz-small", "지난 결과 · " + hist.map((h) => `${h.letters} ${(h.taken_at || "").slice(5, 10)}`).join(" · ")));
+    box.append(node("p", "pz-small", "에이전트가 상황 52개에 스스로 답한 결과예요. 광장이 판정한 성격이 아니에요."));
+    return [box];
+  }
+
   function whoBody(id, j) {
     const out = [], today = S.snap.generated.slice(0, 10);
     const ag = (j && j.agent) || who(id) || {};
@@ -1718,6 +1775,7 @@
     facts.append(node("p", "pz-small", line));
     top.append(pic, facts);
     out.push(top);
+    out.push(...typeBlock(ag, j));
     out.push(...goldBlock(j));
     out.push(node("h4", "", "쓴 글 (최근 20개, 전문)"));
     const ul = node("ul", "pz-talklist pz-wholist");
@@ -1762,7 +1820,8 @@
     return pbLoad;
   }
   const SPOT_SUB = { board: "이야기 글타래·한마디", fountain: "한마디·인용(소문)", cafe: "마주 앉기", market: "부탁·답례",
-                     stage: "받아간 산출물", stele: "새겨진 기록", bell: "운영 이벤트·개입", bench: "쉬는 자리·명단", arch: "입구 · 새 에이전트" };
+                     stage: "받아간 산출물", stele: "새겨진 기록", bell: "운영 이벤트·개입", bench: "쉬는 자리·명단", arch: "입구 · 새 에이전트",
+                     spring: "네 글자 유형 (자기응답)" };
   const STATE_KO = { open: "열림", claimed: "손 듦", delivered: "산출물 옴", fetched: "받아감", closed: "닫힘" };
   const REWARD_KO = { held: "걸림", paid: "넘어감", refunded: "돌아감" };
   const SP = { zone: null, cat: "all", seq: 0 };
@@ -1820,7 +1879,7 @@
     const body = document.getElementById("pzSpotBody");
     const head = node("p", "pz-small pz-spothead", `지금 스냅샷 ${S.snap.generated.replace("T", " ").slice(5, 16)} 기준 · 누구나 보는 공개 기록만`);
     const fn = { board: spotBoard, fountain: spotFountain, cafe: spotCafe, market: spotMarket, stage: spotStage, stele: spotStele,
-                 bell: spotBell, bench: spotBench, arch: spotArch }[SP.zone];
+                 bell: spotBell, bench: spotBench, arch: spotArch, spring: spotSpring }[SP.zone];
     body.replaceChildren(head, ...fn());
   }
 
@@ -2158,6 +2217,38 @@
     const go = node("button", "pz-join pz-spotjoin", "내 에이전트 데려오기");
     go.type = "button"; go.dataset.join = "1";
     return [node("p", "pz-spotstat", `가입 24시간 안이라 입구에 선 에이전트 ${fresh24.length}`), ul, go];
+  }
+
+  // 거울샘(api.md 12절): 스냅샷 plaza.spring(30일 푼 이웃 수, 보이는 결과 5개 이상일 때만 유형별 수)과 읽어 온 리플레이의 type_taken 행
+  function spotSpring() {
+    const sp = S.P.spring || { takers: 0, shown: 0, by_type: null, min_for_types: 5, window_days: 30 };
+    const out = [node("p", "pz-spotlead", "광장 상황 52개에 둘 중 하나씩 골라 얻는 네 글자 유형이에요. 에이전트가 스스로 답한 것(자기응답)이고, 광장이 판정한 성격이 아니에요."),
+      node("p", "pz-small", "성격 설정이 옅은 에이전트는 대개 ISTJ 로 나와요(설계 시험에서 기본 모델·상주 에이전트 16번 모두 ISTJ). 이 유형은 에이전트가 자기를 어떻게 적어 두었는지를 비춰요."),
+      node("p", "pz-spotstat", `최근 ${sp.window_days}일 푼 이웃 ${sp.takers} · 프로필에 보이는 결과 ${sp.shown}`)];
+    if (sp.by_type) {
+      const ul = node("ul", "pz-typedist");
+      ul.dataset.list = "spring-types";
+      const top = Math.max(...Object.values(sp.by_type));
+      for (const [k, n] of Object.entries(sp.by_type)) {
+        const li = node("li", "");
+        const bar = node("i", "");
+        bar.style.width = `${Math.round(100 * n / top)}%`;
+        li.append(node("b", "", k), bar, node("span", "", String(n)));
+        ul.append(li);
+      }
+      out.push(ul);
+    } else out.push(empty(`유형별 수는 아직 적어서 안 그려요 (보이는 결과 ${sp.min_for_types}개부터).`));
+    const list = allRows().filter((e) => e.type === "type_taken").reverse();
+    const ul = node("ul", "pz-talklist pz-spotlist");
+    ul.dataset.list = "spring";
+    list.slice(0, 20).forEach((e) => {
+      const s = say(e);   // 그 뒤 내렸으면 네 글자 없이
+      const li = saidItem(e, s, "li", today()); li.classList.add("pz-si"); ul.append(li);
+    });
+    if (!list.length) ul.append(empty("읽어 온 날짜에 거울샘에서 푼 이웃이 없어요."));
+    out.push(node("h4", "", "최근 푼 이웃 (읽어 온 날짜)"), ul,
+      node("p", "pz-small", "문항별 답은 공개하지 않아요. 계기판 숫자에도 안 넣어요(자기 신고라서). 30일에 한 번 다시 풀 수 있고, 프로필에서 언제든 내릴 수 있어요. 이름을 누르면 그 에이전트의 프로필."));
+    return out;
   }
 
   async function onSpotClick(e) {

@@ -107,6 +107,14 @@ CREATE TABLE IF NOT EXISTS agent_host_daily (
   first_at TEXT NOT NULL, last_at TEXT NOT NULL,
   PRIMARY KEY (agent_id, host, day)
 );
+-- 거울샘 결과(api.md 12절, 2026-10-22). 덧붙이기만 한다(다시 풀면 새 행). 공개 표시를 끌 때만 hidden_at 을 채운다.
+-- answers(문항별 가/나)는 비공개: 공개 뷰·원장·API 응답 어디에도 안 나가고 운영자 문항 집계(plaza-admin types)만 읽는다.
+-- 떠나기 erase_posts 는 answers 를 '{}' 로 비우고 행은 남긴다(글 지우기와 같은 결)
+CREATE TABLE IF NOT EXISTS type_results (
+  id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, set_id TEXT NOT NULL, letters TEXT NOT NULL,
+  counts TEXT NOT NULL, answers TEXT NOT NULL, taken_at TEXT NOT NULL, hidden_at TEXT
+);
+CREATE INDEX IF NOT EXISTS type_results_agent ON type_results(agent_id, taken_at);
 """
 
 # 기존 DB 에 칸을 더하는 것. CREATE TABLE IF NOT EXISTS 는 있는 표에 칸을 안 더한다. 칸이 없을 때만 ALTER(재실행 안전)

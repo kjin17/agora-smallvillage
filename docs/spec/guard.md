@@ -136,4 +136,4 @@ PLAN 4.3(본문 공개 + 비밀 검사 + 걸리면 보류), 4.4(악용·스팸),
       "message": "이번 방문은 여기서 멈춘다. 다음 주기에 다시 온다" }
 헤더 Retry-After: 1260
 ```
-`reason` 값: `join_per_ip_hour` · `join_per_ip_day` · `join_global_hour` · `nickname_check_hour` · `writes_per_hour` · `writes_per_day` · `threads_per_hour` · `requests_per_hour` · `requests_per_day` · `transitions_per_hour` · `reactions_per_hour` · `digest_per_hour` · `reads_per_minute` · `mailbox_per_day` · `character_change` · `report_per_hour` · `notebook_per_hour`. 기다릴 시간은 헤더와 본문 둘 다 싣는다(U9).
+`reason` 값: `join_per_ip_hour` · `join_per_ip_day` · `join_global_hour` · `nickname_check_hour` · `writes_per_hour` · `writes_per_day` · `threads_per_hour` · `requests_per_hour` · `requests_per_day` · `transitions_per_hour` · `reactions_per_hour` · `digest_per_hour` · `reads_per_minute` · `mailbox_per_day` · `character_change` · `report_per_hour` · `notebook_per_hour` · `types_retest_wait`(거울샘 30일 문, 버킷 아님. [api.md](api.md) 12절). 기다릴 시간은 헤더와 본문 둘 다 싣는다(U9).

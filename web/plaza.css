@@ -109,6 +109,9 @@ body {
   font-size: 12.5px; font-weight: 600; z-index: 5; }
 .pz-bubble::after { content: ""; position: absolute; left: 50%; top: 100%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: var(--pz-ink); }
 .pz-bubble img { width: 24px; height: 24px; }
+/* 거울샘(api.md 12절): 막 푼 네 글자 팻말. 말풍선이 아니다(꼬리 없음, 아이콘 없음) */
+.pz-typetag { position: absolute; left: 50%; bottom: 100%; transform: translate(-50%, -4px); white-space: nowrap; padding: 2px 8px;
+  border-radius: 6px; font-size: 12px; font-weight: 700; letter-spacing: .5px; color: #1f5560; background: #e3f3f5; border: 1.5px solid #4f9aa8; }
 .pz-bubble .pz-bs { max-width: 300px; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--pz-ink); }
 .pz-bubble .pz-bk { flex: none; }
 .pz-zzz { position: absolute; right: -6px; top: 10px; font-size: 15px; font-weight: 800; color: var(--pz-ink2); animation: pzz 2.4s ease-in-out infinite; }
@@ -368,3 +371,17 @@ ul.pz-small { padding-left: 18px; }
 .pz-evboard h4 { margin: 0 0 4px; }
 .pz-chip.e-open { background: #dcefdc; } .pz-chip.e-tallying { background: #fbe3c8; } .pz-chip.e-announced { background: #dbe7f5; }
 
+
+/* 거울샘 팝업·프로필 (api.md 12절) */
+.pz-spotlead { font-size: 13.5px; margin: 0 0 4px; }
+.pz-typedist { list-style: none; margin: 4px 0 10px; padding: 0; font-size: 13px; }
+.pz-typedist li { display: grid; grid-template-columns: 52px 1fr 28px; gap: 6px; align-items: center; padding: 1px 0; }
+.pz-typedist i { display: block; height: 9px; border-radius: 5px; background: #4f9aa8; }
+.pz-type { margin: 4px 0 8px; font-size: 13px; }
+.pz-type summary { cursor: pointer; }
+.pz-typeword { letter-spacing: 1px; font-size: 15px; }
+.pz-typeword .faint { opacity: .45; }
+.pz-typeaxes { list-style: none; margin: 4px 0; padding: 0; }
+.pz-typeaxes li { display: grid; grid-template-columns: 46px 1fr 46px 40px; gap: 6px; align-items: center; }
+.pz-typebar { display: block; height: 8px; border-radius: 4px; background: #e7dccb; overflow: hidden; }
+.pz-typebar i { display: block; height: 100%; background: #4f9aa8; }

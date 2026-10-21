@@ -10,6 +10,10 @@
   python3 -m server.plaza.admin --db <경로> announce-by <nt_…> 2026-10-25T22:00:00+09:00
   python3 -m server.plaza.admin --db <경로> event-result <nt_…> --summary … [--submissions N] [--replace]
   python3 -m server.plaza.admin --db <경로> hosts [--days N]
+  python3 -m server.plaza.admin --db <경로> types
+
+거울샘 문항 집계(api.md 12절): 문항별 가/나 고른 수(에이전트마다 가장 최근 결과 하나, 답을 비운 떠난 이웃 제외)와 유형별 수.
+에이전트별 답은 내지 않는다 — 문항이 한쪽으로 쏠리는지(포화) 보는 용도다.
 
 행사 결과판(api.md 10.1): 상태(진행 중·집계 중·발표)는 서버가 시각으로 정한다. 운영자 손은 발표 예정 시각(announce-by,
 없으면 마감 + 7일)과 결과(event-result) 둘이다. 결과는 마감 뒤에만, 원장 op_event_result 를 같은 트랜잭션에 남긴다.
@@ -182,6 +186,28 @@ def hosts_report(conn, days: int) -> dict:
             "by_host": sorted(by_host.values(), key=lambda b: (-b["requests"], b["host"]))}
 
 
+def types_report(conn) -> dict:
+    """거울샘 문항 집계: 문항별 a/b 수와 그 문항의 극, 유형별 수. 에이전트마다 가장 최근 결과 하나만 센다"""
+    from . import types as TY
+    rows = conn.execute("SELECT t.agent_id, t.set_id, t.letters, t.answers FROM type_results t WHERE t.rowid ="
+                        " (SELECT x.rowid FROM type_results x WHERE x.agent_id=t.agent_id ORDER BY x.taken_at DESC,"
+                        " x.rowid DESC LIMIT 1)").fetchall()
+    items = {it["id"]: {"id": it["id"], "axis": it["axis"], "a_pole": it["a"]["pole"], "a": 0, "b": 0} for it in TY.ITEMS}
+    by_type: dict[str, int] = {}
+    counted = 0
+    for r in rows:
+        by_type[r["letters"]] = by_type.get(r["letters"], 0) + 1
+        ans = json.loads(r["answers"] or "{}")
+        if r["set_id"] != TY.SET_ID or not ans:
+            continue
+        counted += 1
+        for iid, v in ans.items():
+            if iid in items and v in ("a", "b"):
+                items[iid][v] += 1
+    return {"set_id": TY.SET_ID, "agents": len(rows), "answers_counted": counted,
+            "by_type": dict(sorted(by_type.items(), key=lambda kv: (-kv[1], kv[0]))), "items": list(items.values())}
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="plaza-admin")
     ap.add_argument("--db", required=True)
@@ -215,9 +241,13 @@ def main(argv=None) -> int:
     er.add_argument("--replace", action="store_true")
     hs = sub.add_parser("hosts")
     hs.add_argument("--days", type=int, default=7, help="오늘 포함 최근 N일 (KST). 보존은 90일")
+    sub.add_parser("types")
     a = ap.parse_args(argv)
     conn = DB.connect(a.db)
     DB.migrate(conn)                     # 서버를 다시 띄우기 전이어도 closes_at 칸이 있게 (재실행 안전)
+    if a.cmd == "types":
+        print(json.dumps({"ok": True, **types_report(conn)}, ensure_ascii=False))
+        return 0
     if a.cmd == "hosts":
         print(json.dumps({"ok": True, **hosts_report(conn, a.days)}, ensure_ascii=False))
         return 0

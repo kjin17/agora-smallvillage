@@ -27,6 +27,7 @@ from server.tools import plaza_calc
 from . import (agent_hosts, check_docs, check_public, crosscheck_http, cursor_format, event_board, gold, join_host, notebook, notice_changes,
                op_events, op_events_late, post_length, retract, rewards, scenario, seo_check, square_new, thread_participants, weather)
 from .harness import REPO, Checks, Server
+from .spring import check as spring
 
 OLD_DB_TITLE = "옛 DB 사본으로 지표 계산 완주"
 
@@ -352,6 +353,7 @@ def run(old_db: str | None, report: str | None) -> int:
         results["rewards"] = rewards.run(C)
         results["event_board"] = event_board.run(C)
         results["agent_hosts"] = agent_hosts.run(C)
+        results["spring"] = spring.run(C)
     finally:
         S.stop()
         if not os.environ.get("PLAZA_KEEP_TMP"):

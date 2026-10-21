@@ -6,12 +6,12 @@
  1. 분류 규칙(web/board_rules.js) 단위 시험: 손으로 정한 기대값 표와 node 로 돌린 결과가 같다.
     자 검사: 규칙 파일에서 링크 규칙을 빼거나 칸 순서를 바꾼 사본은 표에서 「틀림」이 나야 한다
  2. 공개 범위: 3단계 시나리오(열한 명·사흘)에 일부러 숨김 글(한마디·글타래 글·부탁·산출물·반응), 보류 글, 우편함, 수첩,
-    가입 키를 심고 아홉 자리 팝업을 전부 연다(카테고리 탭마다, 펼칠 수 있는 줄은 전부 펼쳐서). 팝업 글자·HTML 어디에도
+    가입 키를 심고 열 자리 팝업을 전부 연다(카테고리 탭마다, 펼칠 수 있는 줄은 전부 펼쳐서). 팝업 글자·HTML 어디에도
     심은 표식이 없어야 하고, 페이지가 부른 주소는 / · web/ · img/ · public/ 의 GET 뿐이어야 한다.
     자 검사: 같은 화면에 「숨김 글의 본문을 그대로 돌려주는 서버」를 끼우면(공개 응답을 가로채 body 를 되살린 사본)
     게시판·분수·노점에서 표식이 「있음」으로 잡혀야 한다. 못 잡으면 이 판정은 통과만 내는 자다
  3. 게시판 카테고리: 칸별 수의 합 = 전체, 줄마다 칸이 하나, 탭을 누르면 그 칸 줄만 그 수만큼
- 4. 빈 상태: 글이 하나도 없는 새 서버에서 아홉 자리 전부 빈 상태 문구
+ 4. 빈 상태: 글이 하나도 없는 새 서버에서 열 자리 전부 빈 상태 문구
  5. 폰(390×844, 터치): 자리 이름표 한 번 탭 → 팝업, 두 번 탭 → 확대만(팝업 안 열림), 팝업 시트가 화면 안
  6. 페이지 오류 0
 """
@@ -30,7 +30,7 @@ from pathlib import Path
 from .harness import REPO, Server
 
 KST = dt.timezone(dt.timedelta(hours=9))
-ZONES = ("board", "fountain", "cafe", "market", "stage", "stele", "bell", "bench", "arch")
+ZONES = ("board", "fountain", "cafe", "market", "stage", "stele", "bell", "bench", "arch", "spring")
 DESKTOP = {"viewport": {"width": 1440, "height": 900}}
 PHONE = {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True}
 
@@ -144,6 +144,17 @@ def plant(R) -> dict[str, str]:
     S.post("/api/v1/mailbox", {"kind": "bug", "body": m["우편함"]}, key=R.key["sol"])
     m["수첩"] = "수첩표식2280"
     S.req("PUT", "/api/v1/me/notebook", body={"body": m["수첩"]}, key=R.key["hodu"])
+    # 거울샘(api.md 12절): 둘이 풀고 하나는 내린다. 문항별 답은 어디에도 안 나와야 한다(답 모양 문자열을 표식으로)
+    it = S.get("/api/v1/types/items", key=R.key["blue"])
+    if it.status == 200:
+        ans = {x["id"]: ("a" if n % 3 else "b") for n, x in enumerate(sorted(it["items"], key=lambda x: x["id"]))}
+        for who in ("blue", "snail"):
+            R.ok(f"거울샘 {who}", S.post("/api/v1/types/answers", {"set_id": it["set_id"], "answers": ans}, key=R.key[who]))
+        R.ok("거울샘 내리기 snail", S.post("/api/v1/types/hide", {}, key=R.key["snail"]))
+        first = sorted(ans)[0]
+        m["거울샘 답"] = f'"{first}": "{ans[first]}"'
+    else:
+        R.fail.append(f"거울샘 문항지 {it.status}")
     for n, k in R.key.items():
         m[f"가입 키 {n}"] = k
     return m
@@ -180,7 +191,7 @@ SPOT_JS = r"""async (zone) => {
 
 
 def open_all(page) -> dict:
-    page.wait_for_function("() => window.Plaza && document.querySelectorAll('#pzThings .pz-zone').length === 9", timeout=30000)
+    page.wait_for_function("() => window.Plaza && document.querySelectorAll('#pzThings .pz-zone').length === 10", timeout=30000)
     return {z: page.evaluate(SPOT_JS, z) for z in ZONES}
 
 
@@ -234,7 +245,7 @@ def scenario_checks(C: Checks, browser, capture: Path | None):
         pg.goto(url)
         res = open_all(pg)
         found = leaks(res, marks)
-        C.check(G, "아홉 자리 팝업(탭마다·전부 펼침)에 숨김·보류·우편함·수첩·가입 키 표식 0", not found, found or
+        C.check(G, "열 자리 팝업(탭마다·전부 펼침)에 숨김·보류·우편함·수첩·가입 키 표식 0", not found, found or
                 f"자리별 줄 {[(z, r['rows']) for z, r in res.items()]}")
         hid_note = "운영자가 가린 글이에요"
         C.check(G, "가린 글은 「가린 글」 표시로만 남는다 (게시판·분수·노점)",
@@ -243,7 +254,7 @@ def scenario_checks(C: Checks, browser, capture: Path | None):
         bad = [(m, u) for m, u in reqs if m != "GET" or not re.match(re.escape(S.url) + r"/($|\?|web/|img/|public/)", u)]
         C.check(G, "페이지가 부른 주소 = / · web/ · img/ · public/ 의 GET 뿐 (새 문 없음)", not bad, bad[:3] or f"{len(reqs)}건")
         shown = {z: r["rows"] for z, r in res.items()}
-        C.check(G, "자리마다 줄이 그려짐 (시험 데이터가 있는 여덟 자리)", all(shown[z] > 0 for z in ZONES), shown)
+        C.check(G, "자리마다 줄이 그려짐 (시험 데이터가 있는 열 자리)", all(shown[z] > 0 for z in ZONES), shown)
 
         # 3. 카테고리
         cats = res["board"]["cats"]
@@ -286,7 +297,7 @@ def scenario_checks(C: Checks, browser, capture: Path | None):
         perr = []
         pg.on("pageerror", lambda e: perr.append(str(e)))
         pg.goto(url)
-        pg.wait_for_function("() => window.Plaza && document.querySelectorAll('#pzThings .pz-zone').length === 9", timeout=30000)
+        pg.wait_for_function("() => window.Plaza && document.querySelectorAll('#pzThings .pz-zone').length === 10", timeout=30000)
         pg.wait_for_timeout(500)
         box = pg.locator('#pzThings .pz-zone[data-zone="board"]').bounding_box()
         cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
@@ -331,7 +342,7 @@ def empty_checks(C: Checks, browser):
         pg.goto(S.url + "/?mode=now&motion=0")
         res = open_all(pg)
         miss = [z for z, r in res.items() if not r["empty"]]
-        C.check(G, "글 없는 새 서버: 아홉 자리 전부 빈 상태 문구", not miss, miss or "9/9")
+        C.check(G, "글 없는 새 서버: 열 자리 전부 빈 상태 문구", not miss, miss or "10/10")
         C.check(G, "페이지 오류 0", not errs, errs[:2])
         ctx.close()
     finally:

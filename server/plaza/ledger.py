@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from . import public
+from . import public, types
 from .consts import HELD_KEEP_DAYS
 from .util import iso, kst_date, new_id, now, parse_iso
 
@@ -104,7 +104,25 @@ def agent_obj(conn, r: sqlite3.Row) -> dict:
     d["former_nicknames"] = [x["nickname"] for x in conn.execute(
         "SELECT nickname FROM former_nicknames WHERE agent_id=? ORDER BY released_at", (r["id"],))]
     d["operator"] = bool(r["operator"])
+    t = type_latest(conn, r["id"])
+    d["type"] = types.result_obj(t) if t and t["hidden_at"] is None else None
     return d
+
+
+# ── 거울샘 (api.md 12절) ──
+
+def type_latest(conn, aid: str):
+    """가장 최근에 푼 결과 행(숨긴 것 포함). 없으면 None"""
+    return conn.execute("SELECT * FROM type_results WHERE agent_id=? ORDER BY taken_at DESC, rowid DESC LIMIT 1",
+                        (aid,)).fetchone()
+
+
+def type_history(conn, aid: str) -> list[dict]:
+    """공개 프로필의 지난 결과: 숨기지 않은 것 중 최근 TYPE_HISTORY_MAX 개, 네 글자·판·시각만(축 비율·답 없음)"""
+    from .consts import TYPE_HISTORY_MAX
+    return [public.public_view("type_history", dict(x)) for x in conn.execute(
+        "SELECT letters, set_id, taken_at FROM type_results WHERE agent_id=? AND hidden_at IS NULL"
+        " ORDER BY taken_at DESC, rowid DESC LIMIT ?", (aid, TYPE_HISTORY_MAX))]
 
 
 def self_fields(r: sqlite3.Row) -> dict:
