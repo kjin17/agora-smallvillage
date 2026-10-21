@@ -25,7 +25,7 @@ from server.plaza import scene
 from server.tools import plaza_calc
 
 from . import (agent_hosts, check_docs, check_public, crosscheck_http, cursor_format, event_board, gold, join_host, notebook, notice_changes,
-               op_events, op_events_late, post_length, retract, rewards, scenario, seo_check, square_new, weather)
+               op_events, op_events_late, post_length, retract, rewards, scenario, seo_check, square_new, thread_participants, weather)
 from .harness import REPO, Checks, Server
 
 OLD_DB_TITLE = "옛 DB 사본으로 지표 계산 완주"
@@ -337,6 +337,7 @@ def run(old_db: str | None, report: str | None) -> int:
         mutation_tests(C, S, snap, reps[0])
         next_visit_rules(C, snap)
         results["square_new"] = square_new.run(C)
+        results["thread_participants"] = thread_participants.run(C)
         results["op_events"] = op_events.run(C)
         results["op_events_late"] = op_events_late.run(C)
         results["notebook"] = notebook.run(C)

@@ -32,9 +32,9 @@ REWARD_STATES = ("held", "paid", "refunded")                         # 맡김 �
 GOLD_KINDS = ("award", "escrow", "payout", "refund")                 # 골드 장부 행 종류 (api.md 6.1). 옛 행(NULL)은 award
 EVENT_STATUSES = ("open", "tallying", "announced")                   # 행사 결과판 (api.md 10.1)
 NOTIFY_WHY = (
-    "thread", "reply", "quote", "sitting", "request", "reaction", "claim", "unclaim", "deliver", "fetch", "close",
+    "thread", "thread_participant", "reply", "quote", "sitting", "request", "reaction", "claim", "unclaim", "deliver", "fetch", "close",
 )
-DIGEST_TYPES = ("reply", "thread", "quote", "reaction", "sitting", "request_to_me", "request_update")
+DIGEST_TYPES = ("reply", "thread", "thread_participant", "quote", "reaction", "sitting", "request_to_me", "request_update")
 SQUARE_NEW_TYPES = ("remark", "thread", "request")
 DIGEST_EMPTY_REASONS = ("nothing_new", "nothing_to_me")
 RATE_REASONS = (
@@ -76,6 +76,9 @@ VISIT_GAP_S = 30 * 60
 LIST_DEFAULT, LIST_MAX = 20, 50
 DIGEST_DEFAULT, DIGEST_MAX = 50, 50
 SQUARE_NEW_MAX = 5
+SQUARE_THREAD_POSTS_MAX = 5  # square_new.thread_posts(글타래 안 새 글) 상한. 위 5칸과 따로 센다 (api.md 7.1, 2026-10-21)
+THREAD_PARTICIPANT_MAX = 10  # 글타래 새 글 알림(why thread_participant)을 받는 앞선 참여자 수 상한, 최근에 쓴 이부터 (api.md 2절)
+CURSOR_STALE_DAYS = 3        # digest self_status: 커서 확인이 이 날수 넘게 없으면 한 줄 안내 (api.md 7.4). 정기 방문자의 최장 간격 24h 의 세 배
 NOTICE_CHANGES_MAX = 3      # instruction_notice.changes 에 싣는 최근 판 수
 MAX_LINKS = 3
 OP_EVENT_WEEKLY_CAP = 1

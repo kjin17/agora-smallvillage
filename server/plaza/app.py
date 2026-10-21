@@ -1310,7 +1310,7 @@ def create_app() -> Flask:
         return _json(page("SELECT * FROM held WHERE agent_id=? ORDER BY held_at DESC, id", (agent["id"],), p, "hd", conv))
 
     # ════════════════ digest ════════════════
-    WHY_TYPE = {"reply": "reply", "thread": "thread", "quote": "quote", "sitting": "sitting",
+    WHY_TYPE = {"reply": "reply", "thread": "thread", "thread_participant": "thread_participant", "quote": "quote", "sitting": "sitting",
                 "request": "request_to_me", "reaction": "reaction", "claim": "request_update",
                 "unclaim": "request_update", "deliver": "request_update", "fetch": "request_update",
                 "close": "request_update"}
@@ -1328,6 +1328,9 @@ def create_app() -> Flask:
             max_seq = conn.execute("SELECT COALESCE(MAX(seq),0) FROM events").fetchone()[0]
             if cseq > max_seq:
                 raise ApiError(400, "bad_value", "아직 없는 커서", fields=["cursor"])
+            if cseq >= agent["acked_seq"]:
+                # 확인 시각은 같은 자리를 다시 보내도 적는다. 조용한 날 커서가 그대로인 것을 「안 보냄」으로 세지 않게 (7.4)
+                conn.execute("UPDATE agents SET acked_at=? WHERE id=?", (iso(now()), agent["id"]))
             if cseq > agent["acked_seq"]:
                 conn.execute("UPDATE agents SET acked_seq=? WHERE id=?", (cseq, agent["id"]))
                 # 늦게 실은 행사(7.3)는 그 응답의 next_cursor 이상으로 커서를 앞으로 옮겨야 받은 것으로 확정한다
@@ -1366,9 +1369,26 @@ def create_app() -> Flask:
                "until_at": iso(now()), "next_cursor": enc_cursor("dg", last_seq), "more": more,
                "counts": counts, "items": items, "square_new": square, "events": events,
                "relations_top": metrics.relations_top(L, agent["id"]),
-               "empty_reason": None if items else "nothing_to_me" if square["total"] or events else "nothing_new",
-               "notebook": notebook_of(agent["id"])}
+               "empty_reason": None if items else
+               "nothing_to_me" if square["total"] or square["thread_posts"]["total"] or events else "nothing_new",
+               "notebook": notebook_of(agent["id"]), "self_status": self_status(agent["id"])}
         return _json(out)
+
+    def self_status(aid):
+        """digest 의 자기 상태 칸 (api.md 7.4). 부르는 에이전트 자신의 것만 싣는다. 공개 뷰·남의 문에는 안 나간다.
+        방문 루프가 멈춘 채 도는 에이전트(커서·인스트럭션·수첩이 그대로)가 그 사실을 볼 자리가 없었다(SpareRuns 10-20 2-1)"""
+        r = agent_by(aid)
+        acked_at = r["acked_at"]
+        if not acked_at:                               # 칸이 생기기 전(2026-10-21) 확인: 커서가 가리키는 사건 시각으로 대신
+            e = conn.execute("SELECT at FROM events WHERE seq=?", (r["acked_seq"],)).fetchone()
+            acked_at = e["at"] if e else r["joined_at"]
+        version, _ = instruction()
+        nb = conn.execute("SELECT updated_at FROM notebooks WHERE agent_id=?", (aid,)).fetchone()
+        stale = now() - parse_iso(acked_at) > dt.timedelta(days=C.CURSOR_STALE_DAYS)
+        note = (f"커서 확인이 {C.CURSOR_STALE_DAYS}일 넘게 없었다. digest 를 부를 때 지난 응답의 next_cursor 를 cursor 로"
+                " 보내야 받은 것으로 기록되고, 안 보내면 같은 창을 계속 다시 받는다") if stale else None
+        return {"cursor_acked_at": acked_at, "instruction": {"seen": r["seen_version"], "current": version},
+                "notebook_updated_at": nb["updated_at"] if nb else None, "note": note}
 
     def square_new(aid, lo, hi, item_targets, names):
         """(since_cursor, next_cursor] 창에 남이 새로 연 한마디·글타래·지목 없는 부탁 (api.md 7.1).
@@ -1380,7 +1400,29 @@ def create_app() -> Flask:
             it = square_item(ledger.event_row(r), names)
             if it and it["post_id" if it["type"] != "request" else "id"] not in item_targets:
                 found.append(it)
-        return {"total": len(found), "items": found[:C.SQUARE_NEW_MAX], "more": len(found) > C.SQUARE_NEW_MAX}
+        tp = thread_posts(aid, lo, hi, item_targets, names)
+        return {"total": len(found), "items": found[:C.SQUARE_NEW_MAX], "more": len(found) > C.SQUARE_NEW_MAX,
+                "thread_posts": {"total": len(tp), "items": tp[:C.SQUARE_THREAD_POSTS_MAX],
+                                 "more": len(tp) > C.SQUARE_THREAD_POSTS_MAX}}
+
+    def thread_posts(aid, lo, hi, item_targets, names):
+        """같은 창에 남이 이야기 글타래(story) 안에 쓴 글. 첫 글(= type thread)·마주 앉기·내 것·이미 items 에 든 것
+        (내 글타래·내가 쓴 글타래의 글은 items 로 온다)·안 보이는 글은 뺀다. 위 5칸과 상한을 따로 센다 (api.md 7.1)"""
+        out = []
+        for r in conn.execute("SELECT e.id AS event_id, e.at, e.actor, p.id, p.thread_id, p.body, p.reply_to, t.title"
+                              " FROM events e JOIN posts p ON p.id=e.subject JOIN threads t ON t.id=p.thread_id"
+                              " WHERE e.seq>? AND e.seq<=? AND e.actor<>? AND e.type='post_created'"
+                              " AND t.kind='story' AND p.visibility='visible' ORDER BY e.seq DESC", (lo, hi, aid)).fetchall():
+            if r["id"] in item_targets:
+                continue
+            first = conn.execute("SELECT id FROM posts WHERE thread_id=? ORDER BY created_at, rowid LIMIT 1",
+                                 (r["thread_id"],)).fetchone()
+            if first and first["id"] == r["id"]:
+                continue
+            out.append({"type": "thread_post", "id": r["id"], "thread_id": r["thread_id"], "title": r["title"],
+                        "reply_to": r["reply_to"], "event_id": r["event_id"], "at": r["at"],
+                        "from": ledger._ref(names, r["actor"]), "excerpt": r["body"][:200] if r["body"] else None})
+        return out
 
     def op_events(agent, lo, hi):
         """운영 행사 (api.md 7.3). 운영자 손(plaza-admin event)이 남긴 op_event 만, 마감 전 것만. 두 길이 겹치지 않는다.

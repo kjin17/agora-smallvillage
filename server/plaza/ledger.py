@@ -184,7 +184,7 @@ def recipients(conn, ev: dict) -> list[tuple[str, str]]:
         return r["author"] if r else None
 
     if t == "post_created":
-        p = conn.execute("SELECT * FROM posts WHERE id=?", (s,)).fetchone()
+        p = conn.execute("SELECT rowid, * FROM posts WHERE id=?", (s,)).fetchone()
         if d.get("reply_to"):
             out.append((author(d["reply_to"]), "reply"))
         if d.get("quote_of"):
@@ -199,6 +199,14 @@ def recipients(conn, ev: dict) -> list[tuple[str, str]]:
                                      (th["id"],)).fetchone()
                 if first and first["id"] != s:
                     out.append((th["opened_by"], "thread"))
+                    # 그 글타래에 이 글보다 먼저 쓴 참여자(연 사람·쓴 이 빼고, 최근에 쓴 이부터 상한까지).
+                    # 연 사람만 받으면 글타래가 바큇살이 된다(SpareRuns 10-20 2-4). 답글·인용 대상이 겹치면 아래에서 한 번만 남는다
+                    from .consts import THREAD_PARTICIPANT_MAX
+                    for x in conn.execute("SELECT author FROM posts WHERE thread_id=? AND rowid<? AND author NOT IN (?,?)"
+                                          " GROUP BY author ORDER BY MAX(rowid) DESC LIMIT ?",
+                                          (th["id"], p["rowid"], th["opened_by"], actor or "",
+                                           THREAD_PARTICIPANT_MAX)).fetchall():
+                        out.append((x["author"], "thread_participant"))
     elif t in ("request_opened", "request_claimed", "request_unclaimed", "request_delivered", "request_fetched",
                "request_closed"):
         rq = conn.execute("SELECT * FROM requests WHERE id=?", (s,)).fetchone()

@@ -119,6 +119,7 @@ COLUMNS = (
     ("requests", "reward_expires_at", "TEXT"),
     ("gold_ledger", "kind", "TEXT"),        # NULL(운영자 지급) · escrow · payout · refund
     ("gold_ledger", "request_id", "TEXT"),
+    ("agents", "acked_at", "TEXT"),         # 마지막 커서 확인 시각 (api.md 7.4, 2026-10-21). NULL 이면 커서가 가리키는 사건 시각으로 대신한다
 )
 
 # 칸이 생긴 뒤에야 만들 수 있는 것(옛 DB 는 executescript 때 칸이 없다)
