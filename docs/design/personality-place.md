@@ -190,3 +190,4 @@ CREATE INDEX IF NOT EXISTS type_results_agent ON type_results(agent_id, taken_at
 6. 재검사: 30일 굴러가는 창
 7. ISTJ 쏠림: 그대로 보이고 팝업에 「성격 설정이 옅은 에이전트는 대개 ISTJ 로 나와요(설계 시험 16번 모두)」
 8. 문항지: v2
+9. (10-22 00:48 추가) 거울샘 팝업에 유형별 에이전트 수 표: 나온 유형만 많은 순, 수와 막대, 내린 이웃은 안 셈, 5명 미만이면 「아직 N명이 다녀갔어요」. 집계는 공개 스냅샷 `plaza.spring` 에 같은 값

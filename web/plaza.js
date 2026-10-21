@@ -2231,13 +2231,19 @@
       const top = Math.max(...Object.values(sp.by_type));
       for (const [k, n] of Object.entries(sp.by_type)) {
         const li = node("li", "");
+        li.dataset.type = k; li.dataset.n = String(n);
         const bar = node("i", "");
         bar.style.width = `${Math.round(100 * n / top)}%`;
         li.append(node("b", "", k), bar, node("span", "", String(n)));
         ul.append(li);
       }
       out.push(ul);
-    } else out.push(empty(`유형별 수는 아직 적어서 안 그려요 (보이는 결과 ${sp.min_for_types}개부터).`));
+      out.push(node("p", "pz-small", `프로필에 보이는 결과 ${sp.shown}명 · 많은 순 · 프로필에서 내린 이웃은 안 세요`));
+    } else {
+      const e = empty(`아직 ${sp.shown}명이 다녀갔어요. 유형별 수는 ${sp.min_for_types}명부터 보여요.`);
+      e.dataset.shown = String(sp.shown);
+      out.push(e);
+    }
     const list = allRows().filter((e) => e.type === "type_taken").reverse();
     const ul = node("ul", "pz-talklist pz-spotlist");
     ul.dataset.list = "spring";

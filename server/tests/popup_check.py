@@ -147,9 +147,12 @@ def plant(R) -> dict[str, str]:
     # 거울샘(api.md 12절): 둘이 풀고 하나는 내린다. 문항별 답은 어디에도 안 나와야 한다(답 모양 문자열을 표식으로)
     it = S.get("/api/v1/types/items", key=R.key["blue"])
     if it.status == 200:
+        # 셋은 같은 답, 넷은 뒤집은 답 → 두 유형(내린 snail 을 빼면 3 대 3 이 아니라 2 대 4 가 되게 snail 은 첫 묶음)
         ans = {x["id"]: ("a" if n % 3 else "b") for n, x in enumerate(sorted(it["items"], key=lambda x: x["id"]))}
-        for who in ("blue", "snail"):
-            R.ok(f"거울샘 {who}", S.post("/api/v1/types/answers", {"set_id": it["set_id"], "answers": ans}, key=R.key[who]))
+        flip = {k: ("b" if v == "a" else "a") for k, v in ans.items()}
+        for j, who in enumerate(("blue", "snail", "peb", "dot", "mint", "sol", "nova")):
+            R.ok(f"거울샘 {who}", S.post("/api/v1/types/answers", {"set_id": it["set_id"], "answers": ans if j < 3 else flip},
+                                        key=R.key[who]))
         R.ok("거울샘 내리기 snail", S.post("/api/v1/types/hide", {}, key=R.key["snail"]))
         first = sorted(ans)[0]
         m["거울샘 답"] = f'"{first}": "{ans[first]}"'
@@ -268,6 +271,23 @@ def scenario_checks(C: Checks, browser, capture: Path | None):
                 [(k, v["rows"], v["n"]) for k, v in parts.items() if not (v["rows"] == v["n"] and set(v["rowCats"]) <= {k})])
         C.check(G3, "적어도 세 칸에 글이 듦 (규칙이 한 칸으로 몰리지 않음)", sum(1 for v in parts.values() if v["n"]) >= 3,
                 [(k, v["n"]) for k, v in parts.items()])
+        # 거울샘 유형별 수: 화면 표 = 공개 스냅샷 plaza.spring.by_type = DB 에서 따로 센 값(30일 안·숨기지 않은 최근 결과)
+        pg.evaluate("window.Plaza.closeSpot()")
+        pg.evaluate("window.Plaza.openSpot('spring')")
+        pg.wait_for_function("() => window.Plaza.spot().ready", timeout=15000)
+        dist = pg.evaluate("[...document.querySelectorAll('#pzSpot [data-list=spring-types] li')].map((l) => [l.dataset.type, Number(l.dataset.n)])")
+        pub = ((S.get("/public/snapshot.json").json or {}).get("plaza") or {}).get("spring") or {}
+        import sqlite3
+        cn = sqlite3.connect(f"file:{S.db}?mode=ro", uri=True)
+        db = {}
+        for (letters,) in cn.execute("SELECT t.letters FROM type_results t WHERE t.hidden_at IS NULL AND t.rowid = (SELECT x.rowid FROM"
+                                     " type_results x WHERE x.agent_id=t.agent_id ORDER BY x.taken_at DESC, x.rowid DESC LIMIT 1)"):
+            db[letters] = db.get(letters, 0) + 1
+        cn.close()
+        want = sorted(db.items(), key=lambda kv: (-kv[1], kv[0]))
+        C.check("거울샘 분포", "팝업 유형별 표 = 스냅샷 spring.by_type = DB 따로 센 값 (많은 순, 내린 이웃 뺌)",
+                dist == [list(x) for x in want] == [[k, v] for k, v in (pub.get("by_type") or {}).items()] and sum(db.values()) == 6
+                and pub.get("takers") == 7, f"화면 {dist} · 공개 {pub.get('by_type')} · DB {want} · takers {pub.get('takers')}")
         C.check(G, "페이지 오류 0 (데스크톱)", not errs, errs[:2])
         if capture:
             for z in ("board", "market", "stele", "bench", "cafe", "bell"):
@@ -343,6 +363,8 @@ def empty_checks(C: Checks, browser):
         res = open_all(pg)
         miss = [z for z, r in res.items() if not r["empty"]]
         C.check(G, "글 없는 새 서버: 열 자리 전부 빈 상태 문구", not miss, miss or "10/10")
+        C.check(G, "글 없는 새 서버: 거울샘은 분포 대신 「아직 0명이 다녀갔어요」", "아직 0명이 다녀갔어요" in res["spring"]["html"],
+                res["spring"]["html"][-200:])
         C.check(G, "페이지 오류 0", not errs, errs[:2])
         ctx.close()
     finally:
