@@ -56,63 +56,74 @@
   const BUBBLE_CHARS = 16;                          // bubble = the front of the words; the panel has them all
   const TALK_PAGE = 20;
 
-  // ── 동네 (docs/design/motion-and-map.md 3절, M1): 그림 한 장(W×H) 크기 동네를 가로로 잇는다.
-  // 세계 좌표 = 동네 왼쪽 끝 x0 + 그 그림 안 좌표. 중앙은 x0 0 이라 앞 판 좌표 그대로다. 화면은 한 번에 한 동네만 보이고(카메라),
-  // 동네 사이는 문으로 걷는다. 스냅샷은 그대로(구역 id 만 있다) — 어느 구역이 어느 동네인지는 이 화면이 정한다
+  // ── 동네 (docs/design/motion-and-map.md 3절, M1·M2): 그림 한 장(W×H) 크기 동네를 가로로 잇는다(서쪽부터).
+  // 세계 좌표 = 동네 왼쪽 끝 x0 + 그 그림 안 좌표. 중앙은 x0 0 이라 앞 판 좌표 그대로고, 서쪽(시장 거리)은 그 왼쪽 -W~0 이다.
+  // 화면은 한 번에 한 동네만 보이고(카메라), 동네 사이는 문으로 걷는다. 스냅샷은 그대로(구역 id 만 있다) — 어느 구역이 어느 동네인지는 이 화면이 정한다
   const DISTRICTS = [
+    { id: "west", name: "시장 거리", bg: ["background/west_bg_gate.png", "background/west_bg_cloudy.png"] },
     { id: "center", name: "중앙 광장", bg: ["background/agora_bg_gate.png", "background/agora_bg_cloudy.png"] },
     { id: "east", name: "샘·정원", bg: ["background/east_bg_gate.png", "background/east_bg_cloudy.png"] },
-  ].map((d, i) => ({ ...d, i, x0: i * W }));
-  const WORLD_W = W * DISTRICTS.length;
-  const E = DISTRICTS[1].x0;
-  const distOf = (x) => Math.max(0, Math.min(DISTRICTS.length - 1, Math.floor(x / W)));
+  ].map((d, i) => ({ ...d, i, x0: (i - 1) * W }));
+  const WORLD_X0 = DISTRICTS[0].x0, WORLD_W = W * DISTRICTS.length;
+  const WD = DISTRICTS[0].x0, E = DISTRICTS[2].x0;
+  const distOf = (x) => Math.max(0, Math.min(DISTRICTS.length - 1, Math.floor((x - WORLD_X0) / W)));
   // 문: 동네마다 [서쪽 문, 동쪽 문] 발끝 자리. 나가는 문까지 걸어가면 옆 동네 들어오는 문에서 나타난다(그 사이 순간 이동)
   const DOORS = [
-    [null, [1352, 662]],         // 중앙: 서쪽 문 없음(M2), 동쪽 문 = 오른쪽 끝
-    [ [E + 330, 402], null ],    // 동쪽: 서쪽 문 = 아치
+    [null, [WD + 1265, 482]],    // 서쪽: 동쪽 문 = 광장 주랑 아치
+    [[300, 560], [1352, 662]],   // 중앙: 서쪽 문 = 옛 입구 아치(밖 길), 동쪽 문 = 오른쪽 끝
+    [[E + 330, 402], null],      // 동쪽: 서쪽 문 = 아치
   ];
-  const DOOR_SIGNS = [[1318, 560, "east", "샘·정원 →"], [E + 330, 236, "center", "← 광장"]];
+  const DOOR_SIGNS = [[WD + 1252, 330, "center", "광장 →"], [330, 405, "west", "← 시장 거리"],
+                      [1318, 560, "east", "샘·정원 →"], [E + 330, 236, "center", "← 광장"]];
   // 빈 땅(새 기능 자리, 3.3절): 소품·선 자리·이름표를 두지 않는다. [가운데 x, 가운데 y, 폭, 높이] — 판정 도구가 겹침을 본다
-  const LOTS = { E1: [E + 760, 440, 150, 80], E2: [E + 1060, 492, 150, 80] };
+  const LOTS = {
+    W1: [WD + 420, 715, 150, 80], W2: [WD + 1000, 715, 150, 80],
+    C1: [250, 690, 150, 80],
+    E1: [E + 760, 440, 150, 80], E2: [E + 1060, 492, 150, 80],
+  };
+  // 시장 거리 노점 넷(M2, 앞 판 중앙 둘): 발끝 자리. 등은 칸마다 부탁 하나
+  const STALLS = [[WD + 430, 545], [WD + 590, 545], [WD + 750, 545], [WD + 910, 545]];
 
   // ── the square: pictures, zone labels and standing spots, in world pixels (foot = bottom centre) ──
   const PROPS = [
     ["props/stele.png", 905, 452, 44, "stele"], ["props/stele.png", 960, 460, 44, "stele"], ["props/stele.png", 1015, 470, 44, "stele"],
-    ["props/board.png", 555, 452, 62, "board"], ["props/bell.png", 640, 432, 44, "bell"], ["zones/mailbox.png", 462, 425, 40, "arch"],
+    ["props/board.png", 555, 452, 62, "board"], ["props/bell.png", 640, 432, 44, "bell"],
     ["zones/stage.png", 1195, 560, 165, "stage"],
-    ["props/stall.png", 205, 600, 112, "market"], ["props/stall.png", 335, 672, 112, "market"],
     ["props/fountain.png", 690, 612, 150, "fountain"],
+    // 서쪽 동네(시장 거리): 입구 아치는 그림에 있고 우편함만 얹는다, 노점 넷
+    ["zones/mailbox.png", WD + 312, 520, 40, "arch"],
+    ...STALLS.map(([x, y]) => ["props/stall.png", x, y, 112, "market"]),
     // 동쪽 동네(샘·정원): 조용한 구역 셋
     ["zones/spring.png", E + 430, 612, 125, "spring"],
     ["zones/cafe.png", E + 835, 680, 160, "cafe"],
     ["props/bench.png", E + 1120, 652, 108, "bench"], ["props/bench2.png", E + 1250, 748, 104, "bench"],
   ];
-  const ARCH_PROP = ["zones/arch.png", 350, 482, 128, "arch"];   // the cloudy picture has no gate painted in
+  const ARCH_PROP = ["zones/arch.png", 350, 482, 128, null];   // 흐린 중앙 그림엔 아치가 없다. M2 부터는 구역이 아니라 시장 거리로 가는 문
   const ZONES = {
-    arch: { name: "입구", color: "#4f8f5a", at: [330, 405] },
+    arch: { name: "입구", color: "#4f8f5a", at: [WD + 150, 330] },
     board: { name: "게시판", color: "#4f7fb5", at: [560, 330] },
     bell: { name: "종", color: "#c8643c", at: [648, 300] },
     stele: { name: "비석", color: "#8a7bb8", at: [962, 346] },
     fountain: { name: "분수", color: "#4f7fb5", at: [690, 632] },
     stage: { name: "무대", color: "#d49a2a", at: [1195, 372] },
-    market: { name: "노점", color: "#c8643c", at: [250, 452] },
+    market: { name: "노점", color: "#c8643c", at: [WD + 670, 378] },
     cafe: { name: "카페", color: "#4f8f5a", at: [E + 840, 483] },
     bench: { name: "벤치", color: "#a8998a", at: [E + 1185, 538] },
     spring: { name: "거울샘", color: "#4f9aa8", at: [E + 440, 430] },
   };
   const SLOTS = {
-    arch: [[425, 496], [372, 522], [476, 524]],
+    arch: [[WD + 262, 560], [WD + 205, 612], [WD + 336, 604]],
     board: [[598, 531], [516, 530], [652, 552]],
     bell: [[700, 476]],
     stele: [[872, 524], [1046, 536]],
     fountain: [[668, 614], [842, 666], [528, 612], [800, 596], [770, 704], [470, 690]],
     stage: [[1110, 574], [1262, 566], [1060, 616]],
-    market: [[150, 666], [410, 738], [268, 706], [84, 724]],
+    market: [[WD + 430, 606], [WD + 590, 614], [WD + 750, 606], [WD + 910, 614], [WD + 510, 664], [WD + 830, 664]],
     cafe: [[E + 750, 712], [E + 925, 718], [E + 832, 620]],
     bench: [[E + 1110, 668], [E + 1250, 756], [E + 1180, 676]],
     spring: [[E + 508, 640], [E + 348, 650], [E + 432, 700]],
   };
-  const GATE = [300, 560];        // where newcomers walk in from (the outer road)
+  const GATE = [WD + 160, 462];   // where newcomers walk in from: the outer road through the market street's entrance arch
   const heightAt = (y) => Math.round(0.105 * y + 22);
 
   const ICON_TEXT = {
@@ -180,9 +191,9 @@
           <div class="pz-left">
             <div class="pz-wrap" id="pzWrap"><div class="pz-stage" id="pzStage">
               ${DISTRICTS.map((d) => `<div class="pz-dist" data-d="${d.id}" style="left:${d.x0}px">` +
-                `<img class="pz-bg"${d.i ? "" : ' id="pzBg"'} alt=""><div class="pz-sky"${d.i ? "" : ' id="pzSky"'} hidden></div>` +
-                `<div class="pz-night"${d.i ? "" : ' id="pzNight"'} hidden></div></div>`).join("")}
-              <svg class="pz-links" id="pzLinks" width="${WORLD_W}" height="${H}" viewBox="0 0 ${WORLD_W} ${H}"></svg>
+                `<img class="pz-bg"${d.x0 ? "" : ' id="pzBg"'} alt=""><div class="pz-sky"${d.x0 ? "" : ' id="pzSky"'} hidden></div>` +
+                `<div class="pz-night"${d.x0 ? "" : ' id="pzNight"'} hidden></div></div>`).join("")}
+              <svg class="pz-links" id="pzLinks" style="left:${WORLD_X0}px" width="${WORLD_W}" height="${H}" viewBox="${WORLD_X0} 0 ${WORLD_W} ${H}"></svg>
               <div id="pzThings"></div>
               <div id="pzFigures"></div>
               <div class="pz-fx" id="pzFx" hidden><i></i><i></i></div>
@@ -335,7 +346,7 @@
   // 1분마다 새로 그려도 보던 자리는 그대로. 연출·리플레이는 장면 좌표로만 움직이므로 확대와 무관하다
   // 카메라는 한 동네 안에서만 움직인다(x0 = 그 동네 왼쪽 끝). 동네를 바꾸면 옆으로 미끄러져 간다(연출 켬일 때만)
   const zoom = (() => {
-    const d0 = DISTRICTS.find((d) => d.id === Q.get("district")) || DISTRICTS[0];
+    const d0 = DISTRICTS.find((d) => d.id === Q.get("district")) || DISTRICTS.find((d) => d.id === "center");
     let z = 1, x0 = d0.x0, cx = x0 + W / 2, cy = H / 2, fit = 1, panT = 0;
     const ptrs = new Map();
     let pinch = null, drag = null, multi = false, lastTap = null, tapDone = -1e9;
@@ -496,18 +507,16 @@
     };
     let html = "";
     for (const [src, x, y, w, z] of props) {
-      html += `<div class="pz-thing" data-zone="${z}" style="left:${x}px;top:${y}px;width:${w}px;z-index:${y}"><img src="${img(src)}" alt=""></div>`;
+      html += `<div class="pz-thing"${z ? ` data-zone="${z}"` : ""} style="left:${x}px;top:${y}px;width:${w}px;z-index:${y}"><img src="${img(src)}" alt=""></div>`;
     }
     // lamps: a stall's lamp is lit only when a request there was taken (spec: lit = state fetched)
     const market = now ? P.market || [] : [];
-    const stalls = [[205, 600], [335, 672]];
-    market.slice(0, 4).forEach((m, i) => {
-      const [sx, sy] = stalls[i % 2];
-      const ox = (i >> 1) * 34 - 18;
-      html += `<div class="pz-lamp ${m.lit ? "lit" : ""}" style="left:${sx + ox}px;top:${sy - 128 - (i >> 1) * 4}px;z-index:${sy + 1}" title="${esc(m.title)}"></div>`;
+    market.slice(0, STALLS.length).forEach((m, i) => {
+      const [sx, sy] = STALLS[i];
+      html += `<div class="pz-lamp ${m.lit ? "lit" : ""}" style="left:${sx}px;top:${sy - 128}px;z-index:${sy + 1}" title="${esc(m.title)}"></div>`;
     });
     if (market.length) {
-      html += `<div class="pz-note pz-stallsign" style="left:205px;top:606px;z-index:${700}">${market.slice(0, 2).map((m) =>
+      html += `<div class="pz-note pz-stallsign" style="left:${STALLS[0][0]}px;top:${STALLS[0][1] + 6}px;z-index:${700}">${market.slice(0, 2).map((m) =>
         `<span>${m.lit ? "● " : ""}${m.reward && m.reward_state === "held" ? `<b class="pz-coin" title="걸린 골드"><img src="${img("icons/events/reward.png")}" alt="">${m.reward}</b>` : ""}${esc(m.title)}</span>`).join("")}</div>`;
     }
     // event results board (api.md 10.1): the latest event's state on a small sign right of the bell (clear of the labels and the figures standing by it)
@@ -537,7 +546,11 @@
     let svg = "";
     const byId = new Map(market.map((m) => [m.id, m]));
     const pair = market.find((m) => m.in_return_for && byId.has(m.in_return_for));
-    if (pair) svg += `<path d="M 205 555 Q 270 610 330 628" stroke="#c8643c" stroke-width="2.5" fill="none" stroke-dasharray="6 5"><title>${esc(pair.title)} ↔ ${esc(byId.get(pair.in_return_for).title)} (답례)</title></path>`;
+    // 두 부탁이 걸린 노점 사이(넷 밖이면 첫 두 칸)
+    const pi = market.indexOf(pair), qi = pair ? market.indexOf(byId.get(pair.in_return_for)) : -1;
+    const [ax, ay] = STALLS[pi >= 0 && pi < STALLS.length && qi < STALLS.length ? Math.min(pi, qi) : 0];
+    const [bx, by] = STALLS[pi >= 0 && pi < STALLS.length && qi < STALLS.length ? Math.max(pi, qi) : 1];
+    if (pair) svg += `<path d="M ${ax} ${ay - 45} Q ${(ax + bx) / 2} ${ay + 10} ${bx} ${by - 45}" stroke="#c8643c" stroke-width="2.5" fill="none" stroke-dasharray="6 5"><title>${esc(pair.title)} ↔ ${esc(byId.get(pair.in_return_for).title)} (답례)</title></path>`;
     document.getElementById("pzLinks").innerHTML = svg;
 
     const mood = P.weather === "cloudy" ? "흐림" : "맑음";

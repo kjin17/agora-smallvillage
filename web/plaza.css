@@ -49,7 +49,8 @@ body {
 .pz-zoom button:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--pz-ink); }
 .pz-zoom button:disabled { opacity: .35; cursor: default; }
 .pz-wrap:not(.zoomed) .pz-zoom [data-z=out], .pz-wrap:not(.zoomed) .pz-zoom [data-z=fit] { display: none; }   /* 전체 보기에선 + 하나만, 폰 틀을 덜 가리게 */
-/* 장면 = 동네 그림을 가로로 이은 세계(중앙 0~1376, 동쪽 1376~2752). 틀에는 한 동네만 보인다(plaza.js zoom) */
+/* 장면 = 동네 그림을 가로로 이은 세계(서쪽 -1376~0, 중앙 0~1376, 동쪽 1376~2752). 틀에는 한 동네만 보인다(plaza.js zoom).
+   상자는 중앙부터 잡고 서쪽은 왼쪽으로 넘쳐 그린다(중앙 좌표가 앞 판 그대로) */
 .pz-stage { position: absolute; left: 0; top: 0; width: 2752px; height: 768px; transform-origin: 0 0; }
 .pz-stage.pz-glide { transition: transform .7s ease-in-out; }   /* 동네 띠·문 팻말로 옆 동네로 갈 때만 (연출 켬) */
 .pz-dist { position: absolute; top: 0; width: 1376px; height: 768px; }
@@ -155,7 +156,8 @@ body {
 .pz-map button > * { pointer-events: none; }
 .pz-map button.on { border-color: var(--pz-ink); color: var(--pz-ink); box-shadow: 0 2px 0 var(--pz-ink); }
 .pz-map .pz-mm { position: relative; display: block; width: 72px; height: 40px; border-radius: 6px; overflow: hidden; background: #eadcc0; }
-.pz-map button + button .pz-mm { background: #d6e4cd; }
+.pz-map [data-to=west] .pz-mm { background: #e8cfb4; }
+.pz-map [data-to=east] .pz-mm { background: #d6e4cd; }
 .pz-map .pz-mm i { position: absolute; width: 5px; height: 5px; border-radius: 50%; background: rgba(60, 50, 40, .55); transform: translate(-50%, -50%); }
 .pz-map .pz-mm i.t { width: 7px; height: 7px; background: #e0466b; }
 .pz-map button.hot .pz-mm { box-shadow: inset 0 0 0 2px #e0466b; }

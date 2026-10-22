@@ -251,9 +251,9 @@ def full_view(b: dict) -> bool:
 
 
 def map_in_frame(b: dict) -> bool:
-    """동네 띠(미니맵)가 틀 안에 보이고 동네 칸이 둘(중앙·동쪽)."""
+    """동네 띠(미니맵)가 틀 안에 보이고 동네 칸이 셋(서쪽·중앙·동쪽, M2)."""
     m, w = b["map"], b["wrap"]
-    return bool(m) and m["l"] >= w["l"] - 1 and m["r"] <= w["r"] + 1 and m["t"] >= w["t"] - 1 and m["b"] <= w["b"] + 1 and b["tabs"] == ["center", "east"]
+    return bool(m) and m["l"] >= w["l"] - 1 and m["r"] <= w["r"] + 1 and m["t"] >= w["t"] - 1 and m["b"] <= w["b"] + 1 and b["tabs"] == ["west", "center", "east"]
 
 
 def covers(b: dict) -> bool:
@@ -311,7 +311,7 @@ def zoom_checks(C: Checks, browser, label, device, url, at, want_now, busiest, s
     dz = {k: len(v["zones"]) for k, v in st0["districts"].items()}
     C.check(G, f"{device['viewport']['width']}×{device['viewport']['height']} 첫 화면에 중앙 동네 그림 전체 (그 동네 상자 = 틀, 뷰포트 안) + 동네 띠(미니맵) · 구역 동네별 합 열",
             full_view(b0) and b0["d"] == "center" and map_in_frame(b0) and abs(st0["zoom"]["z"] - 1) < 1e-6
-            and dz == {"center": 7, "east": 3} and len(st0["zonesShown"]) == 10 and st0["phone"],
+            and dz == {"west": 2, "center": 5, "east": 3} and len(st0["zonesShown"]) == 10 and st0["phone"],
             f"{fmt_box(b0)} · 동네 {b0['d']} · 띠 {b0['tabs']} · 확대 {st0['zoom']['z']:.2f} · 구역 {dz}")
     C.check(G, "전체 보기에서는 장면이 세로 스크롤을 페이지에 넘긴다 (touch-action pan-y)", b0["ta"] == "pan-y", b0["ta"])
 
@@ -460,13 +460,21 @@ def lot_hits(items: list, lots: dict) -> list[str]:
     return out
 
 
+WEST = -1376   # 지도 M2: 시장 거리 동네의 왼쪽 끝(세계 x -1376~0, 중앙 좌표는 앞 판 그대로)
+
+
 def door_gap(xs: list[float], east: float = 1376, door_in: float = 1376 + 330) -> list[float]:
     """동네 사이 걷기에서 문과 문 사이(중앙 그림 끝 ~ 동쪽 들어오는 문 앞)를 걸어간 자리. 순간 이동이면 비어 있다."""
     return [x for x in xs if east + 1 < x < door_in - 40]
 
 
+def door_gap_west(xs: list[float], door_out: float = 300, door_in: float = WEST + 1265) -> list[float]:
+    """서쪽으로: 중앙 서쪽 문(옛 입구 아치, x 300) 앞 ~ 시장 거리 들어오는 문(주랑 아치) 뒤 사이를 걸어간 자리."""
+    return [x for x in xs if door_in + 40 < x < door_out - 1]
+
+
 def district_checks(C: Checks, browser, url, at, snap, want_now, errs):
-    G = "동네 (지도 M1)"
+    G = "동네 (지도 M1·M2)"
     P = snap["plaza"]
 
     def open_(q, motion, dev=None):
@@ -480,34 +488,49 @@ def district_checks(C: Checks, browser, url, at, snap, want_now, errs):
         pg.clock.run_for(2500)
         return ctx, pg
 
-    # 1. 빈 땅 두 곳에 아무것도 안 섰다 (자 검사: 빈 땅 하나를 카페 자리로 옮기면 「겹침」)
+    # 1. 빈 땅 다섯 곳(서쪽 W1·W2, 중앙 C1, 동쪽 E1·E2)에 아무것도 안 섰다 (자 검사: 빈 땅 하나를 카페·노점 앞으로 옮기면 「겹침」)
     ctx, pg = open_("mode=now&motion=0", False)
     W = pg.evaluate(WORLD_BOXES_JS)
     hits = lot_hits(W["items"], W["lots"])
     probe = lot_hits(W["items"], dict(W["lots"], E1=[EAST + 835, 640, 150, 80]))
+    probe_w = lot_hits(W["items"], dict(W["lots"], W1=[WEST + 590, 600, 150, 80]))
     st = pg.evaluate("Plaza.stats()")
-    C.check(G, "빈 땅 두 곳(E1·E2, 동쪽 동네)에 소품·구역 이름표·문 팻말·선 자리가 안 겹침",
-            len(W["lots"]) == 2 and not hits and all(v[0] > EAST for v in W["lots"].values()),
-            f"빈 땅 {list(W['lots'])} · 잰 상자 {len(W['items'])} · 겹침 {hits[:3] or 0}")
-    C.check(G, "자 검사: 빈 땅 E1 을 카페 앞으로 옮기면 「겹침」", bool(probe), ", ".join(probe[:3]))
-    # 2. 구역은 동네별로: 옮긴 세 구역은 동쪽, 말풍선 합 = 스냅샷 (동쪽 동네 말풍선도 원장 행)
+    home = {"W": (WEST, 0), "C": (0, EAST), "E": (EAST, EAST + 1376)}
+    lot_in = all(home[k[0]][0] < v[0] < home[k[0]][1] for k, v in W["lots"].items())
+    C.check(G, "빈 땅 다섯 곳(W1·W2 시장 거리, C1 중앙, E1·E2 샘·정원)이 이름대로의 동네 안에 있고 소품·구역 이름표·문 팻말·선 자리가 안 겹침",
+            sorted(W["lots"]) == ["C1", "E1", "E2", "W1", "W2"] and not hits and lot_in,
+            f"빈 땅 {list(W['lots'])} · 잰 상자 {len(W['items'])} · 겹침 {hits[:3] or 0} · 동네 안 {lot_in}")
+    C.check(G, "자 검사: 빈 땅 E1 을 카페 앞으로, W1 을 노점 앞으로 옮기면 「겹침」", bool(probe) and bool(probe_w), ", ".join((probe + probe_w)[:4]))
+    # 2. 구역은 동네별로: 입구·노점은 서쪽, 세 구역은 동쪽, 말풍선 합 = 스냅샷 (다른 동네 말풍선도 원장 행)
     east_want = sum(1 for r in P["residents"] if r["bubble"] and (r.get("zone") or "fountain") in M1_MOVED)
+    west_want = sum(1 for r in P["residents"] if r["bubble"] and (r.get("zone") or "fountain") in M2_MOVED)
     d = st["districts"]
-    C.check(G, "구역 동네별: 중앙 일곱·동쪽 셋(거울샘·카페·벤치), 말풍선은 모든 동네 합 = 스냅샷, 동쪽 말풍선 = 옮긴 구역 사람 수",
-            sorted(d["east"]["zones"]) == sorted(M1_MOVED) and len(d["center"]["zones"]) == 7
-            and d["center"]["bubbles"] + d["east"]["bubbles"] == st["bubblesOnStage"] == want_now and d["east"]["bubbles"] == east_want,
-            f"중앙 {d['center']} · 동쪽 {d['east']} · 화면 {st['bubblesOnStage']} · 스냅샷 {want_now} · 기대 동쪽 {east_want}")
-    # 3. 동네 띠: 칸마다 점 수 = 그 동네 사람 수, 동쪽 칸을 누르면 동쪽 동네 전체 보기
+    C.check(G, "구역 동네별: 서쪽 둘(입구·노점)·중앙 다섯·동쪽 셋(거울샘·카페·벤치), 말풍선은 모든 동네 합 = 스냅샷, 서쪽·동쪽 말풍선 = 옮긴 구역 사람 수",
+            sorted(d["east"]["zones"]) == sorted(M1_MOVED) and sorted(d["west"]["zones"]) == sorted(M2_MOVED) and len(d["center"]["zones"]) == 5
+            and d["west"]["bubbles"] + d["center"]["bubbles"] + d["east"]["bubbles"] == st["bubblesOnStage"] == want_now
+            and d["east"]["bubbles"] == east_want and d["west"]["bubbles"] == west_want,
+            f"서쪽 {d['west']} · 중앙 {d['center']} · 동쪽 {d['east']} · 화면 {st['bubblesOnStage']} · 스냅샷 {want_now} · 기대 서쪽 {west_want} 동쪽 {east_want}")
+    # 노점 넷: 소품 넷, 등 = 부탁 앞 넷 (앞 판 둘)
+    stalls = pg.evaluate("document.querySelectorAll('#pzThings .pz-thing[data-zone=market]').length")
+    lamps = pg.evaluate("document.querySelectorAll('#pzThings .pz-lamp').length")
+    C.check(G, "시장 거리 노점 넷, 등 = 부탁 수(넷까지)", stalls == 4 and lamps == min(4, len(P.get("market") or [])),
+            f"노점 {stalls} · 등 {lamps} · 부탁 {len(P.get('market') or [])}")
+    # 3. 동네 띠: 칸마다 점 수 = 그 동네 사람 수, 동쪽·서쪽 칸을 누르면 그 동네 전체 보기, 문 팻말로 다시 중앙
     dots = pg.evaluate("[...document.querySelectorAll('#pzMap [data-to]')].map((b) => [b.dataset.to, b.querySelectorAll('.pz-mm i').length, b.querySelectorAll('.pz-mm i.t').length])")
     pg.click("#pzMap [data-to=east]")
     b1 = pg.evaluate(BOX_JS)
-    pg.click("#pzThings .pz-door[data-to=center]")
+    pg.click("#pzThings .pz-door[data-to=center] >> nth=1")   # 「→ 중앙」 팻말은 둘: 시장 거리 쪽(0)·샘·정원 쪽(1)
     b2 = pg.evaluate(BOX_JS)
+    pg.click("#pzMap [data-to=west]")
+    b3 = pg.evaluate(BOX_JS)
+    pg.click("#pzThings .pz-door[data-to=center] >> nth=0")
+    b4 = pg.evaluate(BOX_JS)
     ctx.close()
-    C.check(G, "동네 띠: 칸마다 점 = 그 동네 사람(진한 점 = 말풍선), 동쪽 칸을 누르면 동쪽 동네 전체, 동쪽 문 팻말을 누르면 다시 중앙",
-            dots == [["center", d["center"]["figures"], d["center"]["bubbles"]], ["east", d["east"]["figures"], d["east"]["bubbles"]]]
-            and b1["d"] == "east" and full_view(b1) and b2["d"] == "center" and full_view(b2),
-            f"점 {dots} · 누른 뒤 {b1['d']} → 문 팻말 {b2['d']}")
+    C.check(G, "동네 띠: 칸 셋(서→동)마다 점 = 그 동네 사람(진한 점 = 말풍선), 동쪽·서쪽 칸을 누르면 그 동네 전체, 문 팻말을 누르면 다시 중앙",
+            dots == [[k, d[k]["figures"], d[k]["bubbles"]] for k in ("west", "center", "east")]
+            and b1["d"] == "east" and full_view(b1) and b2["d"] == "center" and full_view(b2)
+            and b3["d"] == "west" and full_view(b3) and b4["d"] == "center" and full_view(b4),
+            f"점 {dots} · 동쪽 칸 {b1['d']} → 문 팻말 {b2['d']} · 서쪽 칸 {b3['d']} → 문 팻말 {b4['d']}")
     # 4. 동네 사이 걷기 (연출 켬): 중앙 사람 하나를 카페로 보낸다 → 중앙 문까지 걸어가 사라졌다가 동쪽 아치 문에서 나타나 카페 자리로.
     #    문과 문 사이를 걸어간 자리 0, 걷는 동안 말풍선 수·카메라 그대로. 연출 끔이면 바로 그 자리
     ctx, pg = open_("mode=now&motion=1", True)
@@ -535,15 +558,37 @@ def district_checks(C: Checks, browser, url, at, snap, want_now, errs):
     x_off = pg.evaluate(f"parseFloat(document.querySelector('.pz-agent[data-id=\"{who}\"]').style.left)")
     ctx.close()
     C.check(G, "연출 끔: 다른 동네 자리로 바로 (걷기 없음)", abs(x_off - slot[0]) < 1, f"x {x_off:.0f} · 자리 {slot[0]}")
-    # 5. 폰: 동쪽 칸 탭 → 동쪽 동네 전체 + 띠는 그대로
-    ctx, pg = open_("mode=now&motion=0", False, PHONE_DEVICE)
-    m = pg.locator("#pzMap [data-to=east]").bounding_box()
-    pg.touchscreen.tap(m["x"] + m["width"] / 2, m["y"] + m["height"] / 2)
-    pg.clock.run_for(400)
-    bp = pg.evaluate(BOX_JS)
+    # 4-2. 서쪽으로(연출 켬): 중앙 사람 하나를 노점으로 → 중앙 서쪽 문(옛 입구 아치)까지 걸어가 사라지고 시장 거리 주랑 아치 문에서 나타나 노점 자리로
+    ctx, pg = open_("mode=now&motion=1", True)
+    pg.evaluate(f"Plaza.walkTo('{who}', 'market')")
+    xw, bw, dw = [], set(), set()
+    for _ in range(500):   # 분수 → 중앙 서쪽 문 → 주랑 아치 문 → 노점은 동쪽 길보다 길다(약 1,250 장면 px)
+        pg.clock.run_for(100)
+        v = pg.evaluate(f"(() => {{ const e = document.querySelector('.pz-agent[data-id=\"{who}\"]'); const s = Plaza.stats(); return [parseFloat(e.style.left), s.bubblesOnStage, s.district]; }})()")
+        xw.append(v[0]); bw.add(v[1]); dw.add(v[2])
+    slot_m = pg.evaluate("Plaza.stats().slots.market")
     ctx.close()
-    C.check(G, "폰: 동네 띠의 동쪽 칸을 탭하면 동쪽 동네 전체 + 띠 그대로", bp["d"] == "east" and full_view(bp) and map_in_frame(bp),
-            f"{bp['d']} · {fmt_box(bp)}")
+    pre_w = [x for x in xw if x >= 0]
+    post_w = [x for x in xw if x < 0]
+    gap_w = door_gap_west(xw)
+    arrived_w = any(abs(x - slot_m[0][0]) < 1 for x in xw)   # 노점은 서성이는 구역이라 닿은 뒤 자리 둘레를 돈다 — 걸은 길에 첫 자리가 있는지
+    C.check(G, "서쪽으로 걷기(연출 켬): 중앙 서쪽 문까지 걸어가 사라지고 시장 거리 주랑 아치 문에서 나타나 노점 자리로 — 문과 문 사이 걸은 자리 0, 말풍선 수·카메라 그대로",
+            pre_w and post_w and min(pre_w) < 330 and max(post_w) <= WEST + 1265 + 1 and not gap_w and arrived_w and bw == {b0} and dw == {"center"},
+            f"중앙 쪽 마지막 x {min(pre_w or [0]):.0f} · 서쪽 첫 x {max(post_w or [0]):.0f} · 사이 {len(gap_w)} · 도착 {arrived_w} · 말풍선 {sorted(bw)} · 카메라 {sorted(dw)}")
+    straight_w = [400 - i * 40 for i in range(20)]
+    C.check(G, "자 검사: 문을 거치지 않고 곧장 서쪽으로 걸은 길(400→-360)은 「사이를 걸음」", bool(door_gap_west(straight_w)), f"사이 {len(door_gap_west(straight_w))}점")
+    # 5. 폰: 동쪽·서쪽 칸 탭 → 그 동네 전체 + 띠는 그대로
+    ctx, pg = open_("mode=now&motion=0", False, PHONE_DEVICE)
+    got = []
+    for to in ("east", "west"):
+        m = pg.locator(f"#pzMap [data-to={to}]").bounding_box()
+        pg.touchscreen.tap(m["x"] + m["width"] / 2, m["y"] + m["height"] / 2)
+        pg.clock.run_for(400)
+        got.append(pg.evaluate(BOX_JS))
+    ctx.close()
+    C.check(G, "폰: 동네 띠의 동쪽·서쪽 칸을 탭하면 그 동네 전체 + 띠 그대로",
+            [b["d"] for b in got] == ["east", "west"] and all(full_view(b) and map_in_frame(b) for b in got),
+            " · ".join(f"{b['d']} {fmt_box(b)}" for b in got))
 
 
 def until(pg, expr, tries=30):
@@ -821,10 +866,11 @@ def talk_checks(C: Checks, browser, label, device, url, at, pub: Path, snap: dic
 # 시설 그림 발끝 바로 위(6px)에 캐릭터를 세우면 옛 층 순서(발 y 하나)에선 그림 뒤로 들어간다. 그 자리에서 몸 가운데·발 쪽·
 # 말풍선 가운데를 elementFromPoint 로 물어 캐릭터가 맨 위인지 본다. 시설 그림은 원래 pointer-events 가 없어 잠깐 켠다
 # 지도 M1: 카페·벤치·거울샘은 동쪽 동네(세계 x 1376~). 그 자리는 카메라를 그 동네로 옮겨 잰다(틀 밖은 elementFromPoint 에 안 잡힌다)
+# 지도 M2: 입구(우편함)·노점은 서쪽 동네(세계 x -1376~0)
 EAST = 1376
 FRONT_SPOTS = [("분수", 690, 606), ("벤치", EAST + 1120, 646), ("벤치2", EAST + 1250, 742), ("카페", EAST + 835, 674),
                ("카페 앞자리(실제 슬롯)", EAST + 832, 620),
-               ("게시판", 555, 446), ("노점", 205, 594), ("노점2", 335, 666), ("무대", 1195, 554),
+               ("게시판", 555, 446), ("노점", WEST + 430, 539), ("노점4", WEST + 910, 539), ("우편함", WEST + 312, 514), ("무대", 1195, 554),
                ("거울샘", EAST + 430, 606)]
 FRONT_JS = """([id, spots, old]) => {
   const add = (css, sid) => { const s = document.createElement('style'); s.id = sid; s.textContent = css; document.head.append(s); };
@@ -1584,7 +1630,7 @@ def plaza_checks(C: Checks, browser, args, work: Path, extra=(), capture=None):
     for f in ("plaza.js", "plaza.css"):
         (before / "web" / f).write_text(before_web(args.motion_before, f), encoding="utf-8")
     url_mb, srv_mb = serve(before)
-    moved_ids = [r["id"] for r in P["residents"] if (r.get("zone") or "fountain") in M1_MOVED]
+    moved_ids = [r["id"] for r in P["residents"] if (r.get("zone") or "fountain") in MOTION_MASK_ZONES]
     motion_checks(C, page, still, url, url_mb, before_label(args.motion_before), shots, moved_ids)
     srv_mb.shutdown()
 
@@ -1626,6 +1672,10 @@ MOTION_PROBE_JS = """() => {
 #  - 틀 오른쪽 끝 1열: 앞 판은 그림이 거기서 끝났고 이제는 동쪽 그림이 이어져 경계 번짐이 1 단위 다름
 # 소품·사람 상자는 그림자 필터(drop-shadow 3~4px)가 상자 밖으로 번지니 6px 넓혀 잡는다
 M1_MOVED = ("cafe", "bench", "spring")
+M2_MOVED = ("arch", "market")   # 지도 M2: 중앙 → 서쪽 시장 거리
+# 몸짓 판정 ①의 앞 판이 M1 배포 판(5597b81)으로 올라가며, 가리는 곳도 M2 가 중앙에서 바꾼 곳이 됐다: 서쪽으로 옮긴 입구·노점
+# (소품·이름표·우편함·노점 등·노점 팻말·노점 사이 줄·그 구역 사람), 동네 띠(칸 셋), 문 팻말(「← 시장 거리」 새로), 틀 왼쪽 끝 1열(서쪽 그림이 이어짐)
+MOTION_MASK_ZONES = M2_MOVED
 M1_MASK_JS = """([ids, zones]) => {
   const w = document.getElementById('pzWrap').getBoundingClientRect(), out = [];
   const add = (r) => { const l = Math.max(r.left, w.left), t = Math.max(r.top, w.top), rr = Math.min(r.right, w.right), b = Math.min(r.bottom, w.bottom);
@@ -1633,9 +1683,11 @@ M1_MASK_JS = """([ids, zones]) => {
   const deep = (el) => { add(el.getBoundingClientRect()); el.querySelectorAll('*').forEach((c) => add(c.getBoundingClientRect())); };
   zones.forEach((z) => document.querySelectorAll(`#pzThings [data-zone="${z}"]`).forEach(deep));
   ids.forEach((id) => { const f = document.querySelector(`#pzFigures .pz-agent[data-id="${id}"]`); if (f) deep(f); });
-  document.querySelectorAll('#pzLinks .qline').forEach((q) => add(q.getBoundingClientRect()));
+  document.querySelectorAll('#pzLinks .qline, #pzLinks path:not(.qline)').forEach((q) => add(q.getBoundingClientRect()));
+  document.querySelectorAll('#pzThings .pz-lamp, #pzThings .pz-stallsign').forEach(deep);
   document.querySelectorAll('#pzMap, #pzThings .pz-door, #pzModeChip, #pzWeather, #pzCorner, #pzZoom').forEach(deep);
   out.push([Math.floor(w.right + scrollX) - 2, Math.floor(w.top + scrollY), Math.ceil(w.right + scrollX) + 1, Math.ceil(w.bottom + scrollY)]);
+  out.push([Math.floor(w.left + scrollX) - 1, Math.floor(w.top + scrollY), Math.ceil(w.left + scrollX) + 2, Math.ceil(w.bottom + scrollY)]);
   return {boxes: out, wrap: [w.left + scrollX, w.top + scrollY, w.right + scrollX, w.bottom + scrollY]};
 }"""
 
@@ -1674,7 +1726,7 @@ def motion_checks(C: Checks, page, still, url: str, url_before: str, before_name
     ③ 몸짓(Plaza.gesture 전원 + 종 울림)이 도는 동안 bubblesOnStage 불변. 몸짓이 실제로 걸렸는지(기호 .pz-pop)도 같이 본다"""
     G = "몸짓"
     q0 = "mode=now&motion=0"
-    probe = (M1_MASK_JS, [list(moved_ids), list(M1_MOVED)])
+    probe = (M1_MASK_JS, [list(moved_ids), list(MOTION_MASK_ZONES)])
     s_new = still(url, "mo_off_new.png", q=q0, probe=probe)
     still(url, "mo_off_new2.png", q=q0)
     s_bef = still(url_before, "mo_off_before.png", q=q0, probe=probe)
@@ -1700,10 +1752,10 @@ def motion_checks(C: Checks, page, still, url: str, url_before: str, before_name
     ctx.close()
     ok_r, why_r, _ = masked_same(shots / "mo_off_new.png", shots / "mo_on_new.png", boxes)
     C.check(G, "대조군: 연출 끔 화면 두 번 찍어 같은 그림", ok_c, why_c)
-    C.check(G, f"연출 끔(motion=0) = 몸짓 앞 판({before_name}) 그림 픽셀 같음 (점마다 차이 {M1_TOL} 이하; 지도 M1 이 옮긴 세 구역·동네 띠·문 팻말·틀 위 반투명 띠·오른쪽 끝 열 상자 {len(boxes)}개, 틀의 {frac:.0%} 가림), 몸 인라인 transform·몸짓 기호·.mo 0",
+    C.check(G, f"연출 끔(motion=0) = 몸짓 앞 판({before_name}) 그림 픽셀 같음 (점마다 차이 {M1_TOL} 이하; 지도 M2 가 옮긴 입구·노점(등·팻말·줄 포함)·동네 띠·문 팻말·틀 위 반투명 띠·양쪽 끝 열 상자 {len(boxes)}개, 틀의 {frac:.0%} 가림), 몸 인라인 transform·몸짓 기호·.mo 0",
             ok_b and frac < 0.35 and off["anyTf"] == 0 and off["pops"] == 0 and off["mo"] == 0,
             f"{why_b} · transform {off['anyTf']} · 기호 {off['pops']} · .mo {off['mo']}")
-    C.check(G, "자 검사: 같은 자(같은 가림)로 연출 켬 화면은 「다름」, 가리지 않고 대면 앞 판과 「다름」(M1 이 실제로 바뀜)", not ok_r and not ok_raw, f"{why_r} · 안 가림 {why_raw}")
+    C.check(G, "자 검사: 같은 자(같은 가림)로 연출 켬 화면은 「다름」, 가리지 않고 대면 앞 판과 「다름」(M2 가 실제로 바뀜)", not ok_r and not ok_raw, f"{why_r} · 안 가림 {why_raw}")
 
     # ② 시간에 따라 바뀌는 transform, 끄면 빈 문자열
     ctx, pg = page(1440, 900, "mode=now&motion=1", True)
@@ -2041,7 +2093,7 @@ def main(argv=None) -> int:
                     help="캐릭터 앞 「전」 캡처에 쓸 옛 판 (plaza.js·plaza.css 가 든 폴더, 또는 이 리포의 커밋)")
     ap.add_argument("--faces-before", default=str(BEFORE_DIR / "faces_b0af64d"),
                     help="아바타 표정 자 검사에 쓸 표정 앞 판 (폴더 또는 이 리포의 커밋)")
-    ap.add_argument("--motion-before", default="8cfe13e",
+    ap.add_argument("--motion-before", default="5597b81",
                     help="몸짓 판정 ①의 「연출 끔 = 앞 판」에 쓸 몸짓 앞 판 (폴더 또는 이 리포의 커밋)")
     a = ap.parse_args(argv)
     work = Path(a.work).expanduser()
