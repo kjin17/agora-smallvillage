@@ -136,7 +136,10 @@ body {
 @keyframes pzring { 0%, 100% { transform: translate(-50%, 0) rotate(0); } 50% { transform: translate(-50%, 0) rotate(-5deg); } }
 .pz-note { position: absolute; font-size: 11px; color: var(--pz-ink2); background: rgba(255, 253, 248, .9); padding: 1px 6px;
   border-radius: 6px; white-space: nowrap; transform: translate(-50%, 0); }
-.pz-stallsign { display: flex; flex-direction: column; gap: 1px; text-align: left; transform: translate(-50%, 0); }
+/* 노점 팻말: 칸 사이 160px 이라 폭 144px 안에서 줄바꿈, 세 줄 넘으면 말줄임(전문은 title) */
+.pz-stallsign { max-width: 144px; width: max-content; white-space: normal; word-break: keep-all; overflow-wrap: anywhere; text-align: center;
+  line-height: 1.3; transform: translate(-50%, 0); }
+.pz-stallsign span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
 .pz-lamp { position: absolute; width: 11px; height: 14px; border-radius: 5px 5px 6px 6px; background: #d8cbb8; border: 1.5px solid var(--pz-ink);
   transform: translate(-50%, 0); }
 .pz-lamp.lit { background: #ffcf5a; box-shadow: 0 0 10px 4px rgba(255, 196, 64, .75); }

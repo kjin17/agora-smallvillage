@@ -515,10 +515,11 @@
       const [sx, sy] = STALLS[i];
       html += `<div class="pz-lamp ${m.lit ? "lit" : ""}" style="left:${sx}px;top:${sy - 128}px;z-index:${sy + 1}" title="${esc(m.title)}"></div>`;
     });
-    if (market.length) {
-      html += `<div class="pz-note pz-stallsign" style="left:${STALLS[0][0]}px;top:${STALLS[0][1] + 6}px;z-index:${700}">${market.slice(0, 2).map((m) =>
-        `<span>${m.lit ? "● " : ""}${m.reward && m.reward_state === "held" ? `<b class="pz-coin" title="걸린 골드"><img src="${img("icons/events/reward.png")}" alt="">${m.reward}</b>` : ""}${esc(m.title)}</span>`).join("")}</div>`;
-    }
+    // 노점 팻말: 칸마다 그 칸 부탁 제목 하나(칸 수 = 넷, 앞 넷). 부탁이 없는 칸은 팻말 없음. 긴 제목은 세 줄까지, 전문은 title
+    market.slice(0, STALLS.length).forEach((m, i) => {
+      const [sx, sy] = STALLS[i];
+      html += `<div class="pz-note pz-stallsign" data-stall="${i}" style="left:${sx}px;top:${sy + 6}px;z-index:${700}" title="${esc(m.title)}"><span>${m.lit ? "● " : ""}${m.reward && m.reward_state === "held" ? `<b class="pz-coin" title="걸린 골드"><img src="${img("icons/events/reward.png")}" alt="">${m.reward}</b>` : ""}${esc(m.title)}</span></div>`;
+    });
     // event results board (api.md 10.1): the latest event's state on a small sign right of the bell (clear of the labels and the figures standing by it)
     const evb = now ? (P.event_board || [])[0] : null;
     if (evb) {

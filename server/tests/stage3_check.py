@@ -515,6 +515,7 @@ def district_checks(C: Checks, browser, url, at, snap, want_now, errs):
     lamps = pg.evaluate("document.querySelectorAll('#pzThings .pz-lamp').length")
     C.check(G, "시장 거리 노점 넷, 등 = 부탁 수(넷까지)", stalls == 4 and lamps == min(4, len(P.get("market") or [])),
             f"노점 {stalls} · 등 {lamps} · 부탁 {len(P.get('market') or [])}")
+    stall_sign_checks(C, browser, url, at, snap, errs)
     # 3. 동네 띠: 칸마다 점 수 = 그 동네 사람 수, 동쪽·서쪽 칸을 누르면 그 동네 전체 보기, 문 팻말로 다시 중앙
     dots = pg.evaluate("[...document.querySelectorAll('#pzMap [data-to]')].map((b) => [b.dataset.to, b.querySelectorAll('.pz-mm i').length, b.querySelectorAll('.pz-mm i.t').length])")
     pg.click("#pzMap [data-to=east]")
@@ -589,6 +590,67 @@ def district_checks(C: Checks, browser, url, at, snap, want_now, errs):
     C.check(G, "폰: 동네 띠의 동쪽·서쪽 칸을 탭하면 그 동네 전체 + 띠 그대로",
             [b["d"] for b in got] == ["east", "west"] and all(full_view(b) and map_in_frame(b) for b in got),
             " · ".join(f"{b['d']} {fmt_box(b)}" for b in got))
+
+
+STALL_SIGNS_JS = """() => { const w = document.getElementById('pzWrap').getBoundingClientRect(), r = (e) => e.getBoundingClientRect();
+  const box = (b) => [b.left, b.top, b.right, b.bottom];
+  const signs = [...document.querySelectorAll('#pzThings .pz-stallsign')].map((e) => { const sp = e.querySelector('span');
+    return {i: e.dataset.stall == null ? -1 : +e.dataset.stall, text: e.textContent.replace(/^● /, ''), full: e.title, box: box(r(e)),
+            clipped: sp.scrollHeight > sp.clientHeight + 1 || e.scrollWidth > e.clientWidth + 1}; });
+  const stalls = [...document.querySelectorAll('#pzThings .pz-thing[data-zone=market]')].map((e) => { const b = r(e); return (b.left + b.right) / 2; });
+  const others = [...document.querySelectorAll('#pzThings .pz-zone, #pzThings .pz-door, #pzThings .pz-lamp, #pzThings .pz-note:not(.pz-stallsign)')].map((e) => box(r(e)));
+  return {signs, stalls, others, wrap: box(w)}; }"""
+
+
+def _overlap(a, b):
+    return a[0] < b[2] and a[2] > b[0] and a[1] < b[3] and a[3] > b[1]
+
+
+def stall_sign_checks(C: Checks, browser, url, at, snap, errs):
+    """노점 팻말: 칸마다 그 칸 부탁 제목 하나, 제목 수 = min(부탁, 4). 녹화 자료 + 부탁 여섯(긴 제목·금화)·둘을 끼운 스냅샷으로
+    데스크톱 1440·폰 390 에서 서쪽 동네를 띄우고 잰다: 팻말끼리·이름표·문 팻말·등과 겹침 0, 틀 밖으로 나감 0, 짧은 제목(30자 이하) 말줄임 0."""
+    G = "동네 (지도 M1·M2)"
+    base = snap["plaza"].get("market") or []
+    long80 = "가" * 20 + " 나다라마바사 " * 8
+    six = [dict(id=f"rq_sign{i}", **{"from": None, "to": None}, title=t, state="open", in_return_for=None, lit=i == 1,
+                reward=30 if i == 2 else None, reward_state="held" if i == 2 else None)
+           for i, t in enumerate(["사진 설명 한 줄 부탁", "팔레트 이름 짓기와 색 이름 다섯 개 붙이기", long80[:80],
+                                  "한국어 요약 검수", "다섯째 부탁(안 보여야 함)", "여섯째"])]
+    cases = [("녹화 자료", None), ("부탁 여섯(긴 제목·금화·등)", six), ("부탁 둘", six[:2])]
+    for label, dev in (("데스크톱 1440", {"viewport": {"width": 1440, "height": 900}, "device_scale_factor": 1}), ("폰 390", PHONE_DEVICE)):
+        for name, market in cases:
+            ctx = browser.new_context(**dev, reduced_motion="reduce")
+            pg = ctx.new_page()
+            pg.on("pageerror", lambda e: errs.append(f"노점 팻말: {e}"))
+            mk = base if market is None else market
+            if market is not None:
+                body = json.dumps(dict(snap, plaza=dict(snap["plaza"], market=market)), ensure_ascii=False)
+                pg.route("**/snapshot.json*", (lambda b: lambda rt: rt.fulfill(status=200, content_type="application/json", body=b))(body))
+            pg.clock.install(time=at)
+            pg.goto(f"{url}/?mode=now&motion=0")
+            pg.wait_for_load_state("networkidle")
+            pg.clock.run_for(2500)
+            m = pg.locator("#pzMap [data-to=west]").bounding_box()
+            if dev.get("has_touch"):
+                pg.touchscreen.tap(m["x"] + m["width"] / 2, m["y"] + m["height"] / 2)
+            else:
+                pg.mouse.click(m["x"] + m["width"] / 2, m["y"] + m["height"] / 2)
+            pg.clock.run_for(800)
+            S = pg.evaluate(STALL_SIGNS_JS)
+            ctx.close()
+            sg, want = S["signs"], min(len(mk), 4)
+            texts_ok = [s["i"] for s in sg] == list(range(want)) and all(0 <= s["i"] < len(mk) and s["full"] == mk[s["i"]]["title"] and s["text"].endswith(mk[s["i"]]["title"]) for s in sg)
+            under = all(0 <= s["i"] < len(S["stalls"]) and abs((s["box"][0] + s["box"][2]) / 2 - S["stalls"][s["i"]]) < 2 for s in sg)
+            pair = [(a["i"], b["i"]) for k, a in enumerate(sg) for b in sg[k + 1:] if _overlap(a["box"], b["box"])]
+            other = [s["i"] for s in sg for o in S["others"] if _overlap(s["box"], o)]
+            W = S["wrap"]
+            out = [s["i"] for s in sg if s["box"][0] < W[0] or s["box"][2] > W[2] or s["box"][1] < W[1] or s["box"][3] > W[3]]
+            clip = [s["i"] for s in sg if s["clipped"] and 0 <= s["i"] < len(mk) and len(mk[s["i"]]["title"]) <= 30]
+            C.check(G, f"노점 팻말 {label} · {name}: 제목 수 = min(부탁, 4), 칸마다 그 칸 제목 하나(칸 아래 가운데), 겹침·틀 밖·짧은 제목 말줄임 0",
+                    len(sg) == want and texts_ok and under and not pair and not other and not out and not clip,
+                    f"팻말 {len(sg)} · 기대 {want} · 칸 {[s['i'] for s in sg]} · 제목 일치 {texts_ok} · 칸 아래 {under} · 서로 겹침 {pair or 0} · 다른 것과 겹침 {other or 0} · 틀 밖 {out or 0} · 말줄임 {clip or 0}")
+    probe = [[0, 0, 150, 30], [140, 0, 290, 30]]
+    C.check(G, "자 검사: 10px 겹친 두 팻말 상자는 「겹침」", _overlap(*probe), str(probe))
 
 
 def until(pg, expr, tries=30):
