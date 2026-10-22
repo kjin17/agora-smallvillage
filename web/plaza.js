@@ -56,16 +56,36 @@
   const BUBBLE_CHARS = 16;                          // bubble = the front of the words; the panel has them all
   const TALK_PAGE = 20;
 
-  // ── the square: pictures, zone labels and standing spots, in background pixels (foot = bottom centre) ──
+  // ── 동네 (docs/design/motion-and-map.md 3절, M1): 그림 한 장(W×H) 크기 동네를 가로로 잇는다.
+  // 세계 좌표 = 동네 왼쪽 끝 x0 + 그 그림 안 좌표. 중앙은 x0 0 이라 앞 판 좌표 그대로다. 화면은 한 번에 한 동네만 보이고(카메라),
+  // 동네 사이는 문으로 걷는다. 스냅샷은 그대로(구역 id 만 있다) — 어느 구역이 어느 동네인지는 이 화면이 정한다
+  const DISTRICTS = [
+    { id: "center", name: "중앙 광장", bg: ["background/agora_bg_gate.png", "background/agora_bg_cloudy.png"] },
+    { id: "east", name: "샘·정원", bg: ["background/east_bg_gate.png", "background/east_bg_cloudy.png"] },
+  ].map((d, i) => ({ ...d, i, x0: i * W }));
+  const WORLD_W = W * DISTRICTS.length;
+  const E = DISTRICTS[1].x0;
+  const distOf = (x) => Math.max(0, Math.min(DISTRICTS.length - 1, Math.floor(x / W)));
+  // 문: 동네마다 [서쪽 문, 동쪽 문] 발끝 자리. 나가는 문까지 걸어가면 옆 동네 들어오는 문에서 나타난다(그 사이 순간 이동)
+  const DOORS = [
+    [null, [1352, 662]],         // 중앙: 서쪽 문 없음(M2), 동쪽 문 = 오른쪽 끝
+    [ [E + 330, 402], null ],    // 동쪽: 서쪽 문 = 아치
+  ];
+  const DOOR_SIGNS = [[1318, 560, "east", "샘·정원 →"], [E + 330, 236, "center", "← 광장"]];
+  // 빈 땅(새 기능 자리, 3.3절): 소품·선 자리·이름표를 두지 않는다. [가운데 x, 가운데 y, 폭, 높이] — 판정 도구가 겹침을 본다
+  const LOTS = { E1: [E + 760, 440, 150, 80], E2: [E + 1060, 492, 150, 80] };
+
+  // ── the square: pictures, zone labels and standing spots, in world pixels (foot = bottom centre) ──
   const PROPS = [
     ["props/stele.png", 905, 452, 44, "stele"], ["props/stele.png", 960, 460, 44, "stele"], ["props/stele.png", 1015, 470, 44, "stele"],
     ["props/board.png", 555, 452, 62, "board"], ["props/bell.png", 640, 432, 44, "bell"], ["zones/mailbox.png", 462, 425, 40, "arch"],
     ["zones/stage.png", 1195, 560, 165, "stage"],
     ["props/stall.png", 205, 600, 112, "market"], ["props/stall.png", 335, 672, 112, "market"],
     ["props/fountain.png", 690, 612, 150, "fountain"],
-    ["zones/cafe.png", 1215, 718, 150, "cafe"],
-    ["zones/spring.png", 990, 672, 120, "spring"],
-    ["props/bench.png", 555, 735, 108, "bench"], ["props/bench2.png", 880, 765, 104, "bench"],
+    // 동쪽 동네(샘·정원): 조용한 구역 셋
+    ["zones/spring.png", E + 430, 612, 125, "spring"],
+    ["zones/cafe.png", E + 835, 680, 160, "cafe"],
+    ["props/bench.png", E + 1120, 652, 108, "bench"], ["props/bench2.png", E + 1250, 748, 104, "bench"],
   ];
   const ARCH_PROP = ["zones/arch.png", 350, 482, 128, "arch"];   // the cloudy picture has no gate painted in
   const ZONES = {
@@ -76,9 +96,9 @@
     fountain: { name: "분수", color: "#4f7fb5", at: [690, 632] },
     stage: { name: "무대", color: "#d49a2a", at: [1195, 372] },
     market: { name: "노점", color: "#c8643c", at: [250, 452] },
-    cafe: { name: "카페", color: "#4f8f5a", at: [1225, 575] },
-    bench: { name: "벤치", color: "#a8998a", at: [720, 738] },
-    spring: { name: "거울샘", color: "#4f9aa8", at: [1000, 497] },
+    cafe: { name: "카페", color: "#4f8f5a", at: [E + 840, 483] },
+    bench: { name: "벤치", color: "#a8998a", at: [E + 1185, 538] },
+    spring: { name: "거울샘", color: "#4f9aa8", at: [E + 440, 430] },
   };
   const SLOTS = {
     arch: [[425, 496], [372, 522], [476, 524]],
@@ -88,9 +108,9 @@
     fountain: [[668, 614], [842, 666], [528, 612], [800, 596], [770, 704], [470, 690]],
     stage: [[1110, 574], [1262, 566], [1060, 616]],
     market: [[150, 666], [410, 738], [268, 706], [84, 724]],
-    cafe: [[1130, 748], [1305, 754], [1212, 662]],
-    bench: [[548, 738], [900, 752], [620, 744]],
-    spring: [[1075, 690], [905, 692], [990, 748]],
+    cafe: [[E + 750, 712], [E + 925, 718], [E + 832, 620]],
+    bench: [[E + 1110, 668], [E + 1250, 756], [E + 1180, 676]],
+    spring: [[E + 508, 640], [E + 348, 650], [E + 432, 700]],
   };
   const GATE = [300, 560];        // where newcomers walk in from (the outer road)
   const heightAt = (y) => Math.round(0.105 * y + 22);
@@ -159,10 +179,10 @@
         <div class="pz-row">
           <div class="pz-left">
             <div class="pz-wrap" id="pzWrap"><div class="pz-stage" id="pzStage">
-              <img class="pz-bg" id="pzBg" alt="">
-              <div class="pz-sky" id="pzSky" hidden></div>
-              <div class="pz-night" id="pzNight" hidden></div>
-              <svg class="pz-links" id="pzLinks" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"></svg>
+              ${DISTRICTS.map((d) => `<div class="pz-dist" data-d="${d.id}" style="left:${d.x0}px">` +
+                `<img class="pz-bg"${d.i ? "" : ' id="pzBg"'} alt=""><div class="pz-sky"${d.i ? "" : ' id="pzSky"'} hidden></div>` +
+                `<div class="pz-night"${d.i ? "" : ' id="pzNight"'} hidden></div></div>`).join("")}
+              <svg class="pz-links" id="pzLinks" width="${WORLD_W}" height="${H}" viewBox="0 0 ${WORLD_W} ${H}"></svg>
               <div id="pzThings"></div>
               <div id="pzFigures"></div>
               <div class="pz-fx" id="pzFx" hidden><i></i><i></i></div>
@@ -172,6 +192,7 @@
                 <button type="button" data-z="out" aria-label="축소">−</button>
                 <button type="button" data-z="fit" class="pz-zfit">전체 보기</button>
               </div>
+              <div class="pz-map" id="pzMap" role="tablist" aria-label="동네 (누르면 그 동네로)"></div>
               <div class="pz-weather" id="pzWeather"></div>
               <div class="pz-modechip" id="pzModeChip"></div>
               <div class="pz-replaynote" id="pzReplayNote" hidden></div>
@@ -234,6 +255,9 @@
     document.getElementById("pzWrap").addEventListener("click", (e) => {
       const go = e.target.closest("[data-go]");
       if (go) { e.stopPropagation(); resumeFromScene(); return; }
+      // 동네 띠(미니맵)의 칸·장면 안 문 팻말: 그 동네로 카메라를 옮긴다
+      const to = e.target.closest("[data-to]");
+      if (to) { e.stopPropagation(); zoom.district(to.dataset.to, true); return; }
       // a figure or its bubble: wait out a possible second tap (double tap = zoom, not the panel)
       const fig = e.target.closest(".pz-agent");
       const spot = !fig && e.target.closest("#pzThings [data-zone]");   // a zone label or the prop it names
@@ -278,8 +302,8 @@
     restage();
   }
 
-  // ── stage scaling: the whole square always fits the frame width first; zoom/pan from there ──
-  // (앞 판은 폰에서 구역 넷만 잘라 그렸다. 이제 폰도 전체를 먼저 보이고 손가락으로 키운다)
+  // ── stage scaling: one whole district always fits the frame width first; zoom/pan from there ──
+  // (앞 판은 폰에서 구역 넷만 잘라 그렸다. 이제 폰도 동네 하나 전체를 먼저 보이고 손가락으로 키운다)
   function layoutStage() {
     const wrap = document.getElementById("pzWrap");
     if (!wrap || !wrap.offsetParent) return;
@@ -309,17 +333,19 @@
   // 핀치 · 트랙패드 핀치(ctrl+휠) · 이미 확대했을 때만 휠 · 확대한 뒤 끌어서 이동 · 두 번 탭/더블클릭 2배 ⇄ 전체
   // · + − 전체 보기 버튼. 확대 1 에서는 장면이 제스처를 안 먹어 페이지가 그대로 스크롤된다(touch-action: pan-y).
   // 1분마다 새로 그려도 보던 자리는 그대로. 연출·리플레이는 장면 좌표로만 움직이므로 확대와 무관하다
+  // 카메라는 한 동네 안에서만 움직인다(x0 = 그 동네 왼쪽 끝). 동네를 바꾸면 옆으로 미끄러져 간다(연출 켬일 때만)
   const zoom = (() => {
-    let z = 1, cx = W / 2, cy = H / 2, fit = 1;
+    const d0 = DISTRICTS.find((d) => d.id === Q.get("district")) || DISTRICTS[0];
+    let z = 1, x0 = d0.x0, cx = x0 + W / 2, cy = H / 2, fit = 1, panT = 0;
     const ptrs = new Map();
     let pinch = null, drag = null, multi = false, lastTap = null, tapDone = -1e9;
     const wrap = () => document.getElementById("pzWrap");
-    const control = (t) => t.closest && t.closest("button, select, input, label, a, .pz-zoom, .pz-modechip, .pz-replaynote, .pz-scenepop");
+    const control = (t) => t.closest && t.closest("button, select, input, label, a, .pz-zoom, .pz-modechip, .pz-replaynote, .pz-scenepop, .pz-map, .pz-door");
 
     function clamp() {
       z = Math.min(ZOOM_MAX, Math.max(1, z));
       const hw = W / z / 2, hh = H / z / 2;
-      cx = Math.min(W - hw, Math.max(hw, cx));
+      cx = Math.min(x0 + W - hw, Math.max(x0 + hw, cx));
       cy = Math.min(H - hh, Math.max(hh, cy));
     }
     function apply() {
@@ -348,7 +374,22 @@
     }
     function panBy(dx, dy) { const k = fit * z; cx -= dx / k; cy -= dy / k; apply(); }
     function center() { const r = wrap().getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }
-    function reset() { z = 1; cx = W / 2; cy = H / 2; apply(); }
+    function reset() { z = 1; cx = x0 + W / 2; cy = H / 2; apply(); }
+    /** 다른 동네로: 확대를 풀고 그 동네 전체를 보인다. glide 면(연출 켬) 장면이 옆으로 미끄러진다 */
+    function district(id, glide) {
+      const d = DISTRICTS.find((x) => x.id === id);
+      if (!d) return false;
+      const st = document.getElementById("pzStage");
+      if (glide && S.motion && d.x0 !== x0 && st) {
+        st.classList.add("pz-glide");
+        clearTimeout(panT);
+        panT = setTimeout(() => st.classList.remove("pz-glide"), 750);
+      }
+      x0 = d.x0;
+      reset();
+      drawMap();
+      return true;
+    }
     let toggled = -1e9, dragEnd = -1e9;
     function toggleAt(x, y) { toggled = performance.now(); if (z > 1.001) reset(); else zoomAt(2, x, y); }
 
@@ -422,13 +463,13 @@
     }
 
     return {
-      init, reset,
+      init, reset, district,
       setFit(k) { fit = k; apply(); },
       // a tap on a figure opens its talk panel unless it was half of a double tap or the end of a drag/pinch
       gestureNear: (t, ms) => Math.abs(t - toggled) < ms || Math.abs(t - dragEnd) < ms,
-      state: () => ({ z, cx, cy, fit }),
-      // 판정 도구 자 검사용: 틀린 확대 상태를 일부러 만든다
-      set(nz, ncx = cx, ncy = cy) { z = nz; cx = ncx; cy = ncy; apply(); },
+      state: () => ({ z, cx, cy, fit, x0, d: DISTRICTS[distOf(x0)].id }),
+      // 판정 도구 자 검사용: 틀린 확대 상태를 일부러 만든다. 가운데가 다른 동네면 그 동네로 간다
+      set(nz, ncx = cx, ncy = cy) { z = nz; x0 = DISTRICTS[distOf(ncx)].x0; cx = ncx; cy = ncy; apply(); drawMap(); },
     };
   })();
 
@@ -438,7 +479,10 @@
     const wx = S.wx;
     // the real sky picks the picture when we have it; otherwise the activity weather (metrics 1.14) does, as before
     const cloudy = wx ? wx.sky !== "clear" : P.weather === "cloudy";
-    document.getElementById("pzBg").src = img(cloudy ? "background/agora_bg_cloudy.png" : "background/agora_bg_gate.png");
+    for (const d of DISTRICTS) {
+      const bg = document.querySelector(`#pzStage .pz-dist[data-d="${d.id}"] .pz-bg`), src = img(d.bg[cloudy ? 1 : 0]);
+      if (bg.getAttribute("src") !== src) bg.src = src;
+    }
     const props = cloudy ? [ARCH_PROP, ...PROPS] : PROPS;
     const joined24 = (S.P.residents || []).filter((r) => r.zone === "arch").length;
     // lamps, plaques, strings and counts are the snapshot's "now"; a replayed day does not get them
@@ -482,6 +526,10 @@
     }
     for (const [z, Z] of Object.entries(ZONES)) {
       html += `<div class="pz-zone" data-zone="${z}" role="button" tabindex="0" aria-label="${Z.name} 자리 기록 열기" style="left:${Z.at[0]}px;top:${Z.at[1]}px"><i style="background:${Z.color}"></i>${Z.name} <em>${esc(sub[z])}</em></div>`;
+    }
+    // 동네 사이 문 팻말: 누르면 옆 동네로. 캐릭터도 이 문으로 오간다
+    for (const [x, y, to, label] of DOOR_SIGNS) {
+      html += `<div class="pz-door" data-to="${to}" role="button" tabindex="0" style="left:${x}px;top:${y}px">${label}</div>`;
     }
     document.getElementById("pzThings").innerHTML = html;
 
@@ -532,10 +580,12 @@
     return JSON.stringify(S.wx) !== before;
   }
   function drawSky() {
-    const wx = S.wx, sky = document.getElementById("pzSky"), night = document.getElementById("pzNight"), fx = document.getElementById("pzFx");
-    sky.className = "pz-sky" + (wx ? " " + wx.sky : "");
-    sky.hidden = !wx || wx.sky === "clear";
-    night.hidden = !wx || wx.daylight !== "night";
+    const wx = S.wx, fx = document.getElementById("pzFx");
+    for (const sky of document.querySelectorAll("#pzStage .pz-sky")) {   // 동네마다 한 장씩 (같은 하늘)
+      sky.className = "pz-sky" + (wx ? " " + wx.sky : "");
+      sky.hidden = !wx || wx.sky === "clear";
+    }
+    for (const night of document.querySelectorAll("#pzStage .pz-night")) night.hidden = !wx || wx.daylight !== "night";
     const falling = wx && (wx.sky === "rain" || wx.sky === "storm" || wx.sky === "snow") ? wx.sky : "";
     fx.className = "pz-fx" + (falling ? " " + falling : "") + (S.motion ? "" : " still");
     fx.hidden = !falling;
@@ -851,6 +901,18 @@
     }
   }
 
+  // 걸어갈 길: 같은 동네면 곧장, 다른 동네면 나가는 문 → (순간 이동) 옆 동네 들어오는 문 → 자리. 연출 켬일 때만 쓰인다
+  function routeTo(f, to) {
+    const a = distOf(f.pos[0]), b = distOf(to[0]), s = Math.sign(b - a), path = [];
+    for (let d = a; d !== b; d += s) {
+      const out = DOORS[d][s > 0 ? 1 : 0], inn = DOORS[d + s][s > 0 ? 0 : 1].slice();
+      inn.warp = true;
+      path.push(out.slice(), inn);
+    }
+    path.push(to.slice());
+    return path;
+  }
+
   // slots are handed out per zone in a stable order, so a refresh does not reshuffle the square
   function assignSlots(list) {
     const used = {};
@@ -911,7 +973,7 @@
     for (const f of list) {
       f.shown = true;
       if (!f.pos || !S.motion) f.pos = (first && S.motion && f.zone === "arch") ? GATE.slice() : f.target.slice();
-      f.path = S.motion && (f.pos[0] !== f.target[0] || f.pos[1] !== f.target[1]) ? [f.target.slice()] : [];
+      f.path = S.motion && (f.pos[0] !== f.target[0] || f.pos[1] !== f.target[1]) ? routeTo(f, f.target) : [];
       if (!S.motion) f.pos = f.target.slice();
       paintFigure(f);
       moveFigure(f);
@@ -933,6 +995,7 @@
       const a = S.agents.get(r.id), b = src && S.agents.get(src);
       if (!a || !b || !a.target || !b.target) continue;
       const [x1, y1] = b.target, [x2, y2] = a.target;
+      if (distOf(x1) !== distOf(x2)) continue;   // 두 사람이 다른 동네면 선 없이 말풍선만(선이 화면 밖으로 끊겨 보였다)
       const mx = (x1 + x2) / 2, my = Math.min(y1, y2) - 60;
       svg.insertAdjacentHTML("beforeend", `<path class="qline" d="M ${x1} ${y1 - 50} Q ${mx} ${my} ${x2} ${y2 - 50}" stroke="#4f7fb5" stroke-width="2" fill="none" stroke-dasharray="3 5"><title>인용</title></path>`);
     }
@@ -1069,7 +1132,7 @@
     assignSlots(list);
     for (const f of list) {
       if (!f.pos) f.pos = f.target.slice();
-      if (before.get(f.id) !== f.target.join()) f.path = S.motion ? [f.target.slice()] : (f.pos = f.target.slice(), []);
+      if (before.get(f.id) !== f.target.join()) f.path = S.motion ? routeTo(f, f.target) : (f.pos = f.target.slice(), []);
       if (f.dirty) { paintFigure(f); f.dirty = false; }
     }
     // auto pause at a scene card
@@ -1106,7 +1169,7 @@
     if (!S.motion) return;
     const [bx, by] = SLOTS.bell[0];
     for (const f of S.agents.values()) {
-      if (!f.shown || !f.pos || f.fsm === "doze") continue;
+      if (!f.shown || !f.pos || f.fsm === "doze" || distOf(f.pos[0]) !== distOf(bx)) continue;   // 종소리는 중앙 동네까지만
       const dx = bx - f.pos[0], dy = by - f.pos[1], d = Math.hypot(dx, dy);
       if (Math.abs(dx) > 4) f.flip = dx < 0;
       gesture(f, "look", now, (phaseOf(f.id) / 6.283) * 400);
@@ -1157,7 +1220,8 @@
     }
     if (S.motion) avoid(live);
     for (const f of S.agents.values()) if (f.pos) moveFigure(f);
-    const bell = document.querySelector('#pzThings .pz-zone[data-zone="bell"]');
+    if (Math.floor(ts / 250) !== Math.floor((ts - dt) / 250)) drawMap();
+    const bell =document.querySelector('#pzThings .pz-zone[data-zone="bell"]');
     if (bell) bell.classList.toggle("ring", ts < bellUntil && S.motion);
     if (ts < bellUntil) busy = true;
     S.raf = (busy || S.motion) && document.getElementById("plaza") ? requestAnimationFrame(tick) : 0;
@@ -1167,6 +1231,13 @@
   function fsm(f, dt, ts) {
     if (f.path && f.path.length) {
       if (!S.motion) { f.pos = f.path[f.path.length - 1].slice(); f.path = []; f.walking = false; return false; }
+      // 동네 사이 문: 나가는 문에 닿으면 옆 동네 들어오는 문에서 나타난다(잠깐 흐렸다 또렷해짐)
+      if (f.path[0].warp) {
+        f.pos = f.path.shift().slice(); f.seg = null; f.av = null;
+        if (f.el.animate) f.el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 450, easing: "ease-out" });
+        f.walking = f.path.length > 0;
+        return true;
+      }
       // 곧은 선 대신 살짝 휜 길(2차 베지어, 굽기는 사람마다 결정적), 출발·도착에서 가감속
       const p = f.path[0];
       if (!f.seg || f.seg.to !== p) {
@@ -1200,8 +1271,8 @@
       f.pace = true;
       f.path = [to];
     } else if (f.home && (f.pos[0] !== f.home[0] || f.pos[1] !== f.home[1])) {
-      f.pace = true;
-      f.path = [f.home.slice()];
+      f.pace = distOf(f.pos[0]) === distOf(f.home[0]);
+      f.path = routeTo(f, f.home);
     } else {
       f.flip = f.R() < 0.5;
     }
@@ -1223,7 +1294,40 @@
     }
     for (const f of S.agents.values()) moveFigure(f);
     drawModeChip();
+    drawMap();
     kick();
+  }
+
+  // 동네 띠(탭 + 미니맵): 동네마다 작은 그림 칸에 사람 점, 말풍선이 뜬 사람은 진한 점, 지금 안 보는 동네에 말풍선이 있으면 칸이 깜빡인다.
+  // 점·수는 화면의 연출 자리(f.pos)라 연출이고, 말풍선 수 자체는 장면 그대로다(모든 동네 합 = 원장 행)
+  function drawMap() {
+    const el = document.getElementById("pzMap");
+    if (!el || !S.P) return;
+    const cur = distOf(zoom.state().x0);
+    const by = DISTRICTS.map(() => ({ dots: "", n: 0, talk: 0 }));
+    for (const f of S.agents.values()) {
+      if (!f.shown || !f.pos) continue;
+      const d = distOf(f.pos[0]), b = by[d];
+      b.n++;
+      if (f.bubble) b.talk++;
+      const x = ((f.pos[0] - DISTRICTS[d].x0) / W) * 100, y = (f.pos[1] / H) * 100;
+      b.dots += `<i class="${f.bubble ? "t" : ""}" style="left:${x.toFixed(1)}%;top:${y.toFixed(1)}%"></i>`;
+    }
+    // 단추는 한 번만 만들고 안만 고친다: 4번/초 다시 그려도 누르는 중인 단추가 바뀌지 않게 (안쪽은 pointer-events 없음)
+    if (el.children.length !== DISTRICTS.length) {
+      el.innerHTML = DISTRICTS.map((d) => `<button type="button" role="tab" data-to="${d.id}"><span class="pz-mm"></span><b>${d.name}</b><em></em></button>`).join("");
+    }
+    el.classList.toggle("mo", !!S.motion);
+    DISTRICTS.forEach((d, i) => {
+      const btn = el.children[i], b = by[i];
+      const cls = (i === cur ? "on" : "") + (i !== cur && b.talk ? " hot" : "");
+      if (btn.className !== cls) btn.className = cls;
+      btn.setAttribute("aria-selected", String(i === cur));
+      btn.setAttribute("aria-label", `${d.name} · ${b.n}명${b.talk ? ` · 말풍선 ${b.talk}` : ""}`);
+      const mm = btn.firstElementChild;
+      if (mm.dataset.h !== b.dots) { mm.dataset.h = b.dots; mm.innerHTML = b.dots; }
+      btn.lastElementChild.textContent = String(b.n);
+    });
   }
 
   function drawModeChip() {
@@ -2471,6 +2575,7 @@
     drawLive(); drawAside(); drawTalk(); drawDash(); drawScenes(); drawRoster(); drawRbar(); drawModeChip();
     layoutStage();
     drawElsewhere();
+    drawMap();
     kick();
   }
 
@@ -2522,6 +2627,14 @@
       date: S.rp.date, t: S.rp.t, playing: S.rp.playing, paused: S.rp.paused, mode: S.mode, motion: S.motion, phone: S.phone,
       start: S.rp.date ? replayStart(S.rp.date) : null, skipped: S.rp.skipped, seeked: S.rp.seeked, roomy: !!S.roomy,
       zonesShown: [...document.querySelectorAll("#pzThings .pz-zone")].map((z) => z.dataset.zone),
+      // 동네별: 구역 이름표(세계 x 로 가름), 그 동네에 선 사람 수·말풍선 수. district = 지금 카메라가 보는 동네
+      district: zoom.state().d,
+      districts: Object.fromEntries(DISTRICTS.map((d) => [d.id, {
+        zones: Object.keys(ZONES).filter((z) => distOf(ZONES[z].at[0]) === d.i),
+        figures: [...S.agents.values()].filter((f) => f.shown && f.pos && distOf(f.pos[0]) === d.i).length,
+        bubbles: [...S.agents.values()].filter((f) => f.shown && f.pos && f.bubble && distOf(f.pos[0]) === d.i).length,
+      }])),
+      lots: LOTS, slots: SLOTS,
       bubbleTexts: [...document.querySelectorAll("#pzFigures .pz-agent:not([hidden]) .pz-bubble")].map((b) =>
         ({ id: b.closest(".pz-agent").dataset.id, event: b.dataset.event, post: b.dataset.post || null, kind: (b.querySelector(".pz-bk") || {}).textContent, words: (b.querySelector(".pz-bs") || {}).textContent || null })),
       talkRows: Number((document.getElementById("pzTalk") || { dataset: {} }).dataset.rows || 0),
@@ -2546,6 +2659,18 @@
     openSpot, closeSpot,
     spot: () => { const m = document.getElementById("pzSpot"); return { zone: m.hidden ? null : m.dataset.zone, ready: m.dataset.ready === "1", cat: SP.cat }; },
     zoom: { state: zoom.state, set: zoom.set, reset: zoom.reset },
+    // 동네 보기 바꾸기 (판정·녹화용, 화면의 동네 띠와 같은 일). glide 면 연출 켬일 때 미끄러져 간다
+    district: (id, glide = false) => zoom.district(id, glide),
+    // 판정·녹화용: 한 사람을 다른 구역 자리로 걸려 본다(연출 켬이면 문을 지나 걷는다). 원장·말풍선과 무관
+    walkTo: (id, zone) => {
+      const f = S.agents.get(id), s = SLOTS[zone];
+      if (!f || !s || !f.pos) return false;
+      f.home = s[0].slice(); f.zone = zone;   // 서성이기도 그 구역 규칙으로
+      f.path = S.motion ? routeTo(f, f.home) : [];
+      if (!S.motion) { f.pos = f.home.slice(); moveFigure(f); }
+      kick();
+      return true;
+    },
     // 연출 녹화·판정용: 몸짓 하나를 지금 틀어 본다(연출 끔이면 아무것도 안 함). 말풍선·원장과 무관
     gesture: (id, kind) => { const f = S.agents.get(id); if (f) { gesture(f, kind, performance.now()); kick(); } return !!(f && f.gest); },
     ringBell: () => { ringBell(performance.now()); kick(); },

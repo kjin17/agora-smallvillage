@@ -49,13 +49,16 @@ body {
 .pz-zoom button:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--pz-ink); }
 .pz-zoom button:disabled { opacity: .35; cursor: default; }
 .pz-wrap:not(.zoomed) .pz-zoom [data-z=out], .pz-wrap:not(.zoomed) .pz-zoom [data-z=fit] { display: none; }   /* 전체 보기에선 + 하나만, 폰 틀을 덜 가리게 */
-.pz-stage { position: absolute; left: 0; top: 0; width: 1376px; height: 768px; transform-origin: 0 0; }
+/* 장면 = 동네 그림을 가로로 이은 세계(중앙 0~1376, 동쪽 1376~2752). 틀에는 한 동네만 보인다(plaza.js zoom) */
+.pz-stage { position: absolute; left: 0; top: 0; width: 2752px; height: 768px; transform-origin: 0 0; }
+.pz-stage.pz-glide { transition: transform .7s ease-in-out; }   /* 동네 띠·문 팻말로 옆 동네로 갈 때만 (연출 켬) */
+.pz-dist { position: absolute; top: 0; width: 1376px; height: 768px; }
 .pz-bg { position: absolute; left: 0; top: 0; width: 1376px; height: 768px; display: block; }
 .pz-links { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 1000; }
 /* 층: 시설·구역 이름표 한 층, 그 위에 캐릭터·말풍선 한 층 (09-26 16:33 「캐릭터는 앞으로」). 전에는 둘이 한 층에서
    발 y 로만 겹쳐, 분수 발끝(612)보다 2px 위에서 서성이거나 카페 앞자리(662 < 718)에 선 캐릭터가 그림 뒤로 들어갔다.
    캐릭터끼리는 그대로 발 y 순서(z-index = y + 2) */
-#pzThings, #pzFigures { position: absolute; left: 0; top: 0; width: 1376px; height: 768px; pointer-events: none; }
+#pzThings, #pzFigures { position: absolute; left: 0; top: 0; width: 2752px; height: 768px; pointer-events: none; }
 #pzThings { z-index: 1; }
 #pzFigures { z-index: 2; }
 #pzThings .pz-lamp { pointer-events: auto; }
@@ -63,6 +66,7 @@ body {
    (구역 이름표·등·캐릭터·말풍선은 그대로 또렷하게). 비·눈은 맨 위를 옅게 지나간다.
    입자는 요소 두 장이 무늬 한 칸씩 내려가는 고리(요소 수 고정). 연출 끔(.still)·동작 줄이기 설정이면 멈춘 무늬만 */
 .pz-sky, .pz-night, .pz-fx { position: absolute; left: 0; top: 0; width: 1376px; height: 768px; pointer-events: none; }
+.pz-fx { width: 2752px; }   /* 비·눈은 세계 전체 한 장(무늬가 왼쪽 끝에 붙어 중앙 동네 그림은 앞 판 그대로) */
 /* 시설 그림만: 그림자 필터(.pz-thing img)를 이어 쓴다 */
 .pz-stage.wx-cloudy .pz-thing img { filter: drop-shadow(0 3px 2px rgba(80, 50, 20, .18)) saturate(.85) brightness(.95); }
 .pz-stage.wx-fog .pz-thing img { filter: drop-shadow(0 3px 2px rgba(80, 50, 20, .10)) contrast(.7) brightness(1.12); }
@@ -141,6 +145,24 @@ body {
 .pz-corner { position: absolute; left: 16px; bottom: 14px; background: rgba(255, 253, 248, .92); border: 1px solid var(--pz-line);
   border-radius: 10px; padding: 6px 11px; font-size: 11.5px; color: var(--pz-ink2); z-index: 1001; }
 .pz-modechip { position: absolute; left: 16px; top: 14px; display: flex; gap: 4px; z-index: 1001; }
+/* 동네 사이 문 팻말(장면 안): 누르면 옆 동네로 */
+.pz-door { position: absolute; transform: translate(-50%, 0); padding: 3px 10px; border-radius: 8px; z-index: 901; white-space: nowrap;
+  background: #fff4dc; border: 1.5px dashed var(--pz-ink); font-size: 13px; font-weight: 800; color: var(--pz-ink); pointer-events: auto; cursor: pointer; }
+/* 동네 띠 = 동네 탭 + 미니맵: 동네마다 작은 칸에 사람 점(말풍선 뜬 사람은 분홍), 지금 보는 동네는 진한 테두리 */
+.pz-map { position: absolute; right: 16px; top: 58px; display: flex; gap: 6px; z-index: 1001; }
+.pz-map button { display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 4px 5px 3px; font: inherit; cursor: pointer;
+  background: rgba(255, 253, 248, .95); border: 1.5px solid var(--pz-line); border-radius: 10px; color: var(--pz-ink2); }
+.pz-map button > * { pointer-events: none; }
+.pz-map button.on { border-color: var(--pz-ink); color: var(--pz-ink); box-shadow: 0 2px 0 var(--pz-ink); }
+.pz-map .pz-mm { position: relative; display: block; width: 72px; height: 40px; border-radius: 6px; overflow: hidden; background: #eadcc0; }
+.pz-map button + button .pz-mm { background: #d6e4cd; }
+.pz-map .pz-mm i { position: absolute; width: 5px; height: 5px; border-radius: 50%; background: rgba(60, 50, 40, .55); transform: translate(-50%, -50%); }
+.pz-map .pz-mm i.t { width: 7px; height: 7px; background: #e0466b; }
+.pz-map button.hot .pz-mm { box-shadow: inset 0 0 0 2px #e0466b; }
+.pz-map.mo button.hot .pz-mm { animation: pzhot 1.2s ease-in-out infinite; }
+@keyframes pzhot { 50% { box-shadow: inset 0 0 0 2px rgba(224, 70, 107, .15); } }
+.pz-map b { font-size: 11.5px; font-weight: 800; line-height: 1.1; }
+.pz-map em { font-style: normal; font-size: 10.5px; line-height: 1; }
 .pz-modechip button { font: inherit; font-size: 12.5px; border: 1.5px solid var(--pz-ink); background: rgba(255, 253, 248, .95); color: var(--pz-ink);
   border-radius: 999px; padding: 3px 11px; cursor: pointer; font-weight: 700; }
 .pz-modechip button.on { background: var(--pz-ink); color: #fff; }
@@ -317,6 +339,11 @@ ul.pz-small { padding-left: 18px; }
   .pz-weather { display: none; }
   .pz-corner { display: none; }   /* the same line is printed under the stage (drawElsewhere) */
   .pz-modechip { left: 6px; top: 6px; }
+  .pz-map { right: 6px; top: 6px; gap: 4px; }
+  .pz-map button { padding: 2px 3px 2px; border-radius: 7px; gap: 1px; }
+  .pz-map .pz-mm { width: 44px; height: 25px; border-radius: 4px; }
+  .pz-map b { font-size: 9.5px; }
+  .pz-map em { display: none; }
   .pz-modechip button { font-size: 11px; padding: 2px 8px; }
   .pz-replaynote { left: 6px; top: 34px; font-size: 10.5px; padding: 2px 4px 2px 8px; gap: 6px; max-width: calc(100% - 12px); }
   .pz-replaynote button { font-size: 10.5px; padding: 0 7px; }

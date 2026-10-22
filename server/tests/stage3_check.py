@@ -8,7 +8,7 @@
 판정
  0. 별개 프로젝트: 광장 리포에 원본 렌더러(걷기·말풍선 코드를 복사해 온 다른 리포)로 가는 링크·서브모듈이 없고,
     화면이 부르는 주소는 web/·img/·public/ 뿐. --office 를 주면 그 리포 작업 트리·origin/main 이 --office-base 와 diff 0 인지도 본다
- 1. 폰 폭(390×844, iPhone 13)에서 첫 화면에 광장 그림 전체(장면 상자 = 틀 상자, 뷰포트 안)가 들어오고, 핀치·한 손가락
+ 1. 폰 폭(390×844, iPhone 13)에서 첫 화면에 중앙 동네 그림 전체(그 동네 상자 = 틀 상자, 뷰포트 안) + 동네 띠(미니맵)가 들어오고, 핀치·한 손가락
     끌기·두 번 탭·+ − 전체 보기 버튼으로 확대/축소·이동이 된다. 확대 1~4배, 가장자리 밖이 안 보임, 확대·이동 뒤 말풍선 수와
     장면 좌표 자리 불변, 확대한 채 연출 켬·끔·리플레이 끝까지. 전체 보기에서는 휠·세로 스크롤을 페이지에 넘긴다.
     Chromium 모바일 에뮬레이션과 WebKit(iPhone 13, 깔려 있으면) 두 벌. (앞 판은 폰에서 「구역 넷」만 잘라 그렸다)
@@ -217,9 +217,12 @@ def separate_checks(C: Checks, args):
 
 
 # ── 1. 폰 폭 전체 보기·확대/축소·이동 (앞 판의 「구역 넷」 대신) ──
-# 장면(#pzStage)·틀(#pzWrap) 상자, 뷰포트, 스크롤, 틀의 touch-action
-BOX_JS = """() => { const r = (s) => { const b = document.querySelector(s).getBoundingClientRect(); return {l: b.left, t: b.top, r: b.right, b: b.bottom}; };
-  return {stage: r('#pzStage'), wrap: r('#pzWrap'), vw: innerWidth, vh: innerHeight, sy: scrollY,
+# 지금 보는 동네 그림(#pzStage .pz-dist)·틀(#pzWrap) 상자, 뷰포트, 스크롤, 틀의 touch-action, 동네 띠(미니맵) 상자·칸.
+# 장면은 동네 그림을 가로로 이은 세계라(M1) 「전체 보기」는 장면 전체가 아니라 지금 동네 한 장이 틀과 같은지로 잰다
+BOX_JS = """() => { const r = (s) => { const e = typeof s === 'string' ? document.querySelector(s) : s; const b = e.getBoundingClientRect(); return {l: b.left, t: b.top, r: b.right, b: b.bottom}; };
+  const d = Plaza.stats().zoom.d, m = document.getElementById('pzMap');
+  return {stage: r(`#pzStage .pz-dist[data-d="${d}"]`), world: r('#pzStage'), wrap: r('#pzWrap'), vw: innerWidth, vh: innerHeight, sy: scrollY, d,
+          map: m && !m.hidden && m.offsetWidth ? r(m) : null, tabs: m ? [...m.querySelectorAll('[data-to]')].map((b) => b.dataset.to) : [],
           ta: getComputedStyle(document.getElementById('pzWrap')).touchAction}; }"""
 # 말풍선마다 화면 상자 가운데를 장면 좌표로 되돌린 자리, 틀 안에 보이는지
 BUBBLES_JS = """() => { const s = Plaza.stats().zoom, w = document.getElementById('pzWrap').getBoundingClientRect(), k = s.fit * s.z;
@@ -245,6 +248,12 @@ def full_view(b: dict) -> bool:
     same = all(abs(s[k] - w[k]) <= 1.5 for k in "ltrb")
     inside = s["l"] >= -1 and s["t"] >= -1 and s["r"] <= b["vw"] + 1 and s["b"] <= b["vh"] + 1
     return same and inside
+
+
+def map_in_frame(b: dict) -> bool:
+    """동네 띠(미니맵)가 틀 안에 보이고 동네 칸이 둘(중앙·동쪽)."""
+    m, w = b["map"], b["wrap"]
+    return bool(m) and m["l"] >= w["l"] - 1 and m["r"] <= w["r"] + 1 and m["t"] >= w["t"] - 1 and m["b"] <= w["b"] + 1 and b["tabs"] == ["center", "east"]
 
 
 def covers(b: dict) -> bool:
@@ -299,9 +308,11 @@ def zoom_checks(C: Checks, browser, label, device, url, at, want_now, busiest, s
     stray = pg.evaluate(STRAY_JS)
     pg.evaluate("document.fonts.ready")
     pg.screenshot(path=str(shots / f"phone_fit_{label.split()[0].lower()}.png"))
-    C.check(G, f"{device['viewport']['width']}×{device['viewport']['height']} 첫 화면에 광장 그림 전체 (장면 상자 = 틀, 뷰포트 안) · 구역 열",
-            full_view(b0) and abs(st0["zoom"]["z"] - 1) < 1e-6 and len(st0["zonesShown"]) == 10 and st0["phone"],
-            f"{fmt_box(b0)} · 확대 {st0['zoom']['z']:.2f} · 구역 {len(st0['zonesShown'])}")
+    dz = {k: len(v["zones"]) for k, v in st0["districts"].items()}
+    C.check(G, f"{device['viewport']['width']}×{device['viewport']['height']} 첫 화면에 중앙 동네 그림 전체 (그 동네 상자 = 틀, 뷰포트 안) + 동네 띠(미니맵) · 구역 동네별 합 열",
+            full_view(b0) and b0["d"] == "center" and map_in_frame(b0) and abs(st0["zoom"]["z"] - 1) < 1e-6
+            and dz == {"center": 7, "east": 3} and len(st0["zonesShown"]) == 10 and st0["phone"],
+            f"{fmt_box(b0)} · 동네 {b0['d']} · 띠 {b0['tabs']} · 확대 {st0['zoom']['z']:.2f} · 구역 {dz}")
     C.check(G, "전체 보기에서는 장면이 세로 스크롤을 페이지에 넘긴다 (touch-action pan-y)", b0["ta"] == "pan-y", b0["ta"])
 
     B0 = pg.evaluate(BUBBLES_JS)
@@ -385,6 +396,16 @@ def zoom_checks(C: Checks, browser, label, device, url, at, want_now, busiest, s
     ctx.close()
     C.check(G, "자 검사: 2배 첫 화면·옛 구역 넷 자르기를 「전체 아님」", not full_view(probe2) and not full_view(probe3),
             f"2배 {fmt_box(probe2)} · 옛 자르기 {fmt_box(probe3)}")
+    # 자 검사: 동쪽 동네로 시작한 첫 화면은 「중앙 아님」, 동네 띠를 숨기면 「띠 없음」, 장면(세계) 상자로 재면 「전체 아님」
+    ctx, pg = open_("mode=now&motion=0&district=east")
+    pe = box(pg)
+    pg.evaluate("document.getElementById('pzMap').hidden = true")
+    pm = box(pg)
+    ctx.close()
+    pw = dict(b0, stage=b0["world"])
+    C.check(G, "자 검사: 동쪽 동네로 시작하면 「중앙 아님」, 동네 띠를 숨기면 「띠 없음」, 두 동네를 이은 장면 상자로 재면 「전체 아님」",
+            pe["d"] == "east" and full_view(pe) and not map_in_frame(pm) and not full_view(pw),
+            f"동쪽 시작 {pe['d']} · 띠 숨김 {pm['map']} · 세계 상자 {fmt_box(pw)}")
 
     # 리플레이를 확대한 채 끝까지
     date = busiest["date"]
@@ -414,6 +435,115 @@ def zoom_checks(C: Checks, browser, label, device, url, at, want_now, busiest, s
         pg.screenshot(path=str(capture[1]))
         ctx.close()
     return stray
+
+
+# ── 지도 M1: 동네 (docs/design/motion-and-map.md 3절) ──
+# 화면 요소 상자를 세계(장면) 좌표로: 틀 밖(다른 동네)이어도 같은 식으로 되돌린다
+WORLD_BOXES_JS = """() => { const s = Plaza.stats(), z = s.zoom, w = document.getElementById('pzWrap').getBoundingClientRect(), k = z.fit * z.z;
+  const back = (r) => [z.cx + (r.left - w.left - 1376 * z.fit / 2) / k, z.cy + (r.top - w.top - 768 * z.fit / 2) / k,
+                       z.cx + (r.right - w.left - 1376 * z.fit / 2) / k, z.cy + (r.bottom - w.top - 768 * z.fit / 2) / k];
+  const items = [...document.querySelectorAll('#pzThings .pz-thing, #pzThings .pz-zone, #pzThings .pz-door')].map((e) =>
+    ({what: (e.className.split(' ')[0]) + ':' + (e.dataset.zone || e.dataset.to), box: back(e.getBoundingClientRect())}));
+  for (const [zone, list] of Object.entries(s.slots)) for (const [x, y] of list) items.push({what: 'slot:' + zone, box: [x - 30, y - 95, x + 30, y]});
+  return {items, lots: s.lots}; }"""
+
+
+def lot_hits(items: list, lots: dict) -> list[str]:
+    """빈 땅 상자와 겹치는 소품·이름표·문 팻말·선 자리(사람 크기 상자)."""
+    out = []
+    for name, (cx, cy, w, h) in lots.items():
+        L = (cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
+        for it in items:
+            b = it["box"]
+            if b[0] < L[2] and b[2] > L[0] and b[1] < L[3] and b[3] > L[1]:
+                out.append(f"{name}×{it['what']}")
+    return out
+
+
+def door_gap(xs: list[float], east: float = 1376, door_in: float = 1376 + 330) -> list[float]:
+    """동네 사이 걷기에서 문과 문 사이(중앙 그림 끝 ~ 동쪽 들어오는 문 앞)를 걸어간 자리. 순간 이동이면 비어 있다."""
+    return [x for x in xs if east + 1 < x < door_in - 40]
+
+
+def district_checks(C: Checks, browser, url, at, snap, want_now, errs):
+    G = "동네 (지도 M1)"
+    P = snap["plaza"]
+
+    def open_(q, motion, dev=None):
+        ctx = browser.new_context(**(dev or {"viewport": {"width": 1440, "height": 900}, "device_scale_factor": 1}),
+                                  reduced_motion="no-preference" if motion else "reduce")
+        pg = ctx.new_page()
+        pg.on("pageerror", lambda e: errs.append(f"동네: {e}"))
+        pg.clock.install(time=at)
+        pg.goto(f"{url}/?{q}")
+        pg.wait_for_load_state("networkidle")
+        pg.clock.run_for(2500)
+        return ctx, pg
+
+    # 1. 빈 땅 두 곳에 아무것도 안 섰다 (자 검사: 빈 땅 하나를 카페 자리로 옮기면 「겹침」)
+    ctx, pg = open_("mode=now&motion=0", False)
+    W = pg.evaluate(WORLD_BOXES_JS)
+    hits = lot_hits(W["items"], W["lots"])
+    probe = lot_hits(W["items"], dict(W["lots"], E1=[EAST + 835, 640, 150, 80]))
+    st = pg.evaluate("Plaza.stats()")
+    C.check(G, "빈 땅 두 곳(E1·E2, 동쪽 동네)에 소품·구역 이름표·문 팻말·선 자리가 안 겹침",
+            len(W["lots"]) == 2 and not hits and all(v[0] > EAST for v in W["lots"].values()),
+            f"빈 땅 {list(W['lots'])} · 잰 상자 {len(W['items'])} · 겹침 {hits[:3] or 0}")
+    C.check(G, "자 검사: 빈 땅 E1 을 카페 앞으로 옮기면 「겹침」", bool(probe), ", ".join(probe[:3]))
+    # 2. 구역은 동네별로: 옮긴 세 구역은 동쪽, 말풍선 합 = 스냅샷 (동쪽 동네 말풍선도 원장 행)
+    east_want = sum(1 for r in P["residents"] if r["bubble"] and (r.get("zone") or "fountain") in M1_MOVED)
+    d = st["districts"]
+    C.check(G, "구역 동네별: 중앙 일곱·동쪽 셋(거울샘·카페·벤치), 말풍선은 모든 동네 합 = 스냅샷, 동쪽 말풍선 = 옮긴 구역 사람 수",
+            sorted(d["east"]["zones"]) == sorted(M1_MOVED) and len(d["center"]["zones"]) == 7
+            and d["center"]["bubbles"] + d["east"]["bubbles"] == st["bubblesOnStage"] == want_now and d["east"]["bubbles"] == east_want,
+            f"중앙 {d['center']} · 동쪽 {d['east']} · 화면 {st['bubblesOnStage']} · 스냅샷 {want_now} · 기대 동쪽 {east_want}")
+    # 3. 동네 띠: 칸마다 점 수 = 그 동네 사람 수, 동쪽 칸을 누르면 동쪽 동네 전체 보기
+    dots = pg.evaluate("[...document.querySelectorAll('#pzMap [data-to]')].map((b) => [b.dataset.to, b.querySelectorAll('.pz-mm i').length, b.querySelectorAll('.pz-mm i.t').length])")
+    pg.click("#pzMap [data-to=east]")
+    b1 = pg.evaluate(BOX_JS)
+    pg.click("#pzThings .pz-door[data-to=center]")
+    b2 = pg.evaluate(BOX_JS)
+    ctx.close()
+    C.check(G, "동네 띠: 칸마다 점 = 그 동네 사람(진한 점 = 말풍선), 동쪽 칸을 누르면 동쪽 동네 전체, 동쪽 문 팻말을 누르면 다시 중앙",
+            dots == [["center", d["center"]["figures"], d["center"]["bubbles"]], ["east", d["east"]["figures"], d["east"]["bubbles"]]]
+            and b1["d"] == "east" and full_view(b1) and b2["d"] == "center" and full_view(b2),
+            f"점 {dots} · 누른 뒤 {b1['d']} → 문 팻말 {b2['d']}")
+    # 4. 동네 사이 걷기 (연출 켬): 중앙 사람 하나를 카페로 보낸다 → 중앙 문까지 걸어가 사라졌다가 동쪽 아치 문에서 나타나 카페 자리로.
+    #    문과 문 사이를 걸어간 자리 0, 걷는 동안 말풍선 수·카메라 그대로. 연출 끔이면 바로 그 자리
+    ctx, pg = open_("mode=now&motion=1", True)
+    who = next(r["id"] for r in P["residents"] if (r.get("zone") or "fountain") == "fountain")
+    b0 = pg.evaluate("Plaza.stats().bubblesOnStage")
+    pg.evaluate(f"Plaza.walkTo('{who}', 'cafe')")
+    xs, bs, ds = [], set(), set()
+    for _ in range(300):
+        pg.clock.run_for(100)
+        v = pg.evaluate(f"(() => {{ const e = document.querySelector('.pz-agent[data-id=\"{who}\"]'); const s = Plaza.stats(); return [parseFloat(e.style.left), parseFloat(e.style.top), s.bubblesOnStage, s.district]; }})()")
+        xs.append(v[0]); bs.add(v[2]); ds.add(v[3])
+    slot = pg.evaluate("Plaza.stats().slots.cafe[0]")
+    ctx.close()
+    pre = [x for x in xs if x <= EAST]
+    post = [x for x in xs if x > EAST]
+    gap = door_gap(xs)
+    arrived = abs(xs[-1] - slot[0]) < 1
+    C.check(G, "동네 사이 걷기(연출 켬): 중앙 문까지 걸어가 사라지고 동쪽 아치 문에서 나타나 카페 자리로 — 문과 문 사이 걸은 자리 0, 말풍선 수·카메라 그대로",
+            pre and post and max(pre) > 1300 and min(post) >= EAST + 300 and not gap and arrived and bs == {b0} and ds == {"center"},
+            f"중앙 쪽 마지막 x {max(pre or [0]):.0f} · 동쪽 첫 x {min(post or [0]):.0f} · 사이 {len(gap)} · 도착 {arrived} · 말풍선 {sorted(bs)} · 카메라 {sorted(ds)}")
+    straight = [1300 + i * 40 for i in range(20)]
+    C.check(G, "자 검사: 문을 거치지 않고 곧장 걸은 길(1300→2060)은 「사이를 걸음」", bool(door_gap(straight)), f"사이 {len(door_gap(straight))}점")
+    ctx, pg = open_("mode=now&motion=0", False)
+    pg.evaluate(f"Plaza.walkTo('{who}', 'cafe')")
+    x_off = pg.evaluate(f"parseFloat(document.querySelector('.pz-agent[data-id=\"{who}\"]').style.left)")
+    ctx.close()
+    C.check(G, "연출 끔: 다른 동네 자리로 바로 (걷기 없음)", abs(x_off - slot[0]) < 1, f"x {x_off:.0f} · 자리 {slot[0]}")
+    # 5. 폰: 동쪽 칸 탭 → 동쪽 동네 전체 + 띠는 그대로
+    ctx, pg = open_("mode=now&motion=0", False, PHONE_DEVICE)
+    m = pg.locator("#pzMap [data-to=east]").bounding_box()
+    pg.touchscreen.tap(m["x"] + m["width"] / 2, m["y"] + m["height"] / 2)
+    pg.clock.run_for(400)
+    bp = pg.evaluate(BOX_JS)
+    ctx.close()
+    C.check(G, "폰: 동네 띠의 동쪽 칸을 탭하면 동쪽 동네 전체 + 띠 그대로", bp["d"] == "east" and full_view(bp) and map_in_frame(bp),
+            f"{bp['d']} · {fmt_box(bp)}")
 
 
 def until(pg, expr, tries=30):
@@ -690,9 +820,12 @@ def talk_checks(C: Checks, browser, label, device, url, at, pub: Path, snap: dic
 # ── 7. 캐릭터가 시설 앞에 (09-26 16:33 「벤치나 다른 광장내 시설과 겹치면 … 캐릭터는 앞으로」) ──
 # 시설 그림 발끝 바로 위(6px)에 캐릭터를 세우면 옛 층 순서(발 y 하나)에선 그림 뒤로 들어간다. 그 자리에서 몸 가운데·발 쪽·
 # 말풍선 가운데를 elementFromPoint 로 물어 캐릭터가 맨 위인지 본다. 시설 그림은 원래 pointer-events 가 없어 잠깐 켠다
-FRONT_SPOTS = [("분수", 690, 606), ("벤치", 555, 729), ("벤치2", 880, 759), ("카페", 1215, 712), ("카페 앞자리(실제 슬롯)", 1212, 662),
+# 지도 M1: 카페·벤치·거울샘은 동쪽 동네(세계 x 1376~). 그 자리는 카메라를 그 동네로 옮겨 잰다(틀 밖은 elementFromPoint 에 안 잡힌다)
+EAST = 1376
+FRONT_SPOTS = [("분수", 690, 606), ("벤치", EAST + 1120, 646), ("벤치2", EAST + 1250, 742), ("카페", EAST + 835, 674),
+               ("카페 앞자리(실제 슬롯)", EAST + 832, 620),
                ("게시판", 555, 446), ("노점", 205, 594), ("노점2", 335, 666), ("무대", 1195, 554),
-               ("거울샘", 990, 666)]
+               ("거울샘", EAST + 430, 606)]
 FRONT_JS = """([id, spots, old]) => {
   const add = (css, sid) => { const s = document.createElement('style'); s.id = sid; s.textContent = css; document.head.append(s); };
   if (old) add('#pzThings, #pzFigures { position: static !important; z-index: auto !important; }', 'pzOldLayers');
@@ -700,6 +833,7 @@ FRONT_JS = """([id, spots, old]) => {
   const f = document.querySelector(`.pz-agent[data-id="${id}"]`), keep = [f.style.left, f.style.top, f.style.zIndex];
   const out = [];
   for (const [name, x, y] of spots) {
+    Plaza.zoom.set(1, x, 384);   // 그 자리가 있는 동네 전체 보기
     f.style.left = x + 'px'; f.style.top = y + 'px'; f.style.zIndex = String(Math.round(y) + 2);
     for (const [part, el, fy] of [['몸', f.querySelector('.pz-body'), 0.5], ['발', f.querySelector('.pz-body'), 0.9], ['말풍선', f.querySelector('.pz-bubble'), 0.5]]) {
       if (!el) continue;
@@ -711,6 +845,7 @@ FRONT_JS = """([id, spots, old]) => {
     }
   }
   [f.style.left, f.style.top, f.style.zIndex] = keep;
+  Plaza.district('center');
   document.getElementById('pzPE').remove();
   const o = document.getElementById('pzOldLayers'); if (o) o.remove();
   return out; }"""
@@ -1350,6 +1485,7 @@ def plaza_checks(C: Checks, browser, args, work: Path, extra=(), capture=None):
     for label, br, device in extra:   # WebKit(iPhone) 이 깔려 있으면 같은 판정을 한 벌 더
         zoom_checks(C, br, label, device, url, at, want_now, busiest, shots, errs_all, reqs_all, capture=capture)
     desktop_zoom_checks(C, browser, url, at, errs_all, reqs_all)
+    district_checks(C, browser, url, at, snap, want_now, errs_all)
 
     # 6·7·8. 대화 보기 · 캐릭터 앞 · 타임라인 글자: 폰 두 엔진과 데스크톱
     desk = {"viewport": {"width": 1440, "height": 900}, "device_scale_factor": 1}
@@ -1396,7 +1532,7 @@ def plaza_checks(C: Checks, browser, args, work: Path, extra=(), capture=None):
     C.check("앞 판 흠", "자 검사: 「라일락가」「Pebble와」「Nova-7가」를 「틀림」", len(probe) == 3, ", ".join(probe))
 
     # 4. 결정성: 같은 입력이면 같은 그림 (연출 끔), 생성 시각 1분 차이면 다른 그림
-    def still(base, name, when=None, q="mode=now&motion=0"):
+    def still(base, name, when=None, q="mode=now&motion=0", probe=None):
         ctx, pg = page(1440, 900, q, False, base=base, when=when)
         pg.clock.run_for(2000)
         pg.evaluate("document.fonts.ready")
@@ -1409,6 +1545,8 @@ def plaza_checks(C: Checks, browser, args, work: Path, extra=(), capture=None):
         pg.screenshot(path=str(shots / name), full_page=True)
         st = pg.evaluate("({b: Plaza.stats().bubblesOnStage, w: document.getElementById('pzWeather').textContent,"
                          " sky: !document.getElementById('pzSky').hidden, fx: !document.getElementById('pzFx').hidden})")
+        if probe:
+            st["probe"] = pg.evaluate(probe[0], probe[1])
         ctx.close()
         return st
     still(url, "det_a.png")
@@ -1446,7 +1584,8 @@ def plaza_checks(C: Checks, browser, args, work: Path, extra=(), capture=None):
     for f in ("plaza.js", "plaza.css"):
         (before / "web" / f).write_text(before_web(args.motion_before, f), encoding="utf-8")
     url_mb, srv_mb = serve(before)
-    motion_checks(C, page, still, url, url_mb, before_label(args.motion_before), shots)
+    moved_ids = [r["id"] for r in P["residents"] if (r.get("zone") or "fountain") in M1_MOVED]
+    motion_checks(C, page, still, url, url_mb, before_label(args.motion_before), shots, moved_ids)
     srv_mb.shutdown()
 
     # 입구 버튼
@@ -1480,18 +1619,73 @@ MOTION_PROBE_JS = """() => {
 }"""
 
 
-def motion_checks(C: Checks, page, still, url: str, url_before: str, before_name: str, shots: Path):
+# 지도 M1 이 중앙 동네에서 바꾼 곳: 동쪽으로 옮긴 세 구역(소품·이름표·그 구역 사람과 말풍선·그 사람에게 닿는 인용선)과
+# 새로 생긴 동네 띠·문 팻말. 몸짓 판정 ①은 앞 판과 대어 이 상자들만 양쪽에서 가린 나머지를 픽셀로 본다.
+# 그 밖에 장면 층이 두 동네 폭(2752)이 되며 생긴 합성 차이 두 가지도 가린다(10-22 실측, 가린 뒤 남은 차이 0):
+#  - 틀 위 반투명 띠(모드·날씨·설명·확대 단추) 안쪽이 1~3 단위로 흔들림 — 띠 아래 장면 그림은 그대로고 띠를 겹쳐 그리는 길만 바뀜
+#  - 틀 오른쪽 끝 1열: 앞 판은 그림이 거기서 끝났고 이제는 동쪽 그림이 이어져 경계 번짐이 1 단위 다름
+# 소품·사람 상자는 그림자 필터(drop-shadow 3~4px)가 상자 밖으로 번지니 6px 넓혀 잡는다
+M1_MOVED = ("cafe", "bench", "spring")
+M1_MASK_JS = """([ids, zones]) => {
+  const w = document.getElementById('pzWrap').getBoundingClientRect(), out = [];
+  const add = (r) => { const l = Math.max(r.left, w.left), t = Math.max(r.top, w.top), rr = Math.min(r.right, w.right), b = Math.min(r.bottom, w.bottom);
+    if (rr > l && b > t) out.push([Math.floor(l + scrollX) - 6, Math.floor(t + scrollY) - 6, Math.ceil(rr + scrollX) + 6, Math.ceil(b + scrollY) + 6]); };
+  const deep = (el) => { add(el.getBoundingClientRect()); el.querySelectorAll('*').forEach((c) => add(c.getBoundingClientRect())); };
+  zones.forEach((z) => document.querySelectorAll(`#pzThings [data-zone="${z}"]`).forEach(deep));
+  ids.forEach((id) => { const f = document.querySelector(`#pzFigures .pz-agent[data-id="${id}"]`); if (f) deep(f); });
+  document.querySelectorAll('#pzLinks .qline').forEach((q) => add(q.getBoundingClientRect()));
+  document.querySelectorAll('#pzMap, #pzThings .pz-door, #pzModeChip, #pzWeather, #pzCorner, #pzZoom').forEach(deep);
+  out.push([Math.floor(w.right + scrollX) - 2, Math.floor(w.top + scrollY), Math.ceil(w.right + scrollX) + 1, Math.ceil(w.bottom + scrollY)]);
+  return {boxes: out, wrap: [w.left + scrollX, w.top + scrollY, w.right + scrollX, w.bottom + scrollY]};
+}"""
+
+
+M1_TOL = 12   # 가린 나머지에서 허용하는 점 하나의 최대 색 차이(0~255). 아래 masked_same 설명
+
+
+def masked_same(a: Path, b: Path, boxes: list, tol: int = M1_TOL) -> tuple[bool, str, float]:
+    """상자들을 양쪽 그림에서 같은 색으로 덮고 비교한다. (같음, 설명, 가린 넓이 비율 — 그림 전체 대비)
+    tol: 장면 층이 2752 폭이 되며 같은 그림도 래스터 경계(틀 안 세로 한 줄)·노점 사이 점선 번짐이 1~10 단위 흔들렸다(10-22 실측 최대 10).
+    몸짓이 새면(몸 transform·기호) 몸 그림 테두리가 수십~수백 단위로 바뀌므로 tol 12 로도 「다름」이다 — 자 검사가 같은 tol 로 연출 켬을 「다름」으로 낸다"""
+    A, B = Image.open(a).convert("RGB"), Image.open(b).convert("RGB")
+    if A.size != B.size:
+        return False, f"크기 다름 {A.size} vs {B.size}", 0.0
+    m = Image.new("L", A.size, 0)
+    d = ImageDraw.Draw(m)
+    for x0, y0, x1, y1 in boxes:
+        d.rectangle([x0, y0, x1, y1], fill=255)
+    black = Image.new("RGB", A.size, (0, 0, 0))
+    A2, B2 = Image.composite(black, A, m), Image.composite(black, B, m)
+    diff = ImageChops.difference(A2, B2)
+    mx = max(hi for _, hi in diff.getextrema())
+    big = diff.point(lambda v: 255 if v > tol else 0).getbbox()
+    small = sum(1 for px in diff.getdata() if 0 < max(px) <= tol)
+    area = sum(1 for v in m.getdata() if v) / (A.size[0] * A.size[1])
+    why = (f"가린 나머지 최대 차이 {mx} (허용 {tol}) · {tol} 이하로 흔들린 점 {small}" if big is None
+           else f"허용 {tol} 넘는 영역 {big} · 최대 차이 {mx}")
+    return big is None, why, area
+
+
+def motion_checks(C: Checks, page, still, url: str, url_before: str, before_name: str, shots: Path, moved_ids=()):
     """① 연출 끔(motion=0) 화면 = 몸짓 앞 판(--motion-before) 화면 픽셀 동일 + 몸 그림 인라인 transform·.pz-pop·.mo 0.
-       자 검사: 같은 자로 연출 켬 화면은 「다름」. 앞 판 고정이라 web/ 이 몸짓 말고 다른 이유로 바뀌면 --motion-before 를 그 판으로 올린다
+       자 검사: 같은 자로 연출 켬 화면은 「다름」. 앞 판 고정이라 web/ 이 몸짓 말고 다른 이유로 바뀌면 --motion-before 를 그 판으로 올린다.
+       지도 M1(8cfe13e 다음)부터는 M1 이 바꾼 곳(M1_MASK_JS)을 양쪽에서 가리고 나머지를 본다 — 가린 비율과 「가리지 않으면 다름」을 같이 적는다
     ② 연출 켬에서 말풍선이 뜬 사람의 .pz-body transform 이 시간에 따라 바뀜(몸짓이 실제로 돈다), 연출을 끄면 빈 문자열
     ③ 몸짓(Plaza.gesture 전원 + 종 울림)이 도는 동안 bubblesOnStage 불변. 몸짓이 실제로 걸렸는지(기호 .pz-pop)도 같이 본다"""
     G = "몸짓"
     q0 = "mode=now&motion=0"
-    s_new = still(url, "mo_off_new.png", q=q0)
+    probe = (M1_MASK_JS, [list(moved_ids), list(M1_MOVED)])
+    s_new = still(url, "mo_off_new.png", q=q0, probe=probe)
     still(url, "mo_off_new2.png", q=q0)
-    still(url_before, "mo_off_before.png", q=q0)
+    s_bef = still(url_before, "mo_off_before.png", q=q0, probe=probe)
+    boxes = s_new["probe"]["boxes"] + s_bef["probe"]["boxes"]
     ok_c, why_c = same_pixels(shots / "mo_off_new.png", shots / "mo_off_new2.png")
-    ok_b, why_b = same_pixels(shots / "mo_off_new.png", shots / "mo_off_before.png")
+    ok_b, why_b, area = masked_same(shots / "mo_off_new.png", shots / "mo_off_before.png", boxes)
+    ok_raw, why_raw = same_pixels(shots / "mo_off_new.png", shots / "mo_off_before.png")
+    wl, wt, wr, wb = s_new["probe"]["wrap"]
+    frame = (wr - wl) * (wb - wt) or 1
+    with Image.open(shots / "mo_off_new.png") as im:
+        frac = area * im.size[0] * im.size[1] / frame
     ctx, pg = page(1440, 900, q0, False)
     pg.clock.run_for(3000)
     off = pg.evaluate(MOTION_PROBE_JS)
@@ -1504,12 +1698,12 @@ def motion_checks(C: Checks, page, still, url: str, url_before: str, before_name
     settle_raster(pg, 1440, 900)
     pg.screenshot(path=str(shots / "mo_on_new.png"), full_page=True)
     ctx.close()
-    ok_r, why_r = same_pixels(shots / "mo_off_new.png", shots / "mo_on_new.png")
+    ok_r, why_r, _ = masked_same(shots / "mo_off_new.png", shots / "mo_on_new.png", boxes)
     C.check(G, "대조군: 연출 끔 화면 두 번 찍어 같은 그림", ok_c, why_c)
-    C.check(G, f"연출 끔(motion=0) = 몸짓 앞 판({before_name}) 그림 픽셀 동일, 몸 인라인 transform·몸짓 기호·.mo 0",
-            ok_b and off["anyTf"] == 0 and off["pops"] == 0 and off["mo"] == 0,
+    C.check(G, f"연출 끔(motion=0) = 몸짓 앞 판({before_name}) 그림 픽셀 같음 (점마다 차이 {M1_TOL} 이하; 지도 M1 이 옮긴 세 구역·동네 띠·문 팻말·틀 위 반투명 띠·오른쪽 끝 열 상자 {len(boxes)}개, 틀의 {frac:.0%} 가림), 몸 인라인 transform·몸짓 기호·.mo 0",
+            ok_b and frac < 0.35 and off["anyTf"] == 0 and off["pops"] == 0 and off["mo"] == 0,
             f"{why_b} · transform {off['anyTf']} · 기호 {off['pops']} · .mo {off['mo']}")
-    C.check(G, "자 검사: 같은 자로 연출 켬 화면은 「다름」", not ok_r, why_r)
+    C.check(G, "자 검사: 같은 자(같은 가림)로 연출 켬 화면은 「다름」, 가리지 않고 대면 앞 판과 「다름」(M1 이 실제로 바뀜)", not ok_r and not ok_raw, f"{why_r} · 안 가림 {why_raw}")
 
     # ② 시간에 따라 바뀌는 transform, 끄면 빈 문자열
     ctx, pg = page(1440, 900, "mode=now&motion=1", True)
@@ -1847,7 +2041,7 @@ def main(argv=None) -> int:
                     help="캐릭터 앞 「전」 캡처에 쓸 옛 판 (plaza.js·plaza.css 가 든 폴더, 또는 이 리포의 커밋)")
     ap.add_argument("--faces-before", default=str(BEFORE_DIR / "faces_b0af64d"),
                     help="아바타 표정 자 검사에 쓸 표정 앞 판 (폴더 또는 이 리포의 커밋)")
-    ap.add_argument("--motion-before", default="444e083",
+    ap.add_argument("--motion-before", default="8cfe13e",
                     help="몸짓 판정 ①의 「연출 끔 = 앞 판」에 쓸 몸짓 앞 판 (폴더 또는 이 리포의 커밋)")
     a = ap.parse_args(argv)
     work = Path(a.work).expanduser()
