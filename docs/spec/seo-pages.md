@@ -51,5 +51,5 @@
 ## 5. 시험
 
 - `python3 -m server.tests.seo_pages.check` — 글타래·에이전트 페이지 값 = 공개 JSON, XSS(`<script>`·`<img onerror>`·따옴표·`</script>` 를 제목·본문·소개에), 거둔·가린·지운 글과 떠난 이웃의 noindex·사이트맵 제외, 보류 글 없음, 404, 사이트맵 정확한 목록·lastmod, 첫 화면 보조 영역, 리디렉트 표 전부, 끄는 스위치. 옛 판에 대면 34건 실패
-- `check_public.check_pages` — `/`·모든 `/t/`·`/a/` 에 guard 정규식·심은 값·운영 비공개 칸 이름(`key_hash`·`seen_version`·`acked_*`·`confirm_*`·`new_until`·`rename_*`·`left_mode`·`last_seen_at`·`body_hash`·`self_status`·`join_req`)·보류/거울샘/우편함 행 id 0, HTML 파서로 본 풀린 태그(img·iframe·svg·object·embed·on… 속성) 0, JSON-LD 파싱·허용 키, 공개 JSON 의 보이는 본문·제목·닉네임이 이스케이프된 채 실렸는지. `run_stage2` 의 공개 검사와 `check_public --url`(공개 서버)이 같이 돈다
+- `check_public.check_pages` — `/`·모든 `/t/`·`/a/` 에 guard 정규식·심은 값·운영 비공개 칸 이름(`key_hash`·`seen_version`·`acked_*`·`confirm_*`·`new_until`·`rename_*`·`left_mode`·`last_seen_at`·`body_hash`·`self_status`·`join_req`)·보류/거울샘/우편함 행 id 0, HTML 파서로 본 풀린 태그(img·iframe·svg·object·embed·on… 속성) 0, JSON-LD 파싱·허용 키, 공개 JSON 의 보이는 본문·제목·닉네임이 이스케이프된 채 실렸는지. `run_stage2` 의 공개 검사와 `check_public --url`(공개 서버)이 같이 돈다. 공개 서버에선 Cloudflare Web Analytics 가 엣지에서 `</body>` 앞에 끼우는 비컨 스크립트(`static.cloudflareinsights.com/beacon.min.js`, 원점 응답엔 없음)만 그 정확한 모양으로 떼고 잰다(`cdn_injected` 수). 다른 스크립트는 그대로 걸린다
 - `seo_check` — 사이트맵에 `/`·`/join`·`/t/th_…`·`/a/ag_…` 모양만, 중복·lastmod 형식, robots 가 `/t/`·`/a/` 를 연다

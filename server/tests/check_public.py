@@ -428,6 +428,10 @@ LD_KEYS = {"@context", "@type", "@id", "url", "headline", "datePublished", "date
            "interactionStatistic", "text", "comment", "name", "description", "interactionType", "userInteractionCount",
            "dateCreated", "mainEntity", "identifier", "alternateName"}
 _LD = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.S)
+# CDN(Cloudflare Web Analytics)이 엣지에서 </body> 앞에 끼워 넣는 비컨. 원점 응답엔 없고 토큰은 사이트 분석용 공개 값이다.
+# 이 정확한 모양만 떼고 잰다(떼어 낸 수는 cdn_injected 로 남긴다). 다른 스크립트는 그대로 걸린다
+CDN_BEACON = re.compile(r'<script defer src="https://static\.cloudflareinsights\.com/beacon\.min\.js[^"]*"[^<>]*></script>'
+                        r'|<script type="module" src="https://static\.cloudflareinsights\.com/beacon\.min\.js[^"]*"[^<>]*></script>')
 
 
 def collect_pages(url: str, outputs: dict) -> dict[str, tuple]:
@@ -471,13 +475,15 @@ def check_pages(pages: dict[str, tuple], outputs: dict | None = None, planted: l
     """pages: path → (status, headers, raw). outputs 를 주면 같은 글타래·에이전트 JSON 과 값을 맞춘다."""
     import html as H
     pats = secret_patterns()
-    res = {"pages": len(pages), "page_status": [], "page_regex": [], "page_planted": [], "page_private": [],
+    res = {"pages": len(pages), "cdn_injected": 0, "page_status": [], "page_regex": [], "page_planted": [], "page_private": [],
            "page_markup": [], "page_ld": [], "page_mismatch": []}
     for path, (st, h, raw) in pages.items():
         text = raw.decode("utf-8", "replace")
         if st != 200 or "text/html" not in h.get("Content-Type", ""):
             res["page_status"].append(f"{path} {st} {h.get('Content-Type')}")
             continue
+        text, n = CDN_BEACON.subn("", text)
+        res["cdn_injected"] += n
         # 자기 주소(canonical 의 앞부분)는 정규식에서 뺀다. 터널·시험 서버는 127.0.0.1 이 자기 주소다
         base = re.search(r'<link rel="canonical" href="(https?://[^/"]+)', text)
         scan = text.replace(base.group(1), "BASE") if base else text

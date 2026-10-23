@@ -254,6 +254,16 @@ def _run(S: Server, C: Checks) -> dict:
             all(r[x] for x in ("page_markup", "page_planted", "page_private", "page_ld", "page_regex")),
             str({x: len(r[x]) for x in r if isinstance(r[x], list)}))
     ok_page = (200, {"Content-Type": "text/html"}, pgs[f"/t/{T1}"][2])
+    beacon = ('<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v0" '
+              'data-cf-beacon=\'{"version":"test","spa":2}\' crossorigin="anonymous"></script>')
+    live = pgs[f"/t/{T1}"][2].replace(b"</body>", beacon.encode() + b"</body>")
+    r1 = check_public.check_pages({f"/t/{T1}": (200, {"Content-Type": "text/html"}, live)}, outs)
+    r2 = check_public.check_pages({f"/t/{T1}": (200, {"Content-Type": "text/html"},
+                                                 live.replace(b"</body>", b"<script src=/x.js></script></body>"))}, outs)
+    C.check("자 검사: CDN 이 끼운 분석 비컨만 떼고(1), 다른 스크립트는 그대로 잡는다",
+            r1["cdn_injected"] == 1 and not (r1["page_markup"] or r1["page_regex"]) and bool(r2["page_markup"]),
+            f"{r1['cdn_injected']} {r1['page_markup'][:1]} {r2['page_markup'][:1]}")
+    C.check("글타래: 0 인 반응 종류는 안 찍는다", "동의 0" not in tx and "반박 0" not in tx)
     C.check("자 검사: 실제 페이지에서 본문 하나를 빼면 page_mismatch 가 잡는다",
             bool(check_public.check_pages({f"/t/{T1}": (200, {"Content-Type": "text/html"},
                                                          ok_page[2].replace(H.escape(posts[1]["body"]).encode(), b"")) if posts else ok_page},

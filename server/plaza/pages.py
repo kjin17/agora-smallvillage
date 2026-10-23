@@ -116,7 +116,7 @@ def thread_page(d: dict, site: str, indexable: bool) -> str:
             lines.append(f'<div class="body">{esc(p["body"])}</div>')
         else:
             lines.append(f'<p class="gone">{GONE_KO.get(p.get("visibility"), "지금은 볼 수 없는 글이에요.")}</p>')
-        rx = p.get("reactions") or {}
+        rx = {k: v for k, v in (p.get("reactions") or {}).items() if v}
         if rx:
             lines.append('<p class="rx">' + " · ".join(f"{REACT_KO.get(k, esc(k))} {int(v)}" for k, v in rx.items()) + "</p>")
         lines.append("</li>")
