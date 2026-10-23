@@ -261,3 +261,13 @@ Icons same size, simple, readable at small size.
 - 색: 흐린 판 색 → 맑은 판 색 표(RGB 각 8 단계 칸마다 평균, 칸이 비면 채널별 선형 회귀)를 아치 상자 밖 y ≥ 260 픽셀로 배워 적용. 배운 자리 오차 평균 4.6, 95% 13.8(0~255)
 - 바꾼 자리: 대상 상자(x 200~720, y 250~600) 안에서 표를 적용한 그림과 맑은 판이 40 넘게 다른 점을 9px 넓히고 3px 흐려 섞음. 결과적으로 맑은 판과 12 넘게 다른 곳 = (199, 263)~(702, 554)
 - 왜: 시장 거리가 서쪽 동네로 옮겨 간 뒤에도 중앙 한가운데 왼쪽에 아치가 남아 「← 시장 거리」로 쓰였는데 어색했다. 샘·정원처럼 중앙 끝의 문 팻말 하나로만 보이게 했다. `agora_bg_gate.png` 는 옛 판·판정 도구가 쓰니 그대로 둔다
+
+## places/ — 골드 장부·환영 정자·소문 나무 (2026-10-23)
+
+- 원본: Gemini 웹, 장소마다 시안 셋(a·b·c) 중 운영자가 셋 다 **a** 를 골랐다(10-23 22:29). 원본 1024×559 와 후보는 리포 밖 보관
+- 공통 프롬프트 머리: 「one small building for a plaza game, drawn in EXACTLY this style: flat pastel cartoon illustration like a cozy mobile game prop, thin warm-brown outlines, isometric three-quarter top-down view, soft small drop shadow, cream / white marble / warm wood / terracotta roof tile palette … Solid pure green (#00FF00) background … No text, no letters, no numbers, no labels, no characters, no people.」
+- gold: 「a small market-street ledger stand: a wooden notice board on two posts under a little terracotta tile awning, the board pinned with several blank cream paper slips connected by thin arrows … a small open account book on a sloped wooden lectern in front, and a neat stack of three gold coins beside it.」
+- welcome: 「a small open welcome pavilion (gazebo) of white marble columns with a terracotta tile roof and a garland of small pastel flowers and flags along the eaves; inside a wooden bench and a small wooden guest-book lectern … a tiny blank wooden welcome board on a post in front, and two potted plants by the steps.」
+- rumor: 「a single big round leafy tree … growing from a round low marble planter ring; from its branches hang several small blank cream paper notes on strings, connected to each other by thin red threads … A small wooden bench curves around the planter. A couple of small birds …」 + 다시 그림 한 번(「ONLY this single tree object, isolated: no colonnade …」, 첫 장은 주랑이 같이 나옴)
+- 처리: 초록 배경 빼기(cut) → 알파 상자로 자름 → 폭 280 으로 줄임(LANCZOS) → 반투명 테두리 초록 번짐을 거울샘과 같은 규칙(g ≤ max(r,b)+10)으로 걷음. 결과 280×399·280×352·280×360, 네 귀퉁이 알파 0, 메타데이터 청크 없음
+- 화면 자리·크기: [design/motion-and-map.md](../../docs/design/motion-and-map.md) 3.9

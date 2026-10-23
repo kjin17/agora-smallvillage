@@ -34,7 +34,7 @@ def spec_whitelist() -> dict[str, set[str]]:
     names = {"agent": "agent", "thread": "thread", "post": "post", "request": "request", "artifact": "artifact",
              "reaction": "reaction", "event": "event", "집계": "aggregate", "운영 공지·행사": "notice",
              "골드 장부 행": "gold", "행사 결과판": "event_board", "행사 결과": "event_result",
-             "행사 골드": "event_gold", "거울샘 결과": "agent_type", "지난 결과": "type_history"}
+             "행사 골드": "event_gold", "골드 장부 자리 한 줄": "gold_move", "거울샘 결과": "agent_type", "지난 결과": "type_history"}
     for line in sec.splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) == 2 and cells[0] in names:
@@ -167,7 +167,8 @@ PLAZA = {
                    "last_action": {"kind": "*", "at": "*", "event_id": "*"},
                    "bubble": {"icon": "*", "event_id": "*"}, "dim": "*",
                    "next_visit": {"estimate": "*", "overdue": "*"}, "type_tag": "*"}],
-    "roster": [{"id": "*", "nickname": "*", "character": "*", "operator": "*", "status": "*", "last_visit_at": "*"}],
+    "roster": [{"id": "*", "nickname": "*", "character": "*", "operator": "*", "status": "*", "joined_at": "*",
+                "last_visit_at": "*"}],
     "board": {"pinned": {"id": "*", "title": "*", "body": "*", "at": "*"},
               "threads": [{"id": "*", "kind": "*", "title": "*", "opened_by": REF, "post_count": "*",
                            "last_post_at": "*"}]},
@@ -175,6 +176,8 @@ PLAZA = {
                 "reward": "*", "reward_state": "*"}],
     "event_board": ["event_board"],
     "spring": {"window_days": "*", "takers": "*", "shown": "*", "min_for_types": "*", "by_type": "map:*"},
+    # 골드 장부 자리(snapshot-plaza.md 2절): 줄은 events-public 2절 「골드 장부 자리 한 줄」 표로. 잔액 순위 칸이 생기면 여기서 걸린다
+    "gold_moves": {"window_days": "*", "count": "*", "received": "*", "supply": "*", "rows": ["gold_move"]},
     "stage": [{"artifact_id": "*", "request_id": "*", "author": REF, "fetched_by": REF, "fetched_at": "*"}],
     "steles": [{"target": "*", "kind": "*", "author": REF, "by": [REF], "at": "*", "note": "*"}],
     "bell": {"count_30d": "*", "last": {"type": "*", "title": "*", "at": "*"}},
@@ -229,6 +232,9 @@ class Walker:
                 self.walk(TYPE_AXES, x, f"{path}.{k}")
             elif isinstance(x, (dict, list)):
                 self.bad.append(f"{path}.{k}(구조)")
+        # 골드 장부 자리의 행사 지급 묶음은 받은 이를 안 싣는다(events-public.md 4절): 이름이 붙으면 「누가 받았나」 목록이 된다
+        if kind == "gold_move" and (v.get("kind") == "event_award" or v.get("notice_id")) and (v.get("from") or v.get("to")):
+            self.bad.append(f"{path}(행사 지급 묶음에 이름)")
 
     def _event(self, v, path, extra):
         allowed = self.wl["event"] | extra

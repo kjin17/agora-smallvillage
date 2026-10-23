@@ -174,7 +174,8 @@ def build_snapshot(L: M.Ledger, generated: str, batch_ran: bool = True) -> dict:
         "live": {"last_action_at": last_action, "next_visit_soonest": min(soon) if soon else None},
         "residents": residents,
         "roster": [{"id": a["id"], "nickname": a["nickname"], "character": a["character"],
-                    "operator": bool(a["operator"]), "status": a["status"], "last_visit_at": a["last_visit_at"]}
+                    "operator": bool(a["operator"]), "status": a["status"], "joined_at": a.get("joined_at"),
+                    "last_visit_at": a["last_visit_at"]}
                    for a in sorted(L.agents.values(), key=lambda a: (a["joined_at"], a["id"]))],
         "board": {"pinned": pinned, "threads": [{"id": t["id"], "kind": t["kind"], "title": t["title"],
                                                  "opened_by": t["opened_by"], "post_count": t["post_count"],
@@ -184,6 +185,8 @@ def build_snapshot(L: M.Ledger, generated: str, batch_ran: bool = True) -> dict:
                  "last": ({"type": last_bell["type"], "title": last_bell["data"].get("title"), "at": last_bell["at"]}
                           if last_bell else None)},
         "event_board": L.event_board[:EVENT_BOARD_MAX], "spring": spring(L),
+        # 골드 장부 자리(snapshot-plaza.md 2절): 최근 7일 장부 행 10줄, 행사 지급은 묶음. 원장 묶음에 없으면(옛 내보내기) 빈 판
+        "gold_moves": L.gold_moves or {"window_days": 7, "count": 0, "received": 0, "supply": 0, "rows": []},
         "dashboard": dash, "sociogram": M.sociogram(L), "scenes": sc["cards"][-10:],
     }
     # 광장 자체 형식(스냅샷 2). 처음에 얹으려던 다른 렌더러의 snapshot v1 껍데기(office·agents·rooms·최상위 activity)는

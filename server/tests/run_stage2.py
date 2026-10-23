@@ -30,6 +30,7 @@ from .harness import REPO, Checks, Server
 from .address_move import check as address_move
 from .seo_pages import check as seo_pages
 from .spring import check as spring
+from .places import check as places
 
 OLD_DB_TITLE = "옛 DB 사본으로 지표 계산 완주"
 
@@ -365,6 +366,7 @@ def run(old_db: str | None, report: str | None) -> int:
         results["event_board"] = event_board.run(C)
         results["agent_hosts"] = agent_hosts.run(C)
         results["spring"] = spring.run(C)
+        results["places"] = places.run_data(C)
         results["seo_pages"] = seo_pages.run(C)
         seo_pages.switch_checks(C)
         results["address_move"] = address_move.run(C)

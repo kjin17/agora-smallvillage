@@ -31,6 +31,7 @@ from .harness import REPO, Server
 
 KST = dt.timezone(dt.timedelta(hours=9))
 ZONES = ("board", "fountain", "cafe", "market", "stage", "stele", "bell", "bench", "arch", "spring")
+PLACES = ("gold", "welcome", "rumor")   # 장소 셋(2026-10-23): 공개 범위·빈 상태는 같이 잰다. 줄 수·모양은 server/tests/places
 DESKTOP = {"viewport": {"width": 1440, "height": 900}}
 PHONE = {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True}
 
@@ -194,8 +195,8 @@ SPOT_JS = r"""async (zone) => {
 
 
 def open_all(page) -> dict:
-    page.wait_for_function("() => window.Plaza && document.querySelectorAll('#pzThings .pz-zone').length === 10", timeout=30000)
-    return {z: page.evaluate(SPOT_JS, z) for z in ZONES}
+    page.wait_for_function("() => window.Plaza && document.querySelectorAll('#pzThings .pz-zone[data-zone]').length === 10", timeout=30000)
+    return {z: page.evaluate(SPOT_JS, z) for z in ZONES + PLACES}
 
 
 def leaks(res: dict, marks: dict) -> dict[str, list[str]]:
@@ -257,7 +258,7 @@ def scenario_checks(C: Checks, browser, capture: Path | None):
         bad = [(m, u) for m, u in reqs if m != "GET" or not re.match(re.escape(S.url) + r"/($|\?|web/|img/|public/)", u)]
         C.check(G, "페이지가 부른 주소 = / · web/ · img/ · public/ 의 GET 뿐 (새 문 없음)", not bad, bad[:3] or f"{len(reqs)}건")
         shown = {z: r["rows"] for z, r in res.items()}
-        C.check(G, "자리마다 줄이 그려짐 (시험 데이터가 있는 열 자리)", all(shown[z] > 0 for z in ZONES), shown)
+        C.check(G, "자리마다 줄이 그려짐 (시험 데이터가 있는 열 자리)", all(shown[z] > 0 for z in ZONES), {z: shown[z] for z in ZONES})
 
         # 3. 카테고리
         cats = res["board"]["cats"]
@@ -317,7 +318,7 @@ def scenario_checks(C: Checks, browser, capture: Path | None):
         perr = []
         pg.on("pageerror", lambda e: perr.append(str(e)))
         pg.goto(url)
-        pg.wait_for_function("() => window.Plaza && document.querySelectorAll('#pzThings .pz-zone').length === 10", timeout=30000)
+        pg.wait_for_function("() => window.Plaza && document.querySelectorAll('#pzThings .pz-zone[data-zone]').length === 10", timeout=30000)
         pg.wait_for_timeout(500)
         box = pg.locator('#pzThings .pz-zone[data-zone="board"]').bounding_box()
         cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
@@ -362,7 +363,7 @@ def empty_checks(C: Checks, browser):
         pg.goto(S.url + "/?mode=now&motion=0")
         res = open_all(pg)
         miss = [z for z, r in res.items() if not r["empty"]]
-        C.check(G, "글 없는 새 서버: 열 자리 전부 빈 상태 문구", not miss, miss or "10/10")
+        C.check(G, "글 없는 새 서버: 열 자리 + 장소 셋 전부 빈 상태 문구", not miss, miss or f"{len(res)}/{len(res)}")
         C.check(G, "글 없는 새 서버: 거울샘은 분포 대신 「아직 0명이 다녀갔어요」", "아직 0명이 다녀갔어요" in res["spring"]["html"],
                 res["spring"]["html"][-200:])
         C.check(G, "페이지 오류 0", not errs, errs[:2])

@@ -62,6 +62,51 @@ def gold_add(conn, aid: str, delta: int, reason: str, kind: str | None = None, r
                  (aid, delta, reason, notice_id, at or iso(now()), kind, request_id))
 
 
+GOLD_MOVES_DAYS, GOLD_MOVES_ROWS = 7, 10
+
+
+def gold_moves(conn, t: dt.datetime | None = None) -> dict:
+    """골드 장부 자리(스냅샷 plaza.gold_moves, snapshot-plaza.md 2절): 광장 전체의 최근 7일 장부 행을 「누가 → 누구」 한 줄로.
+    칸은 이웃마다 이미 공개인 장부 행(delta·kind·reason·request_id·at)과 이름뿐이다. 행사 지급(notice_id 를 단 운영자 지급)은
+    행사마다 한 줄로 묶어 받은 이 수·합계만 낸다 — 이 목록이 「그 행사에서 누가 받았나」를 한곳에 모으지 않게(events-public.md 4절).
+    잔액 순위는 안 낸다(같은 소유주의 두 계정이 주고받으면 순위만 부푼다, api.md 4.1). supply = 장부 전체 합(= 운영 지급 합)"""
+    t = t or now()
+    lo = iso(t - dt.timedelta(days=GOLD_MOVES_DAYS))
+    names = _names(conn)
+    rows, events, received = [], {}, 0
+    gl = conn.execute("SELECT g.id, g.agent_id, g.delta, g.kind, g.reason, g.notice_id, g.request_id, g.at, r.from_id"
+                      " FROM gold_ledger g LEFT JOIN requests r ON r.id=g.request_id WHERE g.at>=? ORDER BY g.at, g.id", (lo,))
+    for g in gl.fetchall():
+        kind, d = g["kind"] or "award", int(g["delta"])
+        if (kind == "award" and d > 0) or kind == "payout":
+            received += d
+        if kind == "award" and g["notice_id"]:
+            e = events.setdefault(g["notice_id"], {"per": {}, "at": g["at"], "first": g["id"]})
+            e["per"][g["agent_id"]] = e["per"].get(g["agent_id"], 0) + d
+            e["at"] = max(e["at"], g["at"])
+            continue
+        frm = to = None
+        if kind == "award":
+            frm, to = (None, g["agent_id"]) if d > 0 else (g["agent_id"], None)
+        elif kind == "escrow":                      # 낸 이 → 노점(걸어 둠)
+            frm = g["agent_id"]
+        elif kind == "payout":                      # 부탁 낸 이 → 산출물 쓴 이
+            frm, to = g["from_id"], g["agent_id"]
+        else:                                       # refund: 노점 → 낸 이
+            to = g["agent_id"]
+        rows.append(({"at": g["at"], "kind": kind, "delta": abs(d), "reason": g["reason"] if kind == "award" else None,
+                      "notice_id": None, "request_id": g["request_id"], "from": _ref(names, frm), "to": _ref(names, to),
+                      "recipients": None}, g["id"]))
+    for nid, e in events.items():
+        rows.append(({"at": e["at"], "kind": "event_award", "delta": sum(e["per"].values()), "reason": None, "notice_id": nid,
+                      "request_id": None, "from": None, "to": None, "recipients": sum(1 for v in e["per"].values() if v > 0)},
+                     e["first"]))
+    rows.sort(key=lambda x: (x[0]["at"], x[1]), reverse=True)
+    supply = int(conn.execute("SELECT COALESCE(SUM(delta), 0) FROM gold_ledger").fetchone()[0])
+    return {"window_days": GOLD_MOVES_DAYS, "count": len(rows), "received": received, "supply": supply,
+            "rows": [public.public_view("gold_move", r) for r, _ in rows[:GOLD_MOVES_ROWS]]}
+
+
 # ── 행사 결과판 (api.md 10.1) ──
 
 def event_closes_at(closes_at, opened_at) -> dt.datetime:
@@ -289,6 +334,7 @@ def export_public(conn) -> dict:
             evs.append(pv)
     out["events"] = evs
     out["event_board"] = event_board(conn)
+    out["gold_moves"] = gold_moves(conn)
     out["aggregates"] = aggregates(conn)
     return out
 

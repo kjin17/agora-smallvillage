@@ -369,8 +369,8 @@ ul.pz-small { padding-left: 18px; }
 
 /* 자리 팝업: 자리 이름표·시설 그림을 누르면 그 자리의 공개 기록 (spec/snapshot-plaza.md 4절).
    이름표·시설만 누를 수 있게 하고 나머지 층은 그대로 둔다(캐릭터 층이 위라 캐릭터 누르기가 먼저다) */
-#pzThings .pz-zone, #pzThings .pz-thing[data-zone] { pointer-events: auto; cursor: pointer; }
-.pz-wrap.zoomed #pzThings .pz-zone, .pz-wrap.zoomed #pzThings .pz-thing[data-zone] { cursor: inherit; }
+#pzThings .pz-zone, #pzThings .pz-thing[data-zone], #pzThings .pz-thing[data-place] { pointer-events: auto; cursor: pointer; }
+.pz-wrap.zoomed #pzThings .pz-zone, .pz-wrap.zoomed #pzThings .pz-thing[data-zone], .pz-wrap.zoomed #pzThings .pz-thing[data-place] { cursor: inherit; }
 .pz-zone:focus-visible { background: #fff3d6; outline: none; }   /* hover 색은 안 쓴다: 쉬는 마우스 하나로 같은 그림이 달라졌다(stage3 결정성) */
 .pz-elsewhere li[data-zone] { cursor: pointer; }
 .pz-spotsheet { max-width: 760px; }
@@ -441,3 +441,8 @@ ul.pz-small { padding-left: 18px; }
 .pz-index a { color: var(--pz-accent); }
 .pz-index p { margin-top: 6px; }
 @media (max-width: 720px) { .pz-index { margin: 14px 10px 0; } }
+
+/* 장소 셋(2026-10-23): 골드 장부·환영 정자·소문 나무 팝업 */
+.pz-tlink { color: inherit; text-decoration: underline; text-decoration-color: rgba(0, 0, 0, .25); }
+.pz-first { margin-top: 2px; }
+.pz-spotscenes .pz-scene { margin: 4px 0 8px; }

@@ -444,7 +444,7 @@ WORLD_BOXES_JS = """() => { const s = Plaza.stats(), z = s.zoom, w = document.ge
   const back = (r) => [z.cx + (r.left - w.left - 1376 * z.fit / 2) / k, z.cy + (r.top - w.top - 768 * z.fit / 2) / k,
                        z.cx + (r.right - w.left - 1376 * z.fit / 2) / k, z.cy + (r.bottom - w.top - 768 * z.fit / 2) / k];
   const items = [...document.querySelectorAll('#pzThings .pz-thing, #pzThings .pz-zone, #pzThings .pz-door')].map((e) =>
-    ({what: (e.className.split(' ')[0]) + ':' + (e.dataset.zone || e.dataset.to), box: back(e.getBoundingClientRect())}));
+    ({what: (e.className.split(' ')[0]) + ':' + (e.dataset.zone || e.dataset.place || e.dataset.to), box: back(e.getBoundingClientRect())}));
   for (const [zone, list] of Object.entries(s.slots)) for (const [x, y] of list) items.push({what: 'slot:' + zone, box: [x - 30, y - 95, x + 30, y]});
   return {items, lots: s.lots}; }"""
 
@@ -515,7 +515,7 @@ def district_checks(C: Checks, browser, url, at, snap, want_now, errs):
         pg.clock.run_for(2500)
         return ctx, pg
 
-    # 1. 빈 땅 다섯 곳(서쪽 W1·W2, 중앙 C1, 동쪽 E1·E2)에 아무것도 안 섰다 (자 검사: 빈 땅 하나를 카페·노점 앞으로 옮기면 「겹침」)
+    # 1. 남은 빈 땅(W2·E2, W1·C1·E1 은 장소 셋이 됨)에 아무것도 안 섰다 (자 검사: 빈 땅 하나를 카페·노점 앞으로 옮기면 「겹침」)
     ctx, pg = open_("mode=now&motion=0", False)
     W = pg.evaluate(WORLD_BOXES_JS)
     hits = lot_hits(W["items"], W["lots"])
@@ -524,10 +524,10 @@ def district_checks(C: Checks, browser, url, at, snap, want_now, errs):
     st = pg.evaluate("Plaza.stats()")
     home = {"W": (WEST, 0), "C": (0, EAST), "E": (EAST, EAST + 1376)}
     lot_in = all(home[k[0]][0] < v[0] < home[k[0]][1] for k, v in W["lots"].items())
-    C.check(G, "빈 땅 다섯 곳(W1·W2 시장 거리, C1 중앙, E1·E2 샘·정원)이 이름대로의 동네 안에 있고 소품·구역 이름표·문 팻말·선 자리가 안 겹침",
-            sorted(W["lots"]) == ["C1", "E1", "E2", "W1", "W2"] and not hits and lot_in,
+    C.check(G, "남은 빈 땅 두 곳(W2 시장 거리, E2 샘·정원 — W1·C1·E1 은 10-23 장소 셋)이 이름대로의 동네 안에 있고 소품·장소·이름표·문 팻말·선 자리가 안 겹침",
+            sorted(W["lots"]) == ["E2", "W2"] and not hits and lot_in,
             f"빈 땅 {list(W['lots'])} · 잰 상자 {len(W['items'])} · 겹침 {hits[:3] or 0} · 동네 안 {lot_in}")
-    C.check(G, "자 검사: 빈 땅 E1 을 카페 앞으로, W1 을 노점 앞으로 옮기면 「겹침」", bool(probe) and bool(probe_w), ", ".join((probe + probe_w)[:4]))
+    C.check(G, "자 검사: 빈 땅 하나를 카페 앞(E1)·노점 앞(W1)에 두면 「겹침」", bool(probe) and bool(probe_w), ", ".join((probe + probe_w)[:4]))
     # 2. 구역은 동네별로: 입구·노점은 서쪽, 세 구역은 동쪽, 말풍선 합 = 스냅샷 (다른 동네 말풍선도 원장 행)
     east_want = sum(1 for r in P["residents"] if r["bubble"] and (r.get("zone") or "fountain") in M1_MOVED)
     west_want = sum(1 for r in P["residents"] if r["bubble"] and (r.get("zone") or "fountain") in M2_MOVED)
@@ -1784,8 +1784,9 @@ M2_MOVED = ("arch", "market")   # 지도 M2: 중앙 → 서쪽 시장 거리
 # 10-23 중앙의 시장 거리 흔적 정리: 앞 판을 그 직전 배포 판(e699c95)으로 올리고, 가리는 곳은 이번에 바뀐 곳만 —
 # 옛 입구 아치 그림 자리(맑은 판 배경에서 지운 상자 = agora_bg_gate 와 agora_bg_clear 가 12 넘게 다른 곳, 세계 좌표)와 문 팻말(아래 .pz-door).
 # 옮긴 구역은 없어 구역 가림은 비운다
+# 10-23 장소 셋: 앞 판을 561c35a 로 올리고, 가리는 곳은 새 장소의 그림·이름표(아래 [data-place])만. 아치 상자는 앞 판에서 이미 지워져 뺐다
 MOTION_MASK_ZONES = ()
-MOTION_MASK_WORLD = [[199, 263, 702, 554]]
+MOTION_MASK_WORLD = []
 M1_MASK_JS = """([ids, zones, world]) => {
   const w = document.getElementById('pzWrap').getBoundingClientRect(), out = [];
   const add = (r) => { const l = Math.max(r.left, w.left), t = Math.max(r.top, w.top), rr = Math.min(r.right, w.right), b = Math.min(r.bottom, w.bottom);
@@ -1797,7 +1798,7 @@ M1_MASK_JS = """([ids, zones, world]) => {
     document.getElementById('pzStage').appendChild(t); add(t.getBoundingClientRect()); t.remove(); });
   ids.forEach((id) => { const f = document.querySelector(`#pzFigures .pz-agent[data-id="${id}"]`); if (f) deep(f); });
   document.querySelectorAll('#pzLinks .qline, #pzLinks path:not(.qline)').forEach((q) => add(q.getBoundingClientRect()));
-  document.querySelectorAll('#pzThings .pz-lamp, #pzThings .pz-stallsign').forEach(deep);
+  document.querySelectorAll('#pzThings .pz-lamp, #pzThings .pz-stallsign, #pzThings [data-place]').forEach(deep);
   document.querySelectorAll('#pzMap, #pzThings .pz-door, #pzModeChip, #pzWeather, #pzCorner, #pzZoom').forEach(deep);
   out.push([Math.floor(w.right + scrollX) - 2, Math.floor(w.top + scrollY), Math.ceil(w.right + scrollX) + 1, Math.ceil(w.bottom + scrollY)]);
   out.push([Math.floor(w.left + scrollX) - 1, Math.floor(w.top + scrollY), Math.ceil(w.left + scrollX) + 2, Math.ceil(w.bottom + scrollY)]);
@@ -1865,10 +1866,10 @@ def motion_checks(C: Checks, page, still, url: str, url_before: str, before_name
     ctx.close()
     ok_r, why_r, _ = masked_same(shots / "mo_off_new.png", shots / "mo_on_new.png", boxes)
     C.check(G, "대조군: 연출 끔 화면 두 번 찍어 같은 그림", ok_c, why_c)
-    C.check(G, f"연출 끔(motion=0) = 몸짓 앞 판({before_name}) 그림 픽셀 같음 (점마다 차이 {M1_TOL} 이하; 옛 입구 아치 그림 자리·문 팻말·동네 띠·틀 위 반투명 띠·양쪽 끝 열 상자 {len(boxes)}개, 틀의 {frac:.0%} 가림), 몸 인라인 transform·몸짓 기호·.mo 0",
+    C.check(G, f"연출 끔(motion=0) = 몸짓 앞 판({before_name}) 그림 픽셀 같음 (점마다 차이 {M1_TOL} 이하; 장소 셋 그림·이름표·문 팻말·동네 띠·틀 위 반투명 띠·양쪽 끝 열 상자 {len(boxes)}개, 틀의 {frac:.0%} 가림), 몸 인라인 transform·몸짓 기호·.mo 0",
             ok_b and frac < 0.35 and off["anyTf"] == 0 and off["pops"] == 0 and off["mo"] == 0,
             f"{why_b} · transform {off['anyTf']} · 기호 {off['pops']} · .mo {off['mo']}")
-    C.check(G, "자 검사: 같은 자(같은 가림)로 연출 켬 화면은 「다름」, 가리지 않고 대면 앞 판과 「다름」(아치를 실제로 지움)", not ok_r and not ok_raw, f"{why_r} · 안 가림 {why_raw}")
+    C.check(G, "자 검사: 같은 자(같은 가림)로 연출 켬 화면은 「다름」, 가리지 않고 대면 앞 판과 「다름」(장소 셋을 실제로 그림)", not ok_r and not ok_raw, f"{why_r} · 안 가림 {why_raw}")
 
     # ② 시간에 따라 바뀌는 transform, 끄면 빈 문자열
     ctx, pg = page(1440, 900, "mode=now&motion=1", True)
@@ -2209,7 +2210,7 @@ def main(argv=None) -> int:
                     help="캐릭터 앞 「전」 캡처에 쓸 옛 판 (plaza.js·plaza.css 가 든 폴더, 또는 이 리포의 커밋)")
     ap.add_argument("--faces-before", default=str(BEFORE_DIR / "faces_b0af64d"),
                     help="아바타 표정 자 검사에 쓸 표정 앞 판 (폴더 또는 이 리포의 커밋)")
-    ap.add_argument("--motion-before", default="e699c95",
+    ap.add_argument("--motion-before", default="561c35a",
                     help="몸짓 판정 ①의 「연출 끔 = 앞 판」에 쓸 몸짓 앞 판 (폴더 또는 이 리포의 커밋)")
     a = ap.parse_args(argv)
     work = Path(a.work).expanduser()

@@ -41,6 +41,7 @@ class Ledger:
         self.aggregates = data.get("aggregates", {})
         self.notices = data.get("notices", {})
         self.event_board = data.get("event_board", [])
+        self.gold_moves = data.get("gold_moves")
         for e in self.events:
             e["_t"] = parse_iso(e["at"])
         self._first_posts = {e["data"].get("first_post") for e in self.events if e["type"] == "thread_opened"}

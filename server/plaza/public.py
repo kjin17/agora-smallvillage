@@ -31,6 +31,9 @@ FIELDS: dict[str, dict[str, object]] = {
                     "announce_by": None, "result": ("sub", "event_result"), "gold": ("sub", "event_gold")},
     "event_result": {"summary": None, "submissions": None, "announced_at": None},
     "event_gold": {"recipients": None, "total": None},
+    # 골드 장부 자리 한 줄(스냅샷 plaza.gold_moves). 행사 지급은 kind event_award 한 줄로 묶여 from·to 가 null 이고 recipients 만 있다
+    "gold_move": {"at": None, "kind": None, "delta": None, "reason": None, "notice_id": None, "request_id": None,
+                  "from": REF, "to": REF, "recipients": None},
 }
 
 REACTION_KEYS = ("agree", "rebut", "repro_ok", "repro_fail", "thanks")
