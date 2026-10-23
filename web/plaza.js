@@ -61,7 +61,7 @@
   // 화면은 한 번에 한 동네만 보이고(카메라), 동네 사이는 문으로 걷는다. 스냅샷은 그대로(구역 id 만 있다) — 어느 구역이 어느 동네인지는 이 화면이 정한다
   const DISTRICTS = [
     { id: "west", name: "시장 거리", bg: ["background/west_bg_gate.png", "background/west_bg_cloudy.png"] },
-    { id: "center", name: "중앙 광장", bg: ["background/agora_bg_gate.png", "background/agora_bg_cloudy.png"] },
+    { id: "center", name: "중앙 광장", bg: ["background/agora_bg_clear.png", "background/agora_bg_cloudy.png"] },   // 맑은 판 = 옛 입구 아치를 지운 gate
     { id: "east", name: "샘·정원", bg: ["background/east_bg_gate.png", "background/east_bg_cloudy.png"] },
   ].map((d, i) => ({ ...d, i, x0: (i - 1) * W }));
   const WORLD_X0 = DISTRICTS[0].x0, WORLD_W = W * DISTRICTS.length;
@@ -70,10 +70,10 @@
   // 문: 동네마다 [서쪽 문, 동쪽 문] 발끝 자리. 나가는 문까지 걸어가면 옆 동네 들어오는 문에서 나타난다(그 사이 순간 이동)
   const DOORS = [
     [null, [WD + 1265, 482]],    // 서쪽: 동쪽 문 = 광장 주랑 아치
-    [[300, 560], [1352, 662]],   // 중앙: 서쪽 문 = 옛 입구 아치(밖 길), 동쪽 문 = 오른쪽 끝
+    [[24, 662], [1352, 662]],    // 중앙: 양쪽 끝(서쪽 문은 동쪽 문의 거울 자리 — 옛 입구 아치는 지웠다)
     [[E + 330, 402], null],      // 동쪽: 서쪽 문 = 아치
   ];
-  const DOOR_SIGNS = [[WD + 1252, 330, "center", "광장 →"], [330, 405, "west", "← 시장 거리"],
+  const DOOR_SIGNS = [[WD + 1252, 330, "center", "광장 →"], [58, 560, "west", "← 시장 거리"],
                       [1318, 560, "east", "샘·정원 →"], [E + 330, 236, "center", "← 광장"]];
   // 빈 땅(새 기능 자리, 3.3절): 소품·선 자리·이름표를 두지 않는다. [가운데 x, 가운데 y, 폭, 높이] — 판정 도구가 겹침을 본다
   const LOTS = {
@@ -98,7 +98,6 @@
     ["zones/cafe.png", E + 835, 680, 160, "cafe"],
     ["props/bench.png", E + 1120, 652, 108, "bench"], ["props/bench2.png", E + 1250, 748, 104, "bench"],
   ];
-  const ARCH_PROP = ["zones/arch.png", 350, 482, 128, null];   // 흐린 중앙 그림엔 아치가 없다. M2 부터는 구역이 아니라 시장 거리로 가는 문
   const ZONES = {
     arch: { name: "입구", color: "#4f8f5a", at: [WD + 150, 330] },
     board: { name: "게시판", color: "#4f7fb5", at: [560, 330] },
@@ -494,7 +493,6 @@
       const bg = document.querySelector(`#pzStage .pz-dist[data-d="${d.id}"] .pz-bg`), src = img(d.bg[cloudy ? 1 : 0]);
       if (bg.getAttribute("src") !== src) bg.src = src;
     }
-    const props = cloudy ? [ARCH_PROP, ...PROPS] : PROPS;
     const joined24 = (S.P.residents || []).filter((r) => r.zone === "arch").length;
     // lamps, plaques, strings and counts are the snapshot's "now"; a replayed day does not get them
     const now = S.mode === "now";
@@ -506,7 +504,7 @@
       spring: `네 글자 유형 ${P.spring ? P.spring.takers : 0}`,
     };
     let html = "";
-    for (const [src, x, y, w, z] of props) {
+    for (const [src, x, y, w, z] of PROPS) {
       html += `<div class="pz-thing"${z ? ` data-zone="${z}"` : ""} style="left:${x}px;top:${y}px;width:${w}px;z-index:${y}"><img src="${img(src)}" alt=""></div>`;
     }
     // lamps: a stall's lamp is lit only when a request there was taken (spec: lit = state fetched)
