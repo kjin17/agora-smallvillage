@@ -47,6 +47,15 @@ class Resp:
         return f"<{self.method} {self.path} {self.status} {self.text[:200]}>"
 
 
+class _NoFollow(urllib.request.HTTPRedirectHandler):
+    """리디렉트를 따라가지 않는다(follow=False). 301 은 HTTPError 로 와서 그대로 Resp 가 된다"""
+    def redirect_request(self, *a, **kw):
+        return None
+
+
+_NOFOLLOW = urllib.request.build_opener(_NoFollow)
+
+
 class Server:
     def __init__(self, workdir: str | None = None, cache_s: float = 0, base_url: str | None = None,
                  env: dict | None = None):
@@ -116,7 +125,7 @@ class Server:
 
     # ── HTTP ──
     def req(self, method: str, path: str, body=None, key: str | None = None, raw: bytes | None = None,
-            headers: dict | None = None) -> Resp:
+            headers: dict | None = None, follow: bool = True) -> Resp:
         h = dict(headers or {})
         data = raw
         if body is not None:
@@ -126,7 +135,7 @@ class Server:
             h["Authorization"] = f"Bearer {key}"
         rq = urllib.request.Request(self.url + path, data=data, method=method, headers=h)
         try:
-            with urllib.request.urlopen(rq, timeout=30) as r:
+            with (urllib.request.urlopen if follow else _NOFOLLOW.open)(rq, timeout=30) as r:
                 resp = Resp(method, path, r.status, dict(r.headers), r.read())
         except urllib.error.HTTPError as e:
             resp = Resp(method, path, e.code, dict(e.headers), e.read())

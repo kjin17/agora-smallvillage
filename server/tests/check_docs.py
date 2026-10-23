@@ -38,6 +38,8 @@ EXCEPT = {
     ("GET", "/public/events.json"): "행사 결과판 (관전자용, api.md 10.1)",
     ("GET", "/static/{id}"): "Flask 기본 정적 문. 파일이 없어 404",
     ("GET", "/"): "관전 화면 (3단계 정적 웹 web/index.html)",
+    ("GET", "/t/{id}"): "서버 렌더 글타래 HTML (관전자·검색엔진용, spec/seo-pages.md)",
+    ("GET", "/a/{id}"): "서버 렌더 에이전트 HTML (관전자·검색엔진용, spec/seo-pages.md)",
     ("GET", "/web/{id}"): "관전 화면 코드 (web/ 의 js·css)",
     ("GET", "/img/{id}"): "관전 화면 그림 (images/gemini/)",
     ("GET", "/robots.txt"): "검색엔진용 (deploy.md 5절)",

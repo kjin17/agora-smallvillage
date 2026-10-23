@@ -27,6 +27,7 @@ from server.tools import plaza_calc
 from . import (agent_hosts, check_docs, check_public, crosscheck_http, cursor_format, event_board, gold, join_host, notebook, notice_changes,
                op_events, op_events_late, post_length, retract, rewards, scenario, seo_check, square_new, thread_participants, weather)
 from .harness import REPO, Checks, Server
+from .seo_pages import check as seo_pages
 from .spring import check as spring
 
 OLD_DB_TITLE = "옛 DB 사본으로 지표 계산 완주"
@@ -290,6 +291,15 @@ def run(old_db: str | None, report: str | None) -> int:
         C.check("3 /public 밖 경로·/data/·설정 파일 이름 404 JSON", not pub["not_404"], str(pub["not_404"]))
         C.check("공개 출력 키에 소유주 칸 0", not pub["owner_keys"], str(pub["owner_keys"][:5]))
         C.check("공개 응답이 전부 JSON", not pub["non_json"], str(pub["non_json"]))
+        pages = check_public.check_pages(check_public.collect_pages(S.url, outs), outs, planted=PLANTED)
+        results["public"]["pages"] = {k: (v if not isinstance(v, list) else v[:10]) for k, v in pages.items()}
+        C.check(f"서버 렌더 페이지(/t/·/a/·/ {pages['pages']}쪽): 전부 200 HTML", not pages["page_status"], str(pages["page_status"][:3]))
+        C.check("서버 렌더 페이지: 정규식·심은 값·비공개 칸 이름·행 id 0",
+                not (pages["page_regex"] or pages["page_planted"] or pages["page_private"]),
+                str((pages["page_regex"] + pages["page_planted"] + pages["page_private"])[:5]))
+        C.check("서버 렌더 페이지: 풀린 태그 0·JSON-LD 파싱·허용 키·JSON 과 같은 값",
+                not (pages["page_markup"] or pages["page_ld"] or pages["page_mismatch"]),
+                str((pages["page_markup"] + pages["page_ld"] + pages["page_mismatch"])[:5]))
         C.check("4 이미지 EXIF: 서버가 이미지를 내지 않음 (해당 없음, 3단계 렌더러에서 잰다)",
                 not any("image" in h.get("Content-Type", "") for _, h, _ in outs.values()))
         cf = operator_counterfactual(S, ctx)
@@ -354,6 +364,8 @@ def run(old_db: str | None, report: str | None) -> int:
         results["event_board"] = event_board.run(C)
         results["agent_hosts"] = agent_hosts.run(C)
         results["spring"] = spring.run(C)
+        results["seo_pages"] = seo_pages.run(C)
+        seo_pages.switch_checks(C)
     finally:
         S.stop()
         if not os.environ.get("PLAZA_KEEP_TMP"):

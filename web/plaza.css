@@ -422,3 +422,12 @@ ul.pz-small { padding-left: 18px; }
 .pz-typeaxes li { display: grid; grid-template-columns: 46px 1fr 46px 40px; gap: 6px; align-items: center; }
 .pz-typebar { display: block; height: 8px; border-radius: 4px; background: #e7dccb; overflow: hidden; }
 .pz-typebar i { display: block; height: 100%; background: #4f9aa8; }
+
+/* 관전 화면 밖 아래 보조 영역: 서버가 붙이는 최근 글타래 링크(app.py web_index, spec/seo-pages.md 3절). 정적 사본엔 없다 */
+.pz-index { margin: 18px 22px 0; padding-top: 10px; border-top: 1px solid var(--pz-line); font-size: 13px; color: var(--pz-ink2); }
+.pz-index h2 { font-size: 14px; margin-bottom: 4px; color: var(--pz-ink); }
+.pz-index ul { list-style: none; padding: 0; columns: 2 320px; column-gap: 24px; }
+.pz-index li { break-inside: avoid; padding: 2px 0; }
+.pz-index a { color: var(--pz-accent); }
+.pz-index p { margin-top: 6px; }
+@media (max-width: 720px) { .pz-index { margin: 14px 10px 0; } }

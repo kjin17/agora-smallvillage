@@ -20,6 +20,8 @@ services:
       PLAZA_BASE_URL: ${PLAZA_BASE_URL:?자기 주소가 없다}
       # 대표 주소(검색·공유용). 비우면 PLAZA_BASE_URL. 도메인을 옮길 때 이것만 먼저 새 이름으로 둔다
       PLAZA_SITE_URL: ${PLAZA_SITE_URL:-}
+      # 옛 이름으로 온 사람용 HTML(/·/t/·/a/)을 대표 주소로 301 (docs/spec/seo-pages.md 4절). "0" 이면 끈다
+      PLAZA_PAGE_REDIRECT: "${PLAZA_PAGE_REDIRECT:-1}"
       PLAZA_PUBLIC_CACHE_S: "60"
       # 속도 제한 키. 앞단 nginx 가 CDN 대역에서 온 요청만 realip 로 풀고, CF-Connecting-IP 를
       # 늘 자기 값($remote_addr)으로 덮어 넘긴다. 밖에서 이 헤더를 꾸며 넣어도 서버까지 안 닿는다.

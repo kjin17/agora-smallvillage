@@ -20,8 +20,9 @@ from .check_public import secret_patterns
 from .harness import Checks, Server
 
 PAGES = {"/", "/join"}                     # 검색에 내놓는 공개 페이지 (app.py SEO_PAGES)
+PAGE_PATH = re.compile(r"/t/th_[0-9a-f]{16}|/a/ag_[0-9a-f]{16}")     # 서버 렌더 글타래·에이전트 (spec/seo-pages.md)
 MUST_BLOCK = ["/api/", "/api/v1/agents", "/api/v1/me", "/public/report"]
-MUST_ALLOW = ["/", "/join", "/web/plaza.js", "/img/promo/og_card_1200x630.jpg", "/public/snapshot.json",
+MUST_ALLOW = ["/", "/join", "/t/th_0123456789abcdef", "/a/ag_0123456789abcdef", "/web/plaza.js", "/img/promo/og_card_1200x630.jpg", "/public/snapshot.json",
               "/llms.txt", "/.well-known/agent-card.json"]          # 에이전트 입구도 크롤러에 열어 둔다
 # 메타에 있으면 안 되는 내부 정보: guard.md 의 비밀 모양 전부 + 원점·운영 흔적
 INTERNAL = [("ipv4", re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")), ("home_path", re.compile(r"/Users/|/home/|~/\.")),
@@ -71,7 +72,10 @@ def judge_sitemap(text: str, base: str) -> list[str]:
     locs = [e.text or "" for e in root.iter("{http://www.sitemaps.org/schemas/sitemap/0.9}loc")]
     bad = [f"바깥 주소 {u}" for u in locs if not u.startswith(base + "/")]
     paths = {u[len(base):] for u in locs if u.startswith(base + "/")}
-    bad += [f"공개 페이지 아닌 경로 {p}" for p in sorted(paths - PAGES)]
+    bad += [f"공개 페이지 아닌 경로 {p}" for p in sorted(paths - PAGES) if not PAGE_PATH.fullmatch(p)]
+    bad += [f"같은 주소 두 번 {u}" for u in sorted({u for u in locs if locs.count(u) > 1})]
+    lms = [e.text or "" for e in root.iter("{http://www.sitemaps.org/schemas/sitemap/0.9}lastmod")]
+    bad += [f"lastmod 형식 {x}" for x in lms if not re.fullmatch(r"\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}([+-]\d{2}:\d{2}|Z))?", x)]
     bad += [f"빠진 공개 페이지 {p}" for p in sorted(PAGES - paths)]
     return bad
 
@@ -179,7 +183,9 @@ def judge_server(C: Checks, url: str, base: str, indexable: bool, tag: str):
     C.check(f"[{tag}] sitemap.xml 200 xml", st == 200 and "xml" in hd.get("content-type", ""), f"{st}")
     if indexable:
         bad = judge_sitemap(sm, base)
-        C.check(f"[{tag}] sitemap: 공개 페이지({', '.join(sorted(PAGES))})만, 자기 주소로", not bad, "; ".join(bad))
+        n = sm.count("<loc>")
+        C.check(f"[{tag}] sitemap: 공개 페이지({', '.join(sorted(PAGES))})·글타래 /t/·이웃 /a/ 만, 자기 주소로 ({n}개)",
+                not bad, "; ".join(bad))
     else:
         C.check(f"[{tag}] sitemap: 색인 끈 서버는 빈 목록", "<loc>" not in sm)
     st, hd, html = fetch(url + "/")
@@ -225,6 +231,11 @@ def rulers(C: Checks, base: str):
     C.check("자 검사: 옳은 sitemap 은 통과", not judge_sitemap(sm.replace("__", ""), base))
     C.check("자 검사: API 경로가 섞인 sitemap 은 실패",
             bool(judge_sitemap(sm.replace("__", f"<url><loc>{base}/api/v1/agents</loc></url>"), base)))
+    C.check("자 검사: 글타래·이웃 주소는 통과, 모양이 다른 /t/ 는 실패",
+            not judge_sitemap(sm.replace("__", f"<url><loc>{base}/t/th_0123456789abcdef</loc><lastmod>2026-10-23T13:00:00+09:00</lastmod></url>"), base)
+            and bool(judge_sitemap(sm.replace("__", f"<url><loc>{base}/t/../api/v1/me</loc></url>"), base)))
+    C.check("자 검사: lastmod 형식이 틀리면 실패",
+            bool(judge_sitemap(sm.replace("__", f"<url><loc>{base}/a/ag_0123456789abcdef</loc><lastmod>어제</lastmod></url>"), base)))
     C.check("자 검사: 바깥(원점 IP) 주소가 섞인 sitemap 은 실패",
             bool(judge_sitemap(sm.replace("__", "<url><loc>http://10.0.0.12/</loc></url>"), base)))
     head = (f'<head><meta name="robots" content="index, follow"><title>에이전트 광장</title>'

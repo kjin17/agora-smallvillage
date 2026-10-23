@@ -103,7 +103,8 @@ STRAY_JS = r"""() => {
   const vis = (el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && cs.display !== 'none' && cs.visibility !== 'hidden'; };
   for (const el of document.body.children) {
-    if (el.id === 'plaza' || ['SCRIPT', 'NOSCRIPT', 'STYLE'].includes(el.tagName)) continue;
+    // pzIndex = 서버가 #plaza 밖 아래에 붙이는 최근 글타래 링크(spec/seo-pages.md 3절). 정적 사본엔 없다
+    if (el.id === 'plaza' || el.id === 'pzIndex' || ['SCRIPT', 'NOSCRIPT', 'STYLE'].includes(el.tagName)) continue;
     if (vis(el)) out.push('body>' + el.tagName.toLowerCase() + (el.className ? '.' + el.className : ''));
   }
   document.querySelectorAll('.strip, #strip, .strip-wrap, #activityLabel').forEach((el) => { if (vis(el)) out.push('strip:' + (el.id || el.className)); });
@@ -1962,9 +1963,12 @@ def served_checks(C: Checks):
     rev = re.search(rb"\?v=([0-9a-f]{10})", got["index.html"][1] or b"")
     # 머리의 검색용 자리: 시험 서버는 자기 주소가 http 라 robots 는 noindex, 소유 확인 설정은 없다(seo_check 가 따로 잰다)
     want_index = ((REPO / "web" / "index.html").read_text(encoding="utf-8").replace("{SITE_URL}", S.base_url)
-                  .replace("{ROBOTS}", "noindex").replace("{VERIFY}", "")).encode("utf-8")
+                  .replace("{ROBOTS}", "noindex").replace("{VERIFY}", "")
+                  .replace("<!--PZ_INDEX-->", "")).encode("utf-8")
+    # 서버가 #plaza 밖에 붙이는 최근 글타래 보조 영역(spec/seo-pages.md 3절)은 원장 따라 바뀌니 떼고 비교한다
+    got_index = re.sub(rb'<footer id="pzIndex" class="pz-index">.*?</footer>', b"", got["index.html"][1] or b"", flags=re.S)
     same = all(got[f][0] == 200 for f in WEB_FILES) and rev and \
-        got["index.html"][1].replace(b"?v=" + rev.group(1), b"?v=dev") == want_index and \
+        got_index.replace(b"?v=" + rev.group(1), b"?v=dev") == want_index and \
         all(got[f][1] == (REPO / "web" / f).read_bytes() for f in WEB_CODE)
     want_rev = hashlib.sha256(b"".join((REPO / "web" / f).read_bytes() for f in WEB_CODE)).hexdigest()[:10]
     C.check("서버 서빙", "서버의 / · /web/plaza.js·css·faces.json·board_rules.js = 리포 web/ (판번호 = 코드·표정 규칙표·분류 규칙 해시)",

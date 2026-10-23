@@ -417,6 +417,118 @@ def check(outputs: dict[str, tuple], planted: list[str] | None = None) -> dict:
     return res
 
 
+# ── 서버 렌더 공개 HTML (/t/<id> · /a/<id> · / 의 보조 영역, spec/seo-pages.md) ──
+# 화이트리스트 키 검사는 JSON 에 한다. HTML 은 그 JSON 에서만 그리므로 여기서는 (1) 같은 정규식·심은 값 0
+# (2) 운영 비공개 칸 이름·보류/거울샘 행 id 0 (3) 꺾쇠가 안 풀렸는지(스크립트는 JSON-LD 하나뿐, <img 없음)
+# (4) JSON-LD 가 파싱되고 허용 키만 (5) JSON 의 보이는 본문이 이스케이프된 채 전부 실렸는지를 잰다
+PRIVATE_WORDS = ("key_hash", "join_req", "seen_version", "acked_seq", "acked_cursor", "confirm_hash", "confirm_token",
+                 "rename_left", "rename_used", "new_until", "self_status", "last_seen_at", "left_mode", "body_hash")
+PRIVATE_IDS = re.compile(r"\b(?:hd|ty|mb)_[0-9a-f]{16}\b")
+LD_KEYS = {"@context", "@type", "@id", "url", "headline", "datePublished", "dateModified", "author", "isPartOf",
+           "interactionStatistic", "text", "comment", "name", "description", "interactionType", "userInteractionCount",
+           "dateCreated", "mainEntity", "identifier", "alternateName"}
+_LD = re.compile(r'<script type="application/ld\+json">(.*?)</script>', re.S)
+
+
+def collect_pages(url: str, outputs: dict) -> dict[str, tuple]:
+    """공개 JSON 에 나온 글타래·에이전트마다 HTML 페이지를 받는다. 첫 화면 / 도."""
+    out = {"/": fetch(url, "/")}
+    for path in outputs:
+        m = re.fullmatch(r"/public/(threads|agents)/((?:th|ag)_[0-9a-f]{16})\.json", path)
+        if m:
+            p = f"/{m.group(1)[0]}/{m.group(2)}"
+            out[p] = fetch(url, p)
+    return out
+
+
+def _ld_keys(v, bad, path="$"):
+    if isinstance(v, dict):
+        for k, x in v.items():
+            if k not in LD_KEYS:
+                bad.append(f"{path}.{k}")
+            _ld_keys(x, bad, f"{path}.{k}")
+    elif isinstance(v, list):
+        for i, x in enumerate(v):
+            _ld_keys(x, bad, f"{path}[{i}]")
+
+
+def _markup(text: str) -> list[str]:
+    """HTML 파서로 실제 태그만 본다: 넣으면 안 되는 태그(img·iframe·svg·object·embed)와 on… 이벤트 속성.
+    속성 값 안의 「onerror=」 글자(이스케이프된 본문을 옮긴 description 등)는 태그가 아니라 안 센다"""
+    from html.parser import HTMLParser
+    out = []
+
+    class P(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            if tag in ("img", "iframe", "svg", "object", "embed"):
+                out.append(tag)
+            out.extend(f"{tag}[{k}]" for k, _ in attrs if k.lower().startswith("on"))
+    P().feed(text)
+    return out
+
+
+def check_pages(pages: dict[str, tuple], outputs: dict | None = None, planted: list[str] | None = None) -> dict:
+    """pages: path → (status, headers, raw). outputs 를 주면 같은 글타래·에이전트 JSON 과 값을 맞춘다."""
+    import html as H
+    pats = secret_patterns()
+    res = {"pages": len(pages), "page_status": [], "page_regex": [], "page_planted": [], "page_private": [],
+           "page_markup": [], "page_ld": [], "page_mismatch": []}
+    for path, (st, h, raw) in pages.items():
+        text = raw.decode("utf-8", "replace")
+        if st != 200 or "text/html" not in h.get("Content-Type", ""):
+            res["page_status"].append(f"{path} {st} {h.get('Content-Type')}")
+            continue
+        # 자기 주소(canonical 의 앞부분)는 정규식에서 뺀다. 터널·시험 서버는 127.0.0.1 이 자기 주소다
+        base = re.search(r'<link rel="canonical" href="(https?://[^/"]+)', text)
+        scan = text.replace(base.group(1), "BASE") if base else text
+        for reason, pat in pats:
+            for m in pat.finditer(scan):
+                if reason == "long_token" and not long_token_counts(scan, m):
+                    continue
+                if reason in ("url", "domain", "link", "external_link"):
+                    continue          # 자기 주소(canonical·og)는 seo_check 가 잰다
+                res["page_regex"].append(f"{path}: {reason} @{m.start()}")
+        for pos in account_hits(text):
+            res["page_regex"].append(f"{path}: account_number @{pos}")
+        res["page_planted"] += [f"{path}: 심은 값 {s[:12]}…" for s in planted or [] if s in text]
+        res["page_private"] += [f"{path}: {w}" for w in PRIVATE_WORDS if w in text]
+        res["page_private"] += [f"{path}: 행 id {m.group(0)[:3]}…" for m in PRIVATE_IDS.finditer(text)]
+        scripts = re.findall(r"<script\b[^>]*>", text, re.I)
+        if path != "/" and scripts != ['<script type="application/ld+json">']:
+            res["page_markup"].append(f"{path}: 스크립트 태그 {scripts}")
+        bad_tags = _markup(text)
+        if bad_tags:
+            res["page_markup"].append(f"{path}: 풀린 태그·이벤트 속성 {bad_tags[:3]}")
+        if path == "/":
+            continue
+        lds = _LD.findall(text)
+        try:
+            obj = json.loads(lds[0]) if len(lds) == 1 else None
+        except ValueError as e:
+            obj = None
+            res["page_ld"].append(f"{path}: JSON-LD 파싱 실패 {e}")
+        if obj is None:
+            res["page_ld"].append(f"{path}: JSON-LD {len(lds)}개")
+        else:
+            bad = []
+            _ld_keys(obj, bad)
+            res["page_ld"] += [f"{path}: 허용 밖 키 {b}" for b in bad]
+        m = re.fullmatch(r"/(t|a)/(\S+)", path)
+        src = (outputs or {}).get(f"/public/{'threads' if m.group(1) == 't' else 'agents'}/{m.group(2)}.json") if m else None
+        if src:
+            d = json.loads(src[2])
+            posts = d.get("posts") if m.group(1) == "t" else d.get("recent_posts")
+            names = [p["author"]["nickname"] for p in d.get("posts") or [] if p.get("author")]
+            if m.group(1) == "t":
+                want = [H.escape(p["body"], quote=True) for p in posts if p.get("body") is not None]
+                want += [H.escape(d["thread"]["title"], quote=True)] + [H.escape(n, quote=True) for n in names]
+            else:
+                want = [H.escape(d["agent"]["nickname"], quote=True)] + \
+                       ([H.escape(d["agent"]["intro"], quote=True)] if d["agent"].get("intro") else [])
+            res["page_mismatch"] += [f"{path}: JSON 값이 안 실림 {w[:20]}…" for w in want if w not in text]
+    return res
+
+
 def check_404(url: str) -> list[str]:
     """3. /public/ 아래 없는 경로·/data/·설정 파일 이름이 404 JSON."""
     bad = []
@@ -440,8 +552,10 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", required=True)
     a = ap.parse_args(argv)
-    res = check(collect(a.url))
+    outs = collect(a.url)
+    res = check(outs)
     res["not_404"] = check_404(a.url)
+    res.update(check_pages(collect_pages(a.url, outs), outs))
     print(json.dumps(res, ensure_ascii=False, indent=1))
     fails = sum(len(v) for k, v in res.items() if isinstance(v, list))
     return 1 if fails else 0

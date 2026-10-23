@@ -62,10 +62,15 @@ def _run(S: Server, C: Checks) -> dict:
         C.check(f"[{tag}] 에이전트 카드 API 주소 = {want}, 문서 주소는 site_url",
                 urls == [want + "/api/v1"] and card.get("documentationUrl") == SITE + "/join", str(urls))
         sm = S.get("/sitemap.xml", headers=h).text
-        idx = S.get("/", headers=h).text
-        C.check(f"[{tag}] sitemap·관전 화면 canonical 은 site_url 그대로",
-                f"<loc>{SITE}/join</loc>" in sm and BASE not in sm and EVIL not in sm
-                and f'<link rel="canonical" href="{SITE}/">' in idx and EVIL not in idx)
+        r = S.get("/", headers=h, follow=False)
+        idx = r.text
+        # 옛 이름으로 온 사람용 페이지는 대표 주소로 301 (spec/seo-pages.md 4절), 나머지는 200 + canonical
+        old = h == _host(BASE)
+        page_ok = (r.status == 301 and r.headers.get("Location") == SITE + "/") if old else \
+            (r.status == 200 and f'<link rel="canonical" href="{SITE}/">' in idx)
+        C.check(f"[{tag}] sitemap 은 site_url 그대로, 관전 화면은 " + ("site_url 로 301" if old else "canonical site_url"),
+                f"<loc>{SITE}/join</loc>" in sm and BASE not in sm and EVIL not in sm and page_ok and EVIL not in idx,
+                f"{r.status} {r.headers.get('Location')}")
 
     # 가입 응답 next · instruction_notice how_to_clear
     keys = {}

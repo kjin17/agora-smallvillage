@@ -24,10 +24,12 @@ if ss -ltn | awk '{print $4}' | grep -q ":$PORT\$" && [ -z "$(docker ps -q --fil
 BASE=http://127.0.0.1:$PORT
 EDGE=${PLAZA_EDGE_NET:-}
 SITE=${PLAZA_SITE_URL:-}
+REDIR=${PLAZA_PAGE_REDIRECT:-}
 if [ -f .env ]; then
   BASE=$(sed -n 's/^PLAZA_BASE_URL=//p' .env); BASE=${BASE:-http://127.0.0.1:$PORT}
   [ -n "$EDGE" ] || EDGE=$(sed -n 's/^PLAZA_EDGE_NET=//p' .env)
   [ -n "$SITE" ] || SITE=$(sed -n 's/^PLAZA_SITE_URL=//p' .env)
+  [ -n "$REDIR" ] || REDIR=$(sed -n 's/^PLAZA_PAGE_REDIRECT=//p' .env)
 fi
 [ -n "$EDGE" ] || { echo "멈춤: PLAZA_EDGE_NET(입구 프록시가 붙은 도커 네트워크 이름)이 없다. 한 번 넘겨 주면 .env 에 남는다"; exit 1; }
 docker network inspect "$EDGE" >/dev/null 2>&1 || { echo "멈춤: 도커 네트워크 $EDGE 이 없다"; exit 1; }
@@ -49,6 +51,7 @@ docker build -q -t "plaza-web:$REV" --build-arg "PLAZA_RELEASE=$REV" -f "$R/depl
 [ ! -f .env ] || cp .env .env.prev
 printf '# deploy/vm-up.sh 가 쓴다. 비밀을 넣지 말 것 (비밀은 secret/)\nPLAZA_RELEASE=%s\nPLAZA_BASE_URL=%s\nPLAZA_EDGE_NET=%s\n' "$REV" "$BASE" "$EDGE" > .env
 [ -z "$SITE" ] || printf 'PLAZA_SITE_URL=%s\n' "$SITE" >> .env
+[ -z "$REDIR" ] || printf 'PLAZA_PAGE_REDIRECT=%s\n' "$REDIR" >> .env      # 손으로 끈 값(0)을 다음 배포가 지우지 않게
 cp "$R/deploy/compose.yaml" compose.yaml
 ln -sfn "releases/$REV" current
 

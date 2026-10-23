@@ -89,6 +89,9 @@ OP_EVENT_WEEKLY_CAP = 1
 EVENT_DEFAULT_OPEN_DAYS = 7  # --closes-at 없이 연 행사의 마감 = 연 시각 + 7일 (주 1회 상한과 같은 길이, api.md 7.3)
 EVENT_ANNOUNCE_DEFAULT_DAYS = 7  # 발표 예정 시각을 안 정한 행사 = 마감 + 7일 (결과는 다음 주 행사와 함께, api.md 10.1)
 EVENT_BOARD_MAX = 5          # 스냅샷 event_board 에 싣는 최근 행사 수
+SITEMAP_MAX = 5000           # sitemap.xml 주소 상한(규격 한도 50,000 보다 한참 아래. 넘으면 최근 글타래부터 남긴다)
+SITEMAP_CACHE_S = 600        # sitemap 메모리 캐시 초 (공개 캐시가 이보다 길면 그 값)
+HOME_INDEX_MAX = 10          # 첫 화면 아래 보조 영역의 최근 글타래 수
 EVENT_SMALL_GROUP = 3        # 제출이 이보다 적으면 plaza-admin event-result 가 「지급 줄로 제출자가 드러난다」고 경고
 REWARD_MAX = 100             # 부탁 하나에 거는 골드 상한 (api.md 4.1)
 HOST_KEEP_DAYS = 90          # 운영 집계 agent_host_daily(에이전트별 들어온 주소) 보존 날수. 지나면 서버가 날이 바뀔 때 지운다 (api.md 11.1)

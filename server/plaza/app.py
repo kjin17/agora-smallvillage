@@ -14,6 +14,8 @@
   PLAZA_CLOCK_FILE       시험 전용 시계 밀기 (util.now)
   PLAZA_NOINDEX=1        검색 노출을 끈다. 자기 주소가 https 가 아니면 이 값과 무관하게 꺼진다 (robots.txt·메타)
   PLAZA_SITE_VERIFY_FILE 검색엔진 소유 확인 메타·파일 (선택, JSON. 모양은 app.py site_verify)
+  PLAZA_PAGE_REDIRECT=0  옛 이름(PLAZA_BASE_URL 의 이름)으로 온 사람용 HTML 페이지(/·/t/·/a/)를 대표 주소로 301 하지 않는다.
+                         기본은 한다(대표 주소가 https 이고 두 이름이 다를 때만). API·/join·/public·llms.txt 는 늘 그대로
 
 관전 화면도 같이 서빙한다: `/`(web/index.html) · `/web/plaza.js·css` · `/img/…`(images/gemini). 3단계 렌더러
 """
@@ -37,7 +39,7 @@ from werkzeug.exceptions import NotFound
 
 from . import consts as C
 from . import db as DB
-from . import guard, ledger, metrics, public, scene, types, weather
+from . import guard, ledger, metrics, pages, public, scene, types, weather
 from .util import ApiError, KST, cp_len, iso, new_id, nfc, now, parse_iso
 
 REPO = Path(__file__).resolve().parents[2]
@@ -114,6 +116,7 @@ def create_app() -> Flask:
         "cache_s": float(os.environ.get("PLAZA_PUBLIC_CACHE_S", "60")),
         "verify_file": os.environ.get("PLAZA_SITE_VERIFY_FILE"),
     }
+    cfg["page_redirect"] = os.environ.get("PLAZA_PAGE_REDIRECT") != "0"
     # 안내 주소 허용목록: 이름(Host 헤더 값, 포트 포함) → 등록된 주소. 순서상 base_url 이 같은 이름을 이긴다
     cfg["agent_urls"] = {}
     for u in (cfg["site_url"], cfg["base_url"]):
@@ -447,9 +450,19 @@ def create_app() -> Flask:
                     raise
         return inner
 
+    # 주소 통합(deploy.md 5절): 옛 이름으로 온 「사람용 HTML 페이지」만 대표 주소로 301. 에이전트가 읽는
+    # /api/*·/join·/public/*·/llms.txt·/.well-known·robots·sitemap·/web·/img 는 들어온 이름 그대로 답한다(10-15 설계)
+    HUMAN_PAGE = re.compile(r"/(?:[ta]/[^/]+)?\Z")
+    old_host, site_host = urlsplit(cfg["base_url"]).netloc.lower(), urlsplit(cfg["site_url"]).netloc.lower()
+
     @app.before_request
     def _start():
         g.agent_id = None
+        if (cfg["page_redirect"] and cfg["indexable"] and old_host != site_host and request.method in ("GET", "HEAD")
+                and (request.host or "").lower() == old_host and HUMAN_PAGE.match(request.path)):
+            qs = request.query_string.decode("latin-1")
+            return Response("", 301, {"Location": cfg["site_url"] + request.path + (f"?{qs}" if qs else ""),
+                                      "Cache-Control": "public, max-age=3600"})
 
     @app.after_request
     def _notice(resp):
@@ -1653,12 +1666,42 @@ def create_app() -> Flask:
                 .replace("{ROBOTS}", "index, follow, max-image-preview:large" if cfg["indexable"] else "noindex")
                 .replace("{VERIFY}", "\n".join(f'<meta name="{n}" content="{c}">'
                                                for n, c in site_verify()["meta"].items())))
+        # 크롤러가 따라갈 링크: 관전 화면(#plaza) 밖 아래 보조 영역에 최근 글타래. 정적 사본(stage3)엔 주석으로 남아 안 보인다
+        with lock:
+            recent = cached("home_index", lambda: pages.home_index(seo_threads(C.HOME_INDEX_MAX)))
+        html = html.replace("<!--PZ_INDEX-->", recent)
         return Response(html, 200, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache"})
 
     # ── 검색엔진용: robots.txt · sitemap.xml · 소유 확인 ──
-    # 공개 페이지는 관전 화면 `/` 와 가입 안내 `/join` 둘뿐이다. 에이전트 API 는 막고, 관전 화면이 읽는
-    # /public/*.json·/web/·/img/ 는 렌더링에 필요해 열어 두되 JSON 은 X-Robots-Tag 로 색인에서 뺀다
+    # 공개 페이지는 관전 화면 `/`·가입 안내 `/join` 과 서버 렌더 글타래 `/t/<id>`·에이전트 `/a/<id>`(spec/seo-pages.md).
+    # 에이전트 API 는 막고, 관전 화면이 읽는 /public/*.json·/web/·/img/ 는 렌더링에 필요해 열어 두되 JSON 은
+    # X-Robots-Tag 로 색인에서 뺀다
     SEO_PAGES = ("/", "/join")
+    FIRST_POST_VIS = "(SELECT visibility FROM posts p WHERE p.thread_id=t.id ORDER BY p.created_at, p.rowid LIMIT 1)"
+
+    def seo_threads(limit: int) -> list[dict]:
+        """색인 대상 글타래(공개 thread 뷰): 첫 글이 보이고(지움·가림 아님) 연 이웃이 떠나지 않은 것, 최근 글 순.
+        보류 글은 posts 표에 없어 처음부터 안 들어온다"""
+        names = ledger._names(conn)
+        return [ledger.view(conn, "thread", r, names) for r in conn.execute(
+            f"SELECT t.* FROM threads t JOIN agents a ON a.id=t.opened_by AND a.status='active'"
+            f" WHERE {FIRST_POST_VIS}='visible' ORDER BY t.last_post_at DESC, t.id LIMIT ?", (limit,))]
+
+    def thread_indexable(tid: str) -> bool:
+        return cfg["indexable"] and conn.execute(
+            f"SELECT 1 FROM threads t JOIN agents a ON a.id=t.opened_by AND a.status='active'"
+            f" WHERE t.id=? AND {FIRST_POST_VIS}='visible'", (tid,)).fetchone() is not None
+
+    def sitemap_urls() -> list[tuple[str, str | None]]:
+        """(경로, lastmod). 공개 페이지 둘 + 색인 대상 글타래 + 사는 이웃(떠난 이웃 뺌). 합쳐 SITEMAP_MAX 개까지"""
+        ths = seo_threads(C.SITEMAP_MAX)
+        out = [("/", ths[0]["last_post_at"] if ths else None), ("/join", None)]
+        out += [(f"/t/{t['id']}", t["last_post_at"] or t["opened_at"]) for t in ths]
+        last_post = dict(conn.execute("SELECT author, MAX(created_at) FROM posts WHERE visibility='visible' GROUP BY author"))
+        last_type = dict(conn.execute("SELECT agent_id, MAX(taken_at) FROM type_results GROUP BY agent_id"))
+        for r in conn.execute("SELECT id, joined_at FROM agents WHERE status='active' ORDER BY joined_at, id"):
+            out.append((f"/a/{r['id']}", max(x for x in (r["joined_at"], last_post.get(r["id"]), last_type.get(r["id"])) if x)))
+        return out[:C.SITEMAP_MAX]
 
     @app.route("/robots.txt", methods=["GET"])
     def robots_txt():
@@ -1671,10 +1714,36 @@ def create_app() -> Flask:
 
     @app.route("/sitemap.xml", methods=["GET"])
     def sitemap_xml():
-        urls = "".join(f"  <url><loc>{cfg['site_url']}{p}</loc></url>\n" for p in SEO_PAGES) if cfg["indexable"] else ""
+        def build():
+            if not cfg["indexable"]:
+                return ""
+            return "".join(f"  <url><loc>{cfg['site_url']}{p}</loc>" + (f"<lastmod>{lm}</lastmod>" if lm else "") + "</url>\n"
+                           for p, lm in sitemap_urls())
+        with lock:
+            urls = cached("sitemap", build, ttl=C.SITEMAP_CACHE_S)
         body = ('<?xml version="1.0" encoding="UTF-8"?>\n'
                 f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n{urls}</urlset>\n')
         return Response(body, 200, {"Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=600"})
+
+    # ── 서버 렌더 공개 페이지 (spec/seo-pages.md). 값은 /public/threads|agents/{id}.json 과 같은 dict 에서만 ──
+    def html_resp(body: str, status: int = 200) -> Response:
+        return Response(body, status, {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=300"})
+
+    @app.route("/t/<tid>", methods=["GET"])
+    @locked
+    def page_thread(tid):
+        out = cached(f"thread:{tid}", lambda: thread_public(tid)) if ID_RE["th"].fullmatch(tid) else None
+        if out is None:
+            return html_resp(pages.not_found_page(cfg["site_url"], "글타래"), 404)
+        return html_resp(cached(f"page:t:{tid}", lambda: pages.thread_page(out, cfg["site_url"], thread_indexable(tid))))
+
+    @app.route("/a/<aid>", methods=["GET"])
+    @locked
+    def page_agent(aid):
+        out = cached(f"agent:{aid}", lambda: agent_public(aid)) if ID_RE["ag"].fullmatch(aid) else None
+        if out is None:
+            return html_resp(pages.not_found_page(cfg["site_url"], "에이전트"), 404)
+        return html_resp(cached(f"page:a:{aid}", lambda: pages.agent_page(out, cfg["site_url"], cfg["indexable"])))
 
     # ── 에이전트용 입구: llms.txt · A2A 에이전트 카드 (deploy.md 5절 「에이전트 입구」) ──
     # 가입 절차의 정본은 /join 하나다. 여기는 「이곳이 무엇이고 어디를 읽으면 되나」만 알리는 안내판이라
@@ -1802,15 +1871,17 @@ def create_app() -> Flask:
         return send_from_directory(IMG_DIR, name, max_age=86400, mimetype=kind)
 
     # ════════════════ 공개 쪽 ════════════════
-    def cached(key, build):
+    def cached(key, build, ttl=None):
         t = now().timestamp()
         hit = cache.get(key)
         if hit and hit[0] > t:
             return hit[1]
         val = build()
         if cfg["cache_s"] > 0:
-            cache[key] = (t + cfg["cache_s"], val)
+            cache[key] = (t + max(cfg["cache_s"], ttl or 0), val)
         return val
+
+    ID_RE = {k: re.compile(rf"{k}_[0-9a-f]{{16}}") for k in ("th", "ag")}
 
     def ledger_now():
         return metrics.Ledger(ledger.export_public(conn))
@@ -1889,23 +1960,35 @@ def create_app() -> Flask:
             return {"threads": ths, "remarks": rms}
         return pub(cached("threads", build))
 
+    # 글타래·에이전트 공개 dict: JSON 문과 HTML 페이지(/t/·/a/)가 같은 함수·같은 캐시 칸을 쓴다(값이 갈리지 않게)
+    def thread_public(tid):
+        th = conn.execute("SELECT * FROM threads WHERE id=?", (tid,)).fetchone()
+        if not th:
+            return None
+        names = ledger._names(conn)
+        posts = [ledger.view(conn, "post", r, names) for r in
+                 conn.execute("SELECT * FROM posts WHERE thread_id=? ORDER BY created_at, rowid", (tid,))]
+        pids = [p["id"] for p in posts] or [""]
+        rx = [ledger.view(conn, "reaction", r, names) for r in conn.execute(
+            "SELECT * FROM reactions WHERE target IN (%s) ORDER BY created_at" % ",".join("?" * len(pids)), pids)]
+        return {"thread": ledger.view(conn, "thread", th, names), "posts": posts, "reactions": rx}
+
+    def agent_public(aid):
+        r = agent_by(aid)
+        if not r:
+            return None
+        names = ledger._names(conn)
+        posts = [ledger.view(conn, "post", x, names) for x in conn.execute(
+            "SELECT * FROM posts WHERE author=? ORDER BY created_at DESC, rowid DESC LIMIT 20", (aid,))]
+        return {"agent": ledger.view(conn, "agent", r), "recent_posts": posts, "gold": ledger.gold_of(conn, aid),
+                "type_history": ledger.type_history(conn, aid)}
+
     @app.route("/public/threads/<tid>.json", methods=["GET"])
     @locked
     def pub_thread(tid):
         params(())
 
-        def build():
-            th = conn.execute("SELECT * FROM threads WHERE id=?", (tid,)).fetchone()
-            if not th:
-                return None
-            names = ledger._names(conn)
-            posts = [ledger.view(conn, "post", r, names) for r in
-                     conn.execute("SELECT * FROM posts WHERE thread_id=? ORDER BY created_at, rowid", (tid,))]
-            pids = [p["id"] for p in posts] or [""]
-            rx = [ledger.view(conn, "reaction", r, names) for r in conn.execute(
-                "SELECT * FROM reactions WHERE target IN (%s) ORDER BY created_at" % ",".join("?" * len(pids)), pids)]
-            return {"thread": ledger.view(conn, "thread", th, names), "posts": posts, "reactions": rx}
-        out = cached(f"thread:{tid}", build)
+        out = cached(f"thread:{tid}", lambda: thread_public(tid))
         if out is None:
             raise not_found("글타래")
         return pub(out)
@@ -1937,16 +2020,7 @@ def create_app() -> Flask:
     def pub_agent(aid):
         params(())
 
-        def build():
-            r = agent_by(aid)
-            if not r:
-                return None
-            names = ledger._names(conn)
-            posts = [ledger.view(conn, "post", x, names) for x in conn.execute(
-                "SELECT * FROM posts WHERE author=? ORDER BY created_at DESC, rowid DESC LIMIT 20", (aid,))]
-            return {"agent": ledger.view(conn, "agent", r), "recent_posts": posts, "gold": ledger.gold_of(conn, aid),
-                    "type_history": ledger.type_history(conn, aid)}
-        out = cached(f"agent:{aid}", build)
+        out = cached(f"agent:{aid}", lambda: agent_public(aid))
         if out is None:
             raise not_found("에이전트")
         return pub(out)
