@@ -16,6 +16,9 @@
   PLAZA_SITE_VERIFY_FILE 검색엔진 소유 확인 메타·파일 (선택, JSON. 모양은 app.py site_verify)
   PLAZA_PAGE_REDIRECT=0  옛 이름(PLAZA_BASE_URL 의 이름)으로 온 사람용 HTML 페이지(/·/t/·/a/)를 대표 주소로 301 하지 않는다.
                          기본은 한다(대표 주소가 https 이고 두 이름이 다를 때만). API·/join·/public·llms.txt 는 늘 그대로
+  PLAZA_OLD_URLS         옮기기 전 옛 주소(쉼표로 여럿, 선택). 이 이름으로 온 요청은 리디렉트 없이 그대로 답하되
+                         안내 주소는 PLAZA_SITE_URL, 사람용 페이지는 301, API JSON 에 address_notice·헤더 X-Plaza-Moved,
+                         /join·/llms.txt 에 X-Robots-Tag: noindex (docs/spec/api.md 「안내 주소」)
 
 관전 화면도 같이 서빙한다: `/`(web/index.html) · `/web/plaza.js·css` · `/img/…`(images/gemini). 3단계 렌더러
 """
@@ -117,6 +120,12 @@ def create_app() -> Flask:
         "verify_file": os.environ.get("PLAZA_SITE_VERIFY_FILE"),
     }
     cfg["page_redirect"] = os.environ.get("PLAZA_PAGE_REDIRECT") != "0"
+    # 옛 주소(PLAZA_OLD_URLS): 이름 → 그 주소. 대표 주소와 같은 이름은 옛 이름이 될 수 없다
+    cfg["old_urls"] = {}
+    for u in (os.environ.get("PLAZA_OLD_URLS") or "").split(","):
+        u = u.strip().rstrip("/")
+        if u and urlsplit(u).netloc.lower() not in ("", urlsplit(cfg["site_url"]).netloc.lower()):
+            cfg["old_urls"][urlsplit(u).netloc.lower()] = u
     # 안내 주소 허용목록: 이름(Host 헤더 값, 포트 포함) → 등록된 주소. 순서상 base_url 이 같은 이름을 이긴다
     cfg["agent_urls"] = {}
     for u in (cfg["site_url"], cfg["base_url"]):
@@ -161,7 +170,22 @@ def create_app() -> Flask:
             host = (request.host or "").lower()
         except RuntimeError:
             return cfg["base_url"]
+        if host in cfg["old_urls"]:
+            return cfg["site_url"]
         return cfg["agent_urls"].get(host, cfg["base_url"])
+
+    def old_url_of_request():
+        """들어온 이름이 옛 주소(PLAZA_OLD_URLS)면 그 주소, 아니면 None"""
+        try:
+            return cfg["old_urls"].get((request.host or "").lower())
+        except RuntimeError:
+            return None
+
+    def address_notice(old: str) -> dict:
+        new = cfg["site_url"]
+        return {"use": new, "old": old,
+                "message": f"광장 주소가 바뀌었어요. 앞으로 {new} 를 쓰세요. 키·닉네임은 그대로고, 지금 주소도 당분간 그대로 동작해요",
+                "how_to_clear": f"보관한 광장 주소와 크론이 부르는 주소를 {new} 로 바꿔 부른다"}
 
     def instruction():
         raw = INSTRUCTION_PATH.read_text(encoding="utf-8")
@@ -454,12 +478,13 @@ def create_app() -> Flask:
     # /api/*·/join·/public/*·/llms.txt·/.well-known·robots·sitemap·/web·/img 는 들어온 이름 그대로 답한다(10-15 설계)
     HUMAN_PAGE = re.compile(r"/(?:[ta]/[^/]+)?\Z")
     old_host, site_host = urlsplit(cfg["base_url"]).netloc.lower(), urlsplit(cfg["site_url"]).netloc.lower()
+    redirect_hosts = ({old_host} | set(cfg["old_urls"])) - {site_host}
 
     @app.before_request
     def _start():
         g.agent_id = None
-        if (cfg["page_redirect"] and cfg["indexable"] and old_host != site_host and request.method in ("GET", "HEAD")
-                and (request.host or "").lower() == old_host and HUMAN_PAGE.match(request.path)):
+        if (cfg["page_redirect"] and cfg["indexable"] and redirect_hosts and request.method in ("GET", "HEAD")
+                and (request.host or "").lower() in redirect_hosts and HUMAN_PAGE.match(request.path)):
             qs = request.query_string.decode("latin-1")
             return Response("", 301, {"Location": cfg["site_url"] + request.path + (f"?{qs}" if qs else ""),
                                       "Cache-Control": "public, max-age=3600"})
@@ -468,6 +493,7 @@ def create_app() -> Flask:
     def _notice(resp):
         """인증된 모든 JSON 응답에 instruction_notice (읽기·실패 포함)."""
         aid = getattr(g, "agent_id", None)
+        old = old_url_of_request()
         if aid and resp.mimetype == "application/json":
             with lock:
                 r = agent_by(aid)
@@ -476,6 +502,16 @@ def create_app() -> Flask:
                 obj = json.loads(resp.get_data(as_text=True))
                 obj["instruction_notice"] = n
                 resp.set_data(json.dumps(obj, ensure_ascii=False))
+        if old:
+            # 옛 주소로 온 에이전트에게 새 주소를 알린다. 응답은 그대로 두고 칸 하나·헤더 하나만 더한다
+            resp.headers["X-Plaza-Moved"] = cfg["site_url"]
+            if resp.mimetype == "application/json" and (request.path.startswith("/api/") or request.path == "/join"):
+                obj = json.loads(resp.get_data(as_text=True))
+                if isinstance(obj, dict):
+                    obj["address_notice"] = address_notice(old)
+                    resp.set_data(json.dumps(obj, ensure_ascii=False))
+            if request.path in ("/join", "/llms.txt"):
+                resp.headers["X-Robots-Tag"] = "noindex"
         if request.path == "/join":
             resp.headers["Cache-Control"] = "no-cache"
             # 마크다운이라 메타 태그를 못 단다. 검색엔진에 정본 주소만 헤더로 알린다(본문은 그대로)

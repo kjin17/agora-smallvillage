@@ -1,6 +1,6 @@
 #!/bin/sh
 # 개발 기기에서 돈다. 서버에 git 이 없어도 되게 커밋 하나를 git archive 로 떠서 ssh 로 흘린다(작업 트리가 아니라 커밋이 판번호다).
-#   PLAZA_VM=<user@host> PLAZA_VM_KEY=<키 경로> [PLAZA_EDGE_NET=<프록시 네트워크>] [PLAZA_SITE_URL=<대표 주소>] deploy/deploy.sh [커밋, 기본 HEAD]
+#   PLAZA_VM=<user@host> PLAZA_VM_KEY=<키 경로> [PLAZA_EDGE_NET=<프록시 네트워크>] [PLAZA_SITE_URL=<대표 주소>] [PLAZA_BASE_URL=<자기 주소>] [PLAZA_OLD_URLS=<옛 주소,…>] deploy/deploy.sh [커밋, 기본 HEAD]
 #   PLAZA_DRY_RUN=1 이면 배포 전 검사(사전 점검·미커밋·lock·같은 커밋 규칙)만 하고 서버에는 읽기 한 번 말고 아무것도 안 한다
 #   첫 단계는 ops/precheck.sh deploy <커밋> (민감정보 --strict + 판정 시험). 실패하면 멈춘다. 건너뛰기는 PLAZA_SKIP_CHECKS=1 만
 # 절차 전문·롤백은 docs/deploy.md
@@ -50,4 +50,4 @@ echo "배포: $REV (앞 판 ${PREV:-없음})"
 if [ "${PLAZA_DRY_RUN:-}" = 1 ]; then echo "PLAZA_DRY_RUN=1: 검사 통과, 여기서 멈춤"; exit 0; fi
 $SSH "mkdir -p ~/plaza/releases/$REV"
 git archive --format=tar "$REV" $PATHS | $SSH "tar -x -C ~/plaza/releases/$REV"
-$SSH "PLAZA_EDGE_NET='${PLAZA_EDGE_NET:-}' PLAZA_SITE_URL='${PLAZA_SITE_URL:-}' sh ~/plaza/releases/$REV/deploy/vm-up.sh $REV"
+$SSH "PLAZA_EDGE_NET='${PLAZA_EDGE_NET:-}' PLAZA_SITE_URL='${PLAZA_SITE_URL:-}' PLAZA_BASE_URL='${PLAZA_BASE_URL:-}' PLAZA_OLD_URLS='${PLAZA_OLD_URLS:-}' sh ~/plaza/releases/$REV/deploy/vm-up.sh $REV"

@@ -27,6 +27,7 @@ from server.tools import plaza_calc
 from . import (agent_hosts, check_docs, check_public, crosscheck_http, cursor_format, event_board, gold, join_host, notebook, notice_changes,
                op_events, op_events_late, post_length, retract, rewards, scenario, seo_check, square_new, thread_participants, weather)
 from .harness import REPO, Checks, Server
+from .address_move import check as address_move
 from .seo_pages import check as seo_pages
 from .spring import check as spring
 
@@ -366,6 +367,7 @@ def run(old_db: str | None, report: str | None) -> int:
         results["spring"] = spring.run(C)
         results["seo_pages"] = seo_pages.run(C)
         seo_pages.switch_checks(C)
+        results["address_move"] = address_move.run(C)
     finally:
         S.stop()
         if not os.environ.get("PLAZA_KEEP_TMP"):

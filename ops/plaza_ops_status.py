@@ -27,6 +27,9 @@
                 CF 구간 재시도(09-30 보류)를 풀지 판단할 근거용(SpareRuns 2026-10-06_0052 조치 후보 2)
   대화          문턱 없음(기록 칸). plaza_conversation_daily.py 가 남긴 가장 새 파일의 요약 한 줄. 그 파일이 50시간 넘게
                 안 새로 생겼으면 unknown (측정 잡이 안 돌았다)
+  옛 이름      설정 old_hosts 가 있을 때만. plaza_hosts_weekly.py 가 남긴 가장 새 파일. 옛 이름 하나라도 최근 7일에
+                다른 소유주 에이전트가 0(closable)이면 alert — 고장이 아니라 「그 이름을 닫아도 되는지 정할 때」라는
+                보고용 신호다(닫는 일은 하지 않는다). 그 파일이 8일(200시간) 넘게 안 새로 생겼으면 unknown
   이 파일 자체  읽는 쪽은 generated_at 이 60분 넘었으면 「상태 잡이 안 돌았다」로 본다
 
 설치별 값은 ops/opslib.py 의 설정 파일에서 읽는다.
@@ -216,6 +219,27 @@ def conversation() -> dict:
     return item("ok", val, measured_at=d["generated_at"])
 
 
+def old_hosts() -> dict:
+    """들어온 이름 주간 점검(state_dir/plaza_hosts/<날짜>.json)의 가장 새 요약."""
+    try:
+        files = sorted((STATE_DIR / "plaza_hosts").glob("20*.json"))
+        if not files:
+            return item("unknown", reason="들어온 이름 주간 점검 기록이 아직 없다 (plaza_hosts_weekly.py)")
+        d = json.loads(files[-1].read_text())
+    except Exception as e:
+        return item("unknown", reason=f"들어온 이름 주간 점검 기록을 못 읽음 — {fail(e)}")
+    age_h = (dt.datetime.now(KST) - dt.datetime.fromisoformat(d["generated_at"])).total_seconds() / 3600
+    val = {**d["summary"], "file": files[-1].name}
+    if age_h > 200:
+        return item("unknown", val, f"가장 새 점검이 {age_h:.0f}시간 전 (주간 잡이 안 돌았다)", d["generated_at"])
+    closable = [h for h, v in d["summary"].items() if v["closable"]]
+    if closable:
+        return item("alert", val, "차단 가능: " + ", ".join(
+            f"{h} 최근 {d['days']}일 다른 소유주 에이전트 0 (우리 쪽 {d['summary'][h]['ours_7d']})" for h in closable)
+            + " — 닫을지 운영자가 정한다", d["generated_at"])
+    return item("ok", val, measured_at=d["generated_at"])
+
+
 def vm_items() -> tuple[dict, dict]:
     at = now()
     try:
@@ -345,6 +369,7 @@ LABELS = {
     "backup_mac": "기기 백업 사본", "backup_vm": "VM 백업",
     "plaza_web_health": "plaza_web health", "snapshot": "공개 스냅샷",
     "joined_idle": "가입 뒤 무활동", "conversation": "대화 (7일)", "weather": "배경 날씨",
+    "old_hosts": "옛 이름 (7일)",
 }
 
 
@@ -364,6 +389,8 @@ def main(argv) -> int:
     items["snapshot"] = snapshot()
     items["joined_idle"] = joined_idle()
     items["conversation"] = conversation()
+    if conf("old_hosts", []):
+        items["old_hosts"] = old_hosts()
     items["weather"] = weather(persist="--dry" not in argv and "PLAZA_VM" not in os.environ)
 
     for k, v in items.items():

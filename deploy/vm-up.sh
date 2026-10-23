@@ -20,16 +20,21 @@ holder=$(docker ps --filter "publish=$PORT" --format '{{.Names}}' | grep -v '^pl
 if ss -ltn | awk '{print $4}' | grep -q ":$PORT\$" && [ -z "$(docker ps -q --filter name=^plaza_web\$)" ]; then
   echo "멈춤: $PORT 을 컨테이너 밖 프로세스가 쥐고 있다"; exit 1; fi
 
-# ── 자기 주소·대표 주소·입구 네트워크: 있던 .env 값을 이어 쓴다. 입구 네트워크·대표 주소는 환경변수가 이긴다 ──
+# ── 자기 주소·대표 주소·옛 주소·입구 네트워크: 있던 .env 값을 이어 쓴다. 환경변수로 넘긴 값이 이긴다 ──
 BASE=http://127.0.0.1:$PORT
 EDGE=${PLAZA_EDGE_NET:-}
 SITE=${PLAZA_SITE_URL:-}
 REDIR=${PLAZA_PAGE_REDIRECT:-}
-if [ -f .env ]; then
+OLDURLS=${PLAZA_OLD_URLS:-}
+if [ -n "${PLAZA_BASE_URL:-}" ]; then BASE=$PLAZA_BASE_URL
+elif [ -f .env ]; then
   BASE=$(sed -n 's/^PLAZA_BASE_URL=//p' .env); BASE=${BASE:-http://127.0.0.1:$PORT}
+fi
+if [ -f .env ]; then
   [ -n "$EDGE" ] || EDGE=$(sed -n 's/^PLAZA_EDGE_NET=//p' .env)
   [ -n "$SITE" ] || SITE=$(sed -n 's/^PLAZA_SITE_URL=//p' .env)
   [ -n "$REDIR" ] || REDIR=$(sed -n 's/^PLAZA_PAGE_REDIRECT=//p' .env)
+  [ -n "$OLDURLS" ] || OLDURLS=$(sed -n 's/^PLAZA_OLD_URLS=//p' .env)
 fi
 [ -n "$EDGE" ] || { echo "멈춤: PLAZA_EDGE_NET(입구 프록시가 붙은 도커 네트워크 이름)이 없다. 한 번 넘겨 주면 .env 에 남는다"; exit 1; }
 docker network inspect "$EDGE" >/dev/null 2>&1 || { echo "멈춤: 도커 네트워크 $EDGE 이 없다"; exit 1; }
@@ -52,11 +57,12 @@ docker build -q -t "plaza-web:$REV" --build-arg "PLAZA_RELEASE=$REV" -f "$R/depl
 printf '# deploy/vm-up.sh 가 쓴다. 비밀을 넣지 말 것 (비밀은 secret/)\nPLAZA_RELEASE=%s\nPLAZA_BASE_URL=%s\nPLAZA_EDGE_NET=%s\n' "$REV" "$BASE" "$EDGE" > .env
 [ -z "$SITE" ] || printf 'PLAZA_SITE_URL=%s\n' "$SITE" >> .env
 [ -z "$REDIR" ] || printf 'PLAZA_PAGE_REDIRECT=%s\n' "$REDIR" >> .env      # 손으로 끈 값(0)을 다음 배포가 지우지 않게
+[ -z "$OLDURLS" ] || printf 'PLAZA_OLD_URLS=%s\n' "$OLDURLS" >> .env    # 옮기기 전 옛 주소(docs/spec/api.md 「안내 주소」)
 cp "$R/deploy/compose.yaml" compose.yaml
 ln -sfn "releases/$REV" current
 
 # deploy.sh 는 이 변수들을 빈 값으로도 넘긴다. 빈 채로 export 된 변수는 compose 에서 .env 를 이기니 고른 값으로 덮는다
-export PLAZA_EDGE_NET="$EDGE" PLAZA_SITE_URL="$SITE"
+export PLAZA_EDGE_NET="$EDGE" PLAZA_SITE_URL="$SITE" PLAZA_BASE_URL="$BASE" PLAZA_OLD_URLS="$OLDURLS"
 docker compose up -d
 
 # ── 건강 확인 ──
