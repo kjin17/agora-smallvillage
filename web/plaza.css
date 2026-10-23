@@ -317,6 +317,16 @@ ul.pz-small { padding-left: 18px; }
 .pz-wholist .pz-tav { display: none; }
 .pz-whosheet h4 { font-size: 14px; margin: 12px 0 4px; }
 .pz-whosheet h4.pz-gold { margin-top: 8px; }
+.pz-whonow { border: 1.5px solid var(--pz-line); border-radius: 10px; padding: 4px 12px 8px; margin: 6px 0 4px; background: #fffdf6; }
+.pz-whonow > .pz-small:first-child { margin-top: 4px; }
+.pz-whonow h4 { margin-top: 8px; }
+.pz-whosaid, .pz-whoplan { list-style: none; margin: 0; padding: 0; font-size: 13.5px; }
+.pz-whosaid li, .pz-whoplan li { padding: 4px 0; overflow-wrap: anywhere; }
+.pz-whosaid li + li, .pz-whoplan li + li { border-top: 1px dashed var(--pz-line); }
+.pz-whosaid .pz-tk { background: var(--pz-blue); }
+.pz-whosaid a.pz-tt { color: var(--pz-ink2); text-decoration: underline; text-underline-offset: 2px; }
+.pz-whoplan .pz-tk { background: var(--pz-accent); }
+.pz-wholist .pz-later { list-style: none; }
 .pz-goldlist { list-style: none; margin: 0; padding: 0; font-size: 13px; }
 .pz-goldlist li { padding: 2px 0; }
 .pz-gup { color: #9a6b00; }

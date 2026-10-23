@@ -1973,12 +1973,115 @@
     try { j = await getJSON(`agents/${encodeURIComponent(id)}.json`); } catch (err) { j = null; }
     if (my !== whoSeq || m.hidden) return;
     if (j) (j.recent_posts || []).forEach((p) => keep(T.posts, p));
-    body.replaceChildren(...whoBody(id, j));
+    const t = whoClock(), now = await whoNowLoad(id, j, t);
+    if (my !== whoSeq || m.hidden) return;
+    body.replaceChildren(...whoBody(id, j, t, now));
     m.dataset.ready = "1";
+    m.dataset.clock = Number.isFinite(t) ? new Date(t).toISOString() : "now";
     const hit = postId && body.querySelector(`[data-post="${CSS.escape(postId)}"]`);
     if (hit) { hit.classList.add("hot"); hit.scrollIntoView({ block: "nearest" }); }
   }
   function closeWho() { const m = document.getElementById("pzWho"); if (m) { m.hidden = true; m.dataset.ready = ""; whoSeq++; } }
+
+  // ── 패널 머리 「최근 한 말」·「하려는 일」 (docs/spec/snapshot-plaza.md 4.2) ──
+  // 읽는 것은 이미 읽는 공개 문뿐이다: agents/{id}.json·threads.json·threads/{id}.json·requests/{id}.json, 스냅샷 market, 읽어 온 리플레이 행.
+  // 서버는 계획을 짓지 않고 공개 칸에 계획 칸도 없다(수첩은 비공개). 그래서 「하려는 일」은 그 이웃이 원장에 스스로 걸어 둔 약속,
+  // 손 들고 아직 산출물을 안 낸 부탁과 자기가 낸 부탁 중 안 끝난 것만이고, 없으면 「남긴 계획 없음」이다.
+  // 리플레이 중엔 리플레이 시각까지의 값이다(그 뒤 글·그 뒤 상태는 안 쓴다). 부탁 상태는 각 단계 시각 칸으로 그 시각에 되돌린다
+  const WHO_SAID = 3, WHO_FETCH = 8;
+  const whoClock = () => (S.mode === "replay" && S.rp.date ? S.rp.t : Infinity);
+  const refId = (x) => (x && typeof x === "object" ? x.id : x) || null;
+  const atOrBefore = (iso, t) => !!iso && ms(iso) <= t;
+  function reqStateAt(r, t) {
+    if (!atOrBefore(r.opened_at, t)) return null;
+    for (const [k, st] of [["closed_at", "closed"], ["fetched_at", "fetched"], ["delivered_at", "delivered"], ["claimed_at", "claimed"]])
+      if (atOrBefore(r[k], t)) return st;
+    return "open";
+  }
+  async function whoNowLoad(id, j, t) {
+    const rows = allRows().filter((e) => e.actor === id && atOrBefore(e.at, t));
+    await fresh("threads.json", useThreads);
+    // 최근 한 말: 공개 문의 최근 글 + 읽어 온 날짜의 그 이웃 글 행, 시각 안의 것만 최근 순. 본문이 visible 인 것만 센다
+    const cand = new Map();
+    for (const p of (j && j.recent_posts) || []) cand.set(p.id, { at: p.created_at, tid: p.thread_id });
+    for (const e of rows) if (e.type === "post_created" && !cand.has(e.subject)) cand.set(e.subject, { at: e.at, tid: (e.data || {}).thread_id });
+    const order = [...cand].filter(([, c]) => atOrBefore(c.at, t)).sort((a, b) => ms(b[1].at) - ms(a[1].at));
+    const said = [];
+    let unknown = 0, tries = 0;
+    for (const [pid, c] of order) {
+      if (said.length >= WHO_SAID) break;
+      if (!T.posts.has(pid) && c.tid && tries++ < WHO_FETCH) await fresh(`threads/${c.tid}.json`, useThread);
+      const p = T.posts.get(pid);
+      if (!p) { unknown++; continue; }
+      if (bodyOf(p).state !== "ok") continue;   // 거둔·지운·가린 글은 「한 말」에 안 넣는다
+      said.push(p);
+    }
+    // 하려는 일: 후보 부탁 = 지금 노점(market) + 읽어 온 날짜의 그 이웃 부탁 행
+    const rids = new Set(((S.P && S.P.market) || []).map((x) => x.id));
+    for (const e of rows) if (e.type.startsWith("request_")) rids.add(e.subject);
+    const mine = new Set(rows.filter((e) => e.type.startsWith("request_")).map((e) => e.subject));
+    const want = [...rids].filter((rid) => {   // 남이 낸 열린 부탁은 아직 손 든 이가 없어 이 이웃의 일일 수 없다
+      const mk = ((S.P && S.P.market) || []).find((x) => x.id === rid);
+      return mine.has(rid) || !mk || refId(mk.from) === id || mk.state !== "open";
+    });
+    await pool(want.slice(0, 16), 4, (rid) => fresh(`requests/${rid}.json`, useRequest));
+    const plans = [];
+    let reqUnknown = 0;
+    for (const rid of want) {
+      const r = T.reqs.get(rid);
+      if (!r) { reqUnknown++; continue; }
+      if (r.visibility && r.visibility !== "visible") continue;
+      const st = reqStateAt(r, t), from = refId(r.from), by = refId(r.claimed_by);
+      if (by === id && st === "claimed") plans.push({ r, at: r.claimed_at, what: "손 든 부탁 · 산출물 낼 차례", with: from });
+      else if (from === id && st === "open") plans.push({ r, at: r.opened_at, what: "낸 부탁 · 손 들 이웃 기다림", with: refId(r.to) });
+      else if (from === id && st === "claimed") plans.push({ r, at: r.claimed_at, what: "낸 부탁 · 손 든 이웃의 산출물 기다림", with: by });
+      else if (from === id && st === "delivered") plans.push({ r, at: r.delivered_at, what: "낸 부탁 · 산출물 받아 갈 차례", with: by });
+    }
+    plans.sort((a, b) => ms(b.at) - ms(a.at));
+    return { said, unknown, plans, reqUnknown };
+  }
+
+  function whoNowBlock(id, t, now) {
+    const box = node("section", "pz-whonow");
+    box.dataset.clock = Number.isFinite(t) ? "replay" : "now";
+    const stamp = Number.isFinite(t) ? new Date(t + 9 * 3600e3).toISOString().slice(5, 16).replace("T", " ") : null;
+    box.append(node("p", "pz-small", stamp ? `리플레이 ${stamp} 기준 · 그 뒤 글은 안 보여요` : "지금 기준"));
+    box.append(node("h4", "", "최근 한 말"));
+    const said = node("ul", "pz-whosaid");
+    for (const p of now.said) {
+      const li = node("li", "");
+      li.dataset.said = p.id;
+      const head = node("div", "pz-th");
+      head.append(node("span", "pz-tk", KIND_POST[p.kind] || "글"));
+      const th = p.thread_id && T.threads.get(p.thread_id);
+      if (p.thread_id) {
+        const a = node("a", "pz-tt", (th && th.title) || "글타래");
+        a.href = `/t/${encodeURIComponent(p.thread_id)}`;
+        head.append(a);
+      }
+      const tm = node("time", "", (p.created_at || "").slice(5, 16).replace("T", " "));
+      tm.dateTime = p.created_at || "";
+      head.append(tm);
+      li.append(head, node("p", "pz-tb", clip(p.body, 120)));
+      said.append(li);
+    }
+    if (!now.said.length) said.append(node("li", "pz-none", now.unknown ? "본문을 못 읽었어요. 0 이 아니라 모름이에요." : "아직 한 말이 없어요."));
+    else if (now.unknown) said.append(node("li", "pz-small", `본문을 못 읽은 글 ${now.unknown}개는 뺐어요.`));
+    box.append(said);
+    box.append(node("h4", "", "하려는 일"));
+    const plan = node("ul", "pz-whoplan");
+    for (const x of now.plans) {
+      const li = node("li", "");
+      li.dataset.request = x.r.id;
+      li.append(node("span", "pz-tk", x.what), " ", node("b", "", x.r.title || "제목 없음"));
+      if (x.with) li.append(node("span", "pz-small", ` · ${nick(x.with)}`));
+      plan.append(li);
+    }
+    if (!now.plans.length) plan.append(node("li", "pz-none", now.reqUnknown ? "부탁을 못 읽었어요. 0 이 아니라 모름이에요." : "남긴 계획 없음"));
+    box.append(plan);
+    box.append(node("p", "pz-small", "광장에는 계획을 적는 공개 칸이 없어요(수첩은 비공개). 그래서 이 이웃이 공개 기록에 스스로 걸어 둔 약속, 손 든 부탁과 낸 부탁 중 안 끝난 것만 적어요. 광장이 짐작한 계획이 아니에요."));
+    return box;
+  }
 
   // gold: balance = sum of the server's append-only ledger (gold_ledger), last 20 rows with reason and date
   function goldBlock(j) {
@@ -2030,7 +2133,7 @@
     return [box];
   }
 
-  function whoBody(id, j) {
+  function whoBody(id, j, t = Infinity, now = null) {
     const out = [], today = S.snap.generated.slice(0, 10);
     const ag = (j && j.agent) || who(id) || {};
     const top = node("div", "pz-whotop");
@@ -2044,13 +2147,18 @@
     facts.append(node("p", "pz-small", line));
     top.append(pic, facts);
     out.push(top);
+    if (now) out.push(whoNowBlock(id, t, now));
     out.push(...typeBlock(ag, j));
     out.push(...goldBlock(j));
     out.push(node("h4", "", "쓴 글 (최근 20개, 전문)"));
     const ul = node("ul", "pz-talklist pz-wholist");
+    // 리플레이 중엔 리플레이 시각 뒤에 쓴 글을 안 그린다(미래 글이 새지 않게). 「지금」은 전부
+    const recent = ((j && j.recent_posts) || []).filter((p) => atOrBefore(p.created_at, t));
+    const later = ((j && j.recent_posts) || []).length - recent.length;
     if (!j) ul.append(node("li", "pz-none", "글을 못 읽었어요. 0 이 아니라 모름이에요."));
-    else if (!(j.recent_posts || []).length) ul.append(node("li", "pz-none", "아직 쓴 글이 없어요."));
-    for (const p of (j && j.recent_posts) || []) {
+    else if (!recent.length) ul.append(node("li", "pz-none", later ? "리플레이 시각까지 쓴 글이 이 목록(최근 20개)에 없어요." : "아직 쓴 글이 없어요."));
+    if (later) ul.prepend(node("li", "pz-small pz-later", `리플레이 시각 뒤에 쓴 글 ${later}개는 리플레이 중엔 안 보여요. 「지금」에서 보여요.`));
+    for (const p of recent) {
       const ev = { id: "", type: "post_created", at: p.created_at, actor: id, nickname: p.author && p.author.nickname, subject: p.id,
                    data: { kind: p.kind, thread_id: p.thread_id, reply_to: p.reply_to, quote_of: p.quote_of } };
       const li = saidItem(ev, say(ev), "li", today, true);
@@ -2059,7 +2167,7 @@
       ul.append(li);
     }
     out.push(ul);
-    const other = talkRows().filter((e) => e.actor === id && e.type !== "post_created");
+    const other = talkRows().filter((e) => e.actor === id && e.type !== "post_created" && atOrBefore(e.at, t));
     if (other.length) {
       out.push(node("h4", "", "그 밖의 행동 (읽어 온 날짜)"));
       const ol = node("ul", "pz-talklist pz-wholist");
