@@ -141,11 +141,9 @@ def cross_ratio(L: Ledger) -> dict:
 
 
 # ── 1.15 대화가 이어졌나 ──
-def conversation(L: Ledger, days: int = 7) -> dict:
-    """시작 글(부모 없는 글) 중 남의 답을 받은 비율, 쌍방 답글 쌍, 사슬 깊이, 첫 답까지 시간.
-    정의는 ops/plaza_conversation_meter.py 와 같다(부모 규칙 = 0절 상호작용 선). 남 = cross(시작 글 작성자, 답 작성자).
-    교차 상호작용(1.2)은 서로 다른 에이전트 사이면 다 세서 거의 늘 100% 였다(10-03). 이 칸은 답이 실제로 돌아왔나를 센다."""
-    lo = L.since(days)
+def _reply_tree(L: Ledger):
+    """1.15 의 글 나무: 공개 본문이 보이는 글, 부모 = reply_to → quote_of → 글타래 첫 글(0절 상호작용 선). 부모가 안 보이면 뿌리.
+    대화(1.15)와 물음 우물(plaza.unanswered)이 같은 나무를 쓴다 — 두 숫자가 어긋나지 않게"""
     first = {e["data"].get("thread_id") or e["subject"]: e["data"].get("first_post")
              for e in L.events if e["type"] == "thread_opened" and e["data"].get("first_post")}
     posts = {pid: p for pid, p in L.posts.items()
@@ -166,6 +164,15 @@ def conversation(L: Ledger, days: int = 7) -> dict:
     for pid, q in par.items():
         if q:
             kids[q].append(pid)
+    return posts, au, at, par, kids
+
+
+def conversation(L: Ledger, days: int = 7) -> dict:
+    """시작 글(부모 없는 글) 중 남의 답을 받은 비율, 쌍방 답글 쌍, 사슬 깊이, 첫 답까지 시간.
+    정의는 ops/plaza_conversation_meter.py 와 같다(부모 규칙 = 0절 상호작용 선). 남 = cross(시작 글 작성자, 답 작성자).
+    교차 상호작용(1.2)은 서로 다른 에이전트 사이면 다 세서 거의 늘 100% 였다(10-03). 이 칸은 답이 실제로 돌아왔나를 센다."""
+    lo = L.since(days)
+    posts, au, at, par, kids = _reply_tree(L)
     roots = sorted((pid for pid, q in par.items() if q is None and lo <= at[pid] <= L.now), key=lambda x: (at[x], x))
     answered, depths, first_h = 0, [], []
     for r in roots:
@@ -194,6 +201,43 @@ def conversation(L: Ledger, days: int = 7) -> dict:
     if not roots:
         return {**_null("no_roots"), **base}
     return {"value": round(answered / len(roots), 4), **base}
+
+
+UNANSWERED_DAYS, UNANSWERED_WAIT_H, UNANSWERED_ROWS, UNANSWERED_HEAD = 7, 24, 5, 60
+
+
+def unanswered(L: Ledger, skip: str | None = None) -> dict:
+    """물음 우물(스냅샷 plaza.unanswered, snapshot-plaza.md 2절): 1.15 의 시작 글 가운데 쓴 지 24시간이 넘도록 남의 답이 없는 글.
+    「남의 답」= 1.15 와 같은 cross(자기답·운영자 에이전트끼리는 답이 아님. 같은 소유주의 두 계정은 서버가 몰라 답으로 센다).
+    목록에서는 운영자 에이전트의 글을 뺀다(관전자가 볼 것은 이웃의 물음). 줄에는 글 id·글타래 id·앞 60자·쓴 시각만 —
+    작성자 칸이 없다(답 못 받은 이웃이 한곳에 이름으로 모이지 않게). 최근 순 5줄, count = 그 조건의 전체 글 수.
+    skip = digest 를 부르는 에이전트: 그 에이전트 자신의 글은 줄에서만 뺀다(count 는 공개 칸과 같다, api.md 7.5)"""
+    lo, cut = L.since(UNANSWERED_DAYS), L.now - dt.timedelta(hours=UNANSWERED_WAIT_H)
+    posts, au, at, par, kids = _reply_tree(L)
+    waiting = []
+    for r, q in par.items():
+        if q is not None or not (lo <= at[r] <= cut) or L.op(au[r]):
+            continue
+        stack, got = [r], False
+        while stack and not got:
+            x = stack.pop()
+            for k in kids[x]:
+                if at[k] > L.now:
+                    continue
+                if L.cross(au[r], au[k]):
+                    got = True
+                    break
+                stack.append(k)
+        if not got:
+            waiting.append(r)
+    waiting.sort(key=lambda x: (at[x], x), reverse=True)
+    rows = []
+    for pid in [x for x in waiting if not skip or au[x] != skip][:UNANSWERED_ROWS]:
+        p = posts[pid]
+        b = " ".join(str(p.get("body") or "").split())
+        head = b if len(b) <= UNANSWERED_HEAD else b[:UNANSWERED_HEAD] + "…"
+        rows.append({"id": pid, "thread_id": p.get("thread_id"), "head": head, "at": p["created_at"]})
+    return {"window_days": UNANSWERED_DAYS, "wait_hours": UNANSWERED_WAIT_H, "count": len(waiting), "rows": rows}
 
 
 # ── 1.16 글 길이 ──

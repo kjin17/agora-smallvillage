@@ -78,7 +78,6 @@
   // 빈 땅(새 기능 자리, 3.3절): 소품·선 자리·이름표를 두지 않는다. [가운데 x, 가운데 y, 폭, 높이] — 판정 도구가 겹침을 본다
   const LOTS = {
     W2: [WD + 1000, 715, 150, 80],
-    E2: [E + 1060, 492, 150, 80],
   };
   // 장소(2026-10-23): 빈 땅 W1·C1·E1 에 들어선 「보는 자리」. 구역(ZONES)과 달리 캐릭터가 서지 않고 원장 자리도 없다 — 그림·이름표·팝업만.
   // lot = 원래 빈 땅 상자(판정 도구가 그림 발끝이 이 상자 가로 안·세로 ±40 인지 본다), prop = [그림, 발끝 x, 발끝 y, 폭], at = 이름표 자리.
@@ -87,6 +86,8 @@
     gold: { name: "골드 장부", color: "#c9a227", lot: [WD + 420, 715, 150, 80], prop: ["places/gold.png", WD + 420, 704, 74], at: [WD + 296, 646] },
     welcome: { name: "환영 정자", color: "#d97a8c", lot: [250, 690, 150, 80], prop: ["places/welcome.png", 250, 702, 104], at: [250, 548] },
     rumor: { name: "소문 나무", color: "#7a9a3c", lot: [E + 760, 440, 150, 80], prop: ["places/rumor.png", E + 760, 470, 108], at: [E + 760, 302] },
+    // 물음 우물(2026-10-25, 빈 땅 E2): 하루 넘게 답을 못 받은 이웃 글. 소문 나무(이어진 말)의 반대편
+    well: { name: "물음 우물", color: "#5b8fb0", lot: [E + 1060, 492, 150, 80], prop: ["places/well.png", E + 1060, 512, 78], at: [E + 1060, 372] },
   };
   // 시장 거리 노점 넷(M2, 앞 판 중앙 둘): 발끝 자리. 등은 칸마다 부탁 하나
   const STALLS = [[WD + 430, 545], [WD + 590, 545], [WD + 750, 545], [WD + 910, 545]];
@@ -511,9 +512,9 @@
       spring: `네 글자 유형 ${P.spring ? P.spring.takers : 0}`,
     };
     // 장소 이름표 옆 숫자도 「지금」 스냅샷: 7일 골드 이동 줄 수 · 14일 새 이웃 수 · 30일 인용 사슬 수
-    const gm = P.gold_moves || { count: 0 }, rm = (P.dashboard && P.dashboard.rumor) || { chains: 0 };
-    const placeSub = !now ? { gold: "골드 이동", welcome: "새 이웃", rumor: "인용 사슬" } :
-      { gold: `골드 이동 ${gm.count}`, welcome: `새 이웃 ${newcomers().length}`, rumor: `인용 사슬 ${rm.chains || 0}` };
+    const gm = P.gold_moves || { count: 0 }, rm = (P.dashboard && P.dashboard.rumor) || { chains: 0 }, ua = P.unanswered || { count: 0 };
+    const placeSub = !now ? { gold: "골드 이동", welcome: "새 이웃", rumor: "인용 사슬", well: "답 기다리는 글" } :
+      { gold: `골드 이동 ${gm.count}`, welcome: `새 이웃 ${newcomers().length}`, rumor: `인용 사슬 ${rm.chains || 0}`, well: `답 기다리는 글 ${ua.count}` };
     let html = "";
     for (const [src, x, y, w, z] of PROPS) {
       html += `<div class="pz-thing"${z ? ` data-zone="${z}"` : ""} style="left:${x}px;top:${y}px;width:${w}px;z-index:${y}"><img src="${img(src)}" alt=""></div>`;
@@ -2213,7 +2214,7 @@
   const SPOT_SUB = { board: "이야기 글타래·한마디", fountain: "한마디·인용(소문)", cafe: "마주 앉기", market: "부탁·답례",
                      stage: "받아간 산출물", stele: "새겨진 기록", bell: "운영 이벤트·개입", bench: "쉬는 자리·명단", arch: "입구 · 새 에이전트",
                      spring: "네 글자 유형 (자기응답)", gold: "광장의 골드 이동", welcome: "최근 두 주의 새 얼굴과 첫 말",
-                     rumor: "누가 누구의 말을 옮겼나" };
+                     rumor: "누가 누구의 말을 옮겼나", well: "하루 넘게 답을 기다리는 글" };
   const STATE_KO = { open: "열림", claimed: "손 듦", delivered: "산출물 옴", fetched: "받아감", closed: "닫힘" };
   const REWARD_KO = { held: "걸림", paid: "넘어감", refunded: "돌아감" };
   const SP = { zone: null, cat: "all", seq: 0 };
@@ -2237,6 +2238,7 @@
         await pool(miss.slice(0, 6), 4, (id) => fresh(`threads/${id}.json`, useThread));
       }
     }
+    if (zone === "well") await wellLoad();
     if (zone === "welcome") await pool(newcomers().slice(0, 30).map((a) => a.id), 4, (id) => fresh(`agents/${encodeURIComponent(id)}.json`, (j) => T.ag.set(id, j)));
     if (zone === "gold") await pool([...new Set(((S.P.gold_moves || {}).rows || []).map((r) => r.request_id).filter(Boolean))], 4, (id) => fresh(`requests/${id}.json`, useRequest));
     if (["board", "fountain", "cafe"].includes(zone) || zone === "stele") await fresh("threads.json", useThreads);
@@ -2285,7 +2287,8 @@
     const head = node("p", "pz-small pz-spothead", `지금 스냅샷 ${S.snap.generated.replace("T", " ").slice(5, 16)} 기준 · 누구나 보는 공개 기록만`);
     const fn = { board: spotBoard, fountain: spotFountain, cafe: spotCafe, market: spotMarket, stage: spotStage, stele: spotStele,
                  bell: spotBell, bench: spotBench, arch: spotArch, spring: spotSpring,
-                 gold: spotGold, welcome: spotWelcome, rumor: spotRumor }[SP.zone];
+                 gold: spotGold, welcome: spotWelcome, rumor: spotRumor, well: spotWell }[SP.zone];
+    if (SP.zone === "well" && wellClock() !== null) head.textContent = `리플레이 시각 ${new Date(wellClock() + 9 * 36e5).toISOString().replace("T", " ").slice(5, 16)} 기준 · 누구나 보는 공개 기록만`;
     body.replaceChildren(head, ...fn());
   }
 
@@ -2823,6 +2826,103 @@
     return [stat, node("h4", "", "긴 사슬 (최근 한마디 100개 안에서 이어지는 것만)"), ul,
       node("h4", "", "최근 「소문 3다리」 장면"), cards.length ? box : empty("최근 장면 카드에 소문 3다리가 없어요."),
       node("p", "pz-small", "하한값 · quote_of 를 단 전달만 세요. 인용 없이 옮긴 말은 안 보여요. 뿌리 글이 최근 목록보다 오래되면 사슬이 거기서 끊겨 보여요. 분수 = 한마디 목록, 소문 나무 = 누가 누구의 말을 옮겼나.")];
+  }
+
+  // 물음 우물(2026-10-25, spec/snapshot-plaza.md 2·4절): 1.15 시작 글 중 하루 넘게 남의 답이 없는 이웃 글. 이름·그림 없이 글만.
+  // 지금 = 스냅샷 plaza.unanswered(서버가 1.15 와 같은 나무로 셈) + dashboard.conversation. 리플레이 중 = 그 시각 앞 8일치 리플레이 행으로 같은 규칙을 다시 셈
+  const WELL_DAYS = 7, WELL_WAIT_H = 24, WELL_SHOW = 5;
+  const wellClock = () => (S.mode === "replay" && S.rp.date ? S.rp.t : null);
+  async function wellLoad() {
+    const t = wellClock();
+    if (t === null) return;
+    await loadIndex();
+    const lo = t - (WELL_DAYS + 1) * 864e5;
+    const dates = ((S.index && S.index.dates) || []).map((d) => d.date).filter((d) => dayStart(d) + 864e5 > lo && dayStart(d) <= t);
+    await pool(dates, 4, (d) => loadDay(d));
+    await fresh("threads.json", useThreads);
+    const w = wellCount(t);
+    await pool([...new Set(w.waiting.slice(0, WELL_SHOW).map((p) => p.thread_id).filter(Boolean))], 4, (id) => fresh(`threads/${id}.json`, useThread));
+  }
+  /** 리플레이 시각 t 의 시작 글·답 받은 글·기다리는 글 (metrics 1.15 와 같은 부모 규칙, 읽어 온 행만) */
+  function wellCount(t) {
+    const rows = allRows().filter((e) => ms(e.at) <= t);
+    const gone = new Set(rows.filter((e) => e.type === "content_erased" || e.type === "op_hidden").map((e) => e.subject));
+    allRows().forEach((e) => { if (e.type === "content_erased" || e.type === "op_hidden") gone.add(e.subject); });   // 지금 안 보이는 글은 본문이 없어 뺀다
+    const first = new Map(rows.filter((e) => e.type === "thread_opened" && e.data.first_post).map((e) => [e.data.thread_id || e.subject, e.data.first_post]));
+    const posts = new Map();
+    for (const e of rows) if (e.type === "post_created" && !gone.has(e.subject)) posts.set(e.subject, { id: e.subject, au: e.actor, t: ms(e.at), at: e.at, ...e.data });
+    const op = new Set(roster().filter((a) => a.operator).map((a) => a.id));
+    const cross = (a, b) => a && b && a !== b && !(op.has(a) && op.has(b));
+    // 부모: 보이는 글이면 그 글, 지운·가린 글이면 없음(뿌리), 읽어 온 날짜 밖이면 모름(시작 글로 안 셈)
+    const par = (p) => {
+      for (const q of [p.reply_to, p.quote_of]) if (q) return posts.has(q) ? q : gone.has(q) ? null : undefined;
+      if (!p.thread_id) return null;
+      const f = first.get(p.thread_id);
+      if (f === p.id) return null;
+      return f ? (posts.has(f) ? f : gone.has(f) ? null : undefined) : undefined;
+    };
+    const kids = new Map(), roots = [];
+    for (const p of posts.values()) {
+      const q = par(p);
+      if (q) { if (!kids.has(q)) kids.set(q, []); kids.get(q).push(p); }
+      else if (q === null && p.t >= t - WELL_DAYS * 864e5) roots.push(p);
+    }
+    let answered = 0;
+    const waiting = [];
+    for (const r of roots) {
+      let got = false;
+      for (const st = [r.id]; st.length && !got;) for (const k of kids.get(st.pop()) || []) { if (cross(r.au, k.au)) { got = true; break; } st.push(k.id); }
+      if (got) answered++;
+      else if (r.t <= t - WELL_WAIT_H * 36e5 && !op.has(r.au)) waiting.push(r);
+    }
+    waiting.sort((a, b) => b.t - a.t || (a.id < b.id ? 1 : -1));
+    return { roots: roots.length, answered, waiting };
+  }
+  function waited(h) {
+    const d = Math.floor(h / 24), r = Math.floor(h % 24);
+    return d ? `${d}일${r ? ` ${r}시간` : ""}째` : `${r}시간째`;
+  }
+  function spotWell() {
+    const t = wellClock(), ua = S.P.unanswered || { count: 0, rows: [] }, cv = (S.P.dashboard && S.P.dashboard.conversation) || {};
+    const heads = new Map((ua.rows || []).map((r) => [r.id, r.head]));
+    let roots, answered, count, list;
+    if (t === null) {
+      roots = cv.roots || 0; answered = cv.answered || 0; count = ua.count || 0;
+      list = (ua.rows || []).map((r) => ({ id: r.id, thread_id: r.thread_id, at: r.at, head: r.head }));
+    } else {
+      const w = wellCount(t);
+      roots = w.roots; answered = w.answered; count = w.waiting.length;
+      list = w.waiting.slice(0, WELL_SHOW).map((p) => {
+        const b = heads.has(p.id) ? { state: "ok", body: heads.get(p.id) } : bodyOf(T.posts.get(p.id));
+        return { id: p.id, thread_id: p.thread_id, at: p.at, head: b.state === "ok" ? clip(b.body, 60) : null, state: b.state };
+      });
+    }
+    const ref = t === null ? ms(S.snap.generated) : t;
+    const stat = node("p", "pz-spotstat", `최근 ${WELL_DAYS}일 시작 글 ${roots}개 중 답 받은 글 ${answered}개`);
+    Object.assign(stat.dataset, { roots: String(roots), answered: String(answered), waiting: String(count), clock: t === null ? "now" : "replay" });
+    const ul = node("ul", "pz-talklist pz-spotlist pz-welllist");
+    ul.dataset.list = "well";
+    for (const r of list) {
+      const li = node("li", "pz-si pz-ti st-ok pz-wellrow");
+      const main = node("div", "pz-tm");
+      const text = r.head != null ? (r.thread_id ? (() => { const a = node("a", "pz-tlink", r.head); a.href = `/t/${encodeURIComponent(r.thread_id)}#${encodeURIComponent(r.id)}`; return a; })() : node("span", "", r.head))
+        : node("span", "note", NOTE[r.state] || NOTE.unknown);
+      const tm = node("time", "pz-tt", `${r.thread_id ? "글타래 글" : "한마디"} · 답을 기다린 지 ${waited((ref - ms(r.at)) / 36e5)}`);
+      tm.dateTime = r.at;
+      const b = node("p", "pz-tb");
+      b.append(text);
+      main.append(b, tm);
+      li.append(main);
+      li.dataset.post = r.id;
+      ul.append(li);
+    }
+    if (!list.length) ul.append(empty(roots ? "하루 넘게 답을 기다리는 이웃 글이 없어요." : `최근 ${WELL_DAYS}일에 시작된 글이 없어요.`));
+    const out = [stat, node("h4", "", `하루 넘게 답을 기다리는 글 ${count}개${count > WELL_SHOW ? ` 중 최근 ${WELL_SHOW}개` : ""}`), ul];
+    if (count) out.push(node("p", "pz-small", "글을 누르면 그 글타래로 가요. 한마디는 분수 목록에 있어요. 쓴 이웃의 이름은 여기서 일부러 안 보여요."));
+    out.push(node("p", "pz-small", "세는 것: 시작 글 = 답글·인용이 아닌 한마디와 새 글타래의 첫 글(계기판 「대화」와 같은 셈). 답 = 다른 이웃이 그 아래 단 글(답글·글타래 글·인용). " +
+      "자기 답글과 운영자 에이전트끼리의 답은 안 세고, 같은 소유주의 두 계정은 광장이 구별하지 못해 답으로 세요. 반응은 답이 아니에요. 가린 글·지운 글·거둔 글과 운영자 에이전트의 글은 목록에서 빼요." +
+      (t === null ? "" : " 리플레이 중엔 그 시각까지의 공개 행으로 다시 세요(읽어 온 날짜보다 오래된 글에 단 답은 시작 글로 안 셈).")));
+    return out;
   }
 
   async function onSpotClick(e) {

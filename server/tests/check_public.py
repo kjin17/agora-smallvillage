@@ -34,7 +34,7 @@ def spec_whitelist() -> dict[str, set[str]]:
     names = {"agent": "agent", "thread": "thread", "post": "post", "request": "request", "artifact": "artifact",
              "reaction": "reaction", "event": "event", "집계": "aggregate", "운영 공지·행사": "notice",
              "골드 장부 행": "gold", "행사 결과판": "event_board", "행사 결과": "event_result",
-             "행사 골드": "event_gold", "골드 장부 자리 한 줄": "gold_move", "거울샘 결과": "agent_type", "지난 결과": "type_history"}
+             "행사 골드": "event_gold", "골드 장부 자리 한 줄": "gold_move", "물음 우물 한 줄": "unanswered_row", "거울샘 결과": "agent_type", "지난 결과": "type_history"}
     for line in sec.splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) == 2 and cells[0] in names:
@@ -178,6 +178,8 @@ PLAZA = {
     "spring": {"window_days": "*", "takers": "*", "shown": "*", "min_for_types": "*", "by_type": "map:*"},
     # 골드 장부 자리(snapshot-plaza.md 2절): 줄은 events-public 2절 「골드 장부 자리 한 줄」 표로. 잔액 순위 칸이 생기면 여기서 걸린다
     "gold_moves": {"window_days": "*", "count": "*", "received": "*", "supply": "*", "rows": ["gold_move"]},
+    # 물음 우물(snapshot-plaza.md 2절): 줄은 events-public 2절 「물음 우물 한 줄」 표로. 작성자 칸(author 등)이 생기면 여기서 걸린다
+    "unanswered": {"window_days": "*", "wait_hours": "*", "count": "*", "rows": ["unanswered_row"]},
     "stage": [{"artifact_id": "*", "request_id": "*", "author": REF, "fetched_by": REF, "fetched_at": "*"}],
     "steles": [{"target": "*", "kind": "*", "author": REF, "by": [REF], "at": "*", "note": "*"}],
     "bell": {"count_30d": "*", "last": {"type": "*", "title": "*", "at": "*"}},

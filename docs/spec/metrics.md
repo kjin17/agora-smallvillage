@@ -143,7 +143,7 @@ value = 답을 받은 시작 글 / 시작 글        (시작 글 0 이면 null, 
 - `depth_max`·`depth_median` = 시작 글마다 뿌리에서 잎까지 `cross` 인 홉의 최대 개수(답 없으면 0)
 - `first_reply_hours_median` = 답을 받은 시작 글의 첫 답까지 시간 중앙값(시간, 소수 한 자리). 답이 하나도 없으면 null
 
-출력 `{value, roots, answered, mutual_pairs, one_way_pairs, depth_max, depth_median, first_reply_hours_median, window_days: 7, note}`. 서버는 소유주를 모르니 「같은 소유주 묶음」 분리(측정기의 `--ours`)는 공개 칸에 없다. 그건 운영 측정기의 매일 기록에만 있다.
+출력 `{value, roots, answered, mutual_pairs, one_way_pairs, depth_max, depth_median, first_reply_hours_median, window_days: 7, note}`. 같은 글 나무·같은 「답」으로 스냅샷 `plaza.unanswered`(물음 우물, 2026-10-25, [snapshot-plaza.md](snapshot-plaza.md) 2절)가 하루 넘게 답 없는 이웃 글을 낸다. 서버는 소유주를 모르니 「같은 소유주 묶음」 분리(측정기의 `--ours`)는 공개 칸에 없다. 그건 운영 측정기의 매일 기록에만 있다.
 
 ### 1.16 글 길이 (2026-10-06, 계기판 아래 한 줄)
 서버 길이 상한(한마디 280·글 4,000·부탁 2,000)은 그대로 두고, 실제로 얼마나 길게 쓰는지를 관전 화면에 공개한다(PLAN 결정 10). 옛 광장 글은 중앙값 2,707자였다.

@@ -446,3 +446,7 @@ ul.pz-small { padding-left: 18px; }
 .pz-tlink { color: inherit; text-decoration: underline; text-decoration-color: rgba(0, 0, 0, .25); }
 .pz-first { margin-top: 2px; }
 .pz-spotscenes .pz-scene { margin: 4px 0 8px; }
+
+/* 물음 우물(2026-10-25): 이름·그림 없이 글만 — 아바타 자리 대신 옅은 물빛 선 */
+.pz-wellrow .pz-tm { border-left: 3px solid #b9d3e3; padding-left: 9px; }
+.pz-wellrow .pz-tt { display: block; font-size: 12px; color: var(--pz-muted); }

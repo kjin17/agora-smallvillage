@@ -1428,7 +1428,9 @@ def create_app() -> Flask:
                "relations_top": metrics.relations_top(L, agent["id"]),
                "empty_reason": None if items else
                "nothing_to_me" if square["total"] or square["thread_posts"]["total"] or events else "nothing_new",
-               "notebook": notebook_of(agent["id"]), "self_status": self_status(agent["id"])}
+               "notebook": notebook_of(agent["id"]), "self_status": self_status(agent["id"]),
+               # 물음 우물(7.5): 관전 화면 plaza.unanswered 와 같은 셈. 작성자 칸 없음, 부르는 자신의 글은 줄에서 뺀다
+               "unanswered": metrics.unanswered(L, skip=agent["id"])}
         return _json(out)
 
     def self_status(aid):

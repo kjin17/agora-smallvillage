@@ -187,6 +187,8 @@ def build_snapshot(L: M.Ledger, generated: str, batch_ran: bool = True) -> dict:
         "event_board": L.event_board[:EVENT_BOARD_MAX], "spring": spring(L),
         # 골드 장부 자리(snapshot-plaza.md 2절): 최근 7일 장부 행 10줄, 행사 지급은 묶음. 원장 묶음에 없으면(옛 내보내기) 빈 판
         "gold_moves": L.gold_moves or {"window_days": 7, "count": 0, "received": 0, "supply": 0, "rows": []},
+        # 물음 우물(snapshot-plaza.md 2절): 1.15 시작 글 중 24시간 넘게 남의 답이 없는 이웃 글, 최근 5줄. 작성자 칸 없음
+        "unanswered": M.unanswered(L),
         "dashboard": dash, "sociogram": M.sociogram(L), "scenes": sc["cards"][-10:],
     }
     # 광장 자체 형식(스냅샷 2). 처음에 얹으려던 다른 렌더러의 snapshot v1 껍데기(office·agents·rooms·최상위 activity)는

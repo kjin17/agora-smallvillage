@@ -29,8 +29,9 @@ from . import data
 DESKTOP = {"viewport": {"width": 1440, "height": 900}}
 PHONE = {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True}
 PLACES = ("gold", "welcome", "rumor")
+ALL_PLACES = PLACES + ("well",)   # 10-25 물음 우물(E2)도 그림 자리·겹침은 같이 잰다. 팝업은 server/tests/question_well
 EAST, WEST = 1376, -1376
-HOME = {"gold": WEST, "welcome": 0, "rumor": EAST}
+HOME = {"gold": WEST, "welcome": 0, "rumor": EAST, "well": EAST}
 
 # 장면 위 요소 상자를 세계 좌표로 (stage3_check WORLD_BOXES_JS 와 같은 식)
 BOXES_JS = """() => { const s = Plaza.stats(), z = s.zoom, w = document.getElementById('pzWrap').getBoundingClientRect(), k = z.fit * z.z;
@@ -134,13 +135,13 @@ def screen_checks(C: Checks, browser, S, R, snap, capture: Path | None):
     pg.wait_for_timeout(800)
     st = pg.evaluate("Plaza.stats()")
     C.check("장소 셋이 그려짐 (이름표·그림), 구역 이름표 열은 그대로",
-            st.get("placesShown") == list(PLACES) and len(st.get("zonesShown") or []) == 10
-            and pg.evaluate("document.querySelectorAll('#pzThings .pz-thing[data-place]').length") == 3,
+            st.get("placesShown") == list(ALL_PLACES) and len(st.get("zonesShown") or []) == 10
+            and pg.evaluate("document.querySelectorAll('#pzThings .pz-thing[data-place]').length") == len(ALL_PLACES),
             f"장소 {st.get('placesShown')} · 구역 {len(st.get('zonesShown') or [])}")
     pl = st.get("places") or {}
     foot = {k: v for k, v in pl.items() if not (v["lot"][0] - v["lot"][2] / 2 <= v["prop"][1] <= v["lot"][0] + v["lot"][2] / 2
                                                  and abs(v["prop"][2] - v["lot"][1]) <= v["lot"][3] / 2 + 40)}
-    C.check("그림 발끝이 원래 빈 땅 자리 (W1·C1·E1 상자 가로 안, 세로 ±40)", len(pl) == 3 and not foot,
+    C.check("그림 발끝이 원래 빈 땅 자리 (W1·C1·E1·E2 상자 가로 안, 세로 ±40)", len(pl) == len(ALL_PLACES) and not foot,
             {k: v["prop"][1:] for k, v in pl.items()})
     out = {}
     for d in ("west", "center", "east"):
@@ -154,8 +155,8 @@ def screen_checks(C: Checks, browser, S, R, snap, capture: Path | None):
     frame = [f"{m['place']} {[round(x) for x in m['box']]}" for m in mine
              if not (HOME[m["place"]] <= m["box"][0] and m["box"][2] <= HOME[m["place"]] + 1376 and 0 <= m["box"][1] and m["box"][3] <= 768)]
     over = hits(allitems, mine)
-    C.check("장소 그림·이름표가 그 동네 틀 안", len(mine) == 6 and not frame, frame or f"{len(mine)}개")
-    C.check("장소 그림·이름표가 다른 그림·이름표·문 팻말·노점 팻말·등·서로와 안 겹침", len(mine) == 6 and not over,
+    C.check("장소 그림·이름표가 그 동네 틀 안", len(mine) == 2 * len(ALL_PLACES) and not frame, frame or f"{len(mine)}개")
+    C.check("장소 그림·이름표가 다른 그림·이름표·문 팻말·노점 팻말·등·서로와 안 겹침", len(mine) == 2 * len(ALL_PLACES) and not over,
             over[:4] or f"잰 상자 {len(allitems)}")
     zone_m = next((i for i in allitems if i["zone"] == "market" and "pz-zone" in i["cls"]), None)
     probe = [dict(m) for m in mine]
@@ -191,7 +192,8 @@ def screen_checks(C: Checks, browser, S, R, snap, capture: Path | None):
         pg.screenshot(path=str(capture / "places_gold_popup_desktop.png"))
     w = popup(pg, "welcome")
     lo = (dt.datetime.fromisoformat(snap["generated"]) - dt.timedelta(days=14)).isoformat(timespec="seconds")
-    act = _db(S, "SELECT id FROM agents WHERE status<>'left' AND joined_at>=? ORDER BY joined_at DESC", (lo,))
+    # 같은 초 가입은 화면처럼 id 오름차순(roster 가 (joined_at, id) 순이고 화면 정렬은 안정 정렬). 없으면 동순위 순서가 들쭉날쭉해 3번에 1~2번 실패했다
+    act = _db(S, "SELECT id FROM agents WHERE status<>'left' AND joined_at>=? ORDER BY joined_at DESC, id ASC", (lo,))
     posted = {r[0] for r in _db(S, "SELECT DISTINCT author FROM posts")}
     n, m = len(act), sum(1 for (a,) in act if a in posted)
     C.check("정자 첫 줄: 14일 새 이웃 N·첫 글 M = DB 따로 센 값 (떠난 이웃 뺌)",

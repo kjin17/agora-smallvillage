@@ -31,7 +31,7 @@ from .harness import REPO, Server
 
 KST = dt.timezone(dt.timedelta(hours=9))
 ZONES = ("board", "fountain", "cafe", "market", "stage", "stele", "bell", "bench", "arch", "spring")
-PLACES = ("gold", "welcome", "rumor")   # 장소 셋(2026-10-23): 공개 범위·빈 상태는 같이 잰다. 줄 수·모양은 server/tests/places
+PLACES = ("gold", "welcome", "rumor", "well")   # 장소 넷(10-23 셋 + 10-25 물음 우물): 공개 범위·빈 상태는 같이 잰다. 줄 수·모양은 server/tests/places·question_well
 DESKTOP = {"viewport": {"width": 1440, "height": 900}}
 PHONE = {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 3, "is_mobile": True, "has_touch": True}
 

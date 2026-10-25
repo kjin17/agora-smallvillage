@@ -515,7 +515,7 @@ def district_checks(C: Checks, browser, url, at, snap, want_now, errs):
         pg.clock.run_for(2500)
         return ctx, pg
 
-    # 1. 남은 빈 땅(W2·E2, W1·C1·E1 은 장소 셋이 됨)에 아무것도 안 섰다 (자 검사: 빈 땅 하나를 카페·노점 앞으로 옮기면 「겹침」)
+    # 1. 남은 빈 땅(W2. W1·C1·E1 은 10-23 장소 셋, E2 는 10-25 물음 우물)에 아무것도 안 섰다 (자 검사: 빈 땅 하나를 카페·노점 앞으로 옮기면 「겹침」)
     ctx, pg = open_("mode=now&motion=0", False)
     W = pg.evaluate(WORLD_BOXES_JS)
     hits = lot_hits(W["items"], W["lots"])
@@ -524,8 +524,8 @@ def district_checks(C: Checks, browser, url, at, snap, want_now, errs):
     st = pg.evaluate("Plaza.stats()")
     home = {"W": (WEST, 0), "C": (0, EAST), "E": (EAST, EAST + 1376)}
     lot_in = all(home[k[0]][0] < v[0] < home[k[0]][1] for k, v in W["lots"].items())
-    C.check(G, "남은 빈 땅 두 곳(W2 시장 거리, E2 샘·정원 — W1·C1·E1 은 10-23 장소 셋)이 이름대로의 동네 안에 있고 소품·장소·이름표·문 팻말·선 자리가 안 겹침",
-            sorted(W["lots"]) == ["E2", "W2"] and not hits and lot_in,
+    C.check(G, "남은 빈 땅 한 곳(W2 시장 거리 — W1·C1·E1 은 10-23 장소 셋, E2 는 10-25 물음 우물)이 이름대로의 동네 안에 있고 소품·장소·이름표·문 팻말·선 자리가 안 겹침",
+            sorted(W["lots"]) == ["W2"] and not hits and lot_in,
             f"빈 땅 {list(W['lots'])} · 잰 상자 {len(W['items'])} · 겹침 {hits[:3] or 0} · 동네 안 {lot_in}")
     C.check(G, "자 검사: 빈 땅 하나를 카페 앞(E1)·노점 앞(W1)에 두면 「겹침」", bool(probe) and bool(probe_w), ", ".join((probe + probe_w)[:4]))
     # 2. 구역은 동네별로: 입구·노점은 서쪽, 세 구역은 동쪽, 말풍선 합 = 스냅샷 (다른 동네 말풍선도 원장 행)
@@ -1784,6 +1784,8 @@ M2_MOVED = ("arch", "market")   # 지도 M2: 중앙 → 서쪽 시장 거리
 # 10-23 중앙의 시장 거리 흔적 정리: 앞 판을 그 직전 배포 판(e699c95)으로 올리고, 가리는 곳은 이번에 바뀐 곳만 —
 # 옛 입구 아치 그림 자리(맑은 판 배경에서 지운 상자 = agora_bg_gate 와 agora_bg_clear 가 12 넘게 다른 곳, 세계 좌표)와 문 팻말(아래 .pz-door).
 # 옮긴 구역은 없어 구역 가림은 비운다
+# 10-25 물음 우물: 앞 판은 561c35a 그대로. 물음 우물은 동쪽이라 첫 화면(중앙)에 안 보여, ae90fd0 으로 올리면 「안 가리면 다름」 자 검사가
+# 성립하지 않는다(10-25 실측: 안 가려도 같은 그림). 장소 넷 모두 [data-place] 로 가린다
 # 10-23 장소 셋: 앞 판을 561c35a 로 올리고, 가리는 곳은 새 장소의 그림·이름표(아래 [data-place])만. 아치 상자는 앞 판에서 이미 지워져 뺐다
 MOTION_MASK_ZONES = ()
 MOTION_MASK_WORLD = []

@@ -270,4 +270,11 @@ Icons same size, simple, readable at small size.
 - welcome: 「a small open welcome pavilion (gazebo) of white marble columns with a terracotta tile roof and a garland of small pastel flowers and flags along the eaves; inside a wooden bench and a small wooden guest-book lectern … a tiny blank wooden welcome board on a post in front, and two potted plants by the steps.」
 - rumor: 「a single big round leafy tree … growing from a round low marble planter ring; from its branches hang several small blank cream paper notes on strings, connected to each other by thin red threads … A small wooden bench curves around the planter. A couple of small birds …」 + 다시 그림 한 번(「ONLY this single tree object, isolated: no colonnade …」, 첫 장은 주랑이 같이 나옴)
 - 처리: 초록 배경 빼기(cut) → 알파 상자로 자름 → 폭 280 으로 줄임(LANCZOS) → 반투명 테두리 초록 번짐을 거울샘과 같은 규칙(g ≤ max(r,b)+10)으로 걷음. 결과 280×399·280×352·280×360, 네 귀퉁이 알파 0, 메타데이터 청크 없음
-- 화면 자리·크기: [design/motion-and-map.md](../../docs/design/motion-and-map.md) 3.9
+- 화면 자리·크기: [design/motion-and-map.md](../../docs/design/motion-and-map.md) 3.9 (물음 우물은 3.10)
+
+### 물음 우물 well (2026-10-25)
+
+- 원본: Gemini 웹(전용 크롬), 운영 쪽 시안(리포 밖 운영 노트)을 글로 옮긴 프롬프트 한 벌로 a·b·c 세 장, **b** 를 씀(시안과 가장 닮고 바닥·주랑이 안 따라옴. a 는 주랑이 같이 나옴). 원본 1024×559 와 후보는 리포 밖 보관
+- 머리: 위 places 공통 머리 그대로
+- 본문: 「a small round old stone well of white marble blocks with a dark round opening, a little gable roof of terracotta tiles on two warm wooden posts with a wooden crossbar and a rope holding a small wooden bucket; a small brass lantern hanging from one post; a curved wooden shelf attached to the side of the well holding a few blank folded cream paper letters and a small bundle of blank paper notes tied with string, and two loose blank cream paper notes resting on the well rim; a tiny blank wooden sign on a post in front. Keep it compact, no extra objects, no ground tiles.」
+- 처리: 초록 빼기 → 오른쪽 아래 Gemini 표식 자리 제외 → 알파 상자로 자름 → 폭 280(LANCZOS) → 같은 초록 번짐 규칙. 결과 280×420, 네 귀퉁이 알파 0, 메타데이터 청크 없음
