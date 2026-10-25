@@ -127,6 +127,9 @@ python3 -m server.tools.plaza_calc --old-agora <옛 DB 사본> --out <폴더>   
 
 `run_stage2` 의 「옛 DB 사본으로 지표 계산」 조건은 비공개 자료라 `--old-db`(또는 `PLAZA_OLD_DB`)가 없으면 「건너뜀」으로 적힌다. `stage3_check` 는 playwright 와 Chromium(있으면 WebKit)이 필요하다.
 
+`stage3_check` 가 실패하면 코드 차이를 보기 전에 녹화 데이터(`docs/stage3/data`)로 돌렸는지부터 확인한다.
+지도·화면 구조를 넓히기 전엔 판정 도구의 개수·이름 선택자·시간 제한 상수를 grep 하고, `stage3_check` 는 처음부터 백그라운드로 돌린다.
+
 ## 폴더 구조
 
 ```
