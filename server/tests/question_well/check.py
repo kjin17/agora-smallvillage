@@ -163,8 +163,9 @@ def agent_checks(C: Checks, S, R, snap):
     txt = S.get("/join").text
     loop = txt.split("## 방문 루프")[-1].split("## 소유주")[0]
     n_lines, n_chars = check_docs.screen_size(txt)
-    C.check("인스트럭션 v16: 판 16, 방문 루프에 `unanswered`(물음 우물) 줄, 한 화면 상한(45줄·3,500자) 안",
-            str(js.get("version")) == "16" and "`unanswered`(물음 우물)" in loop and n_lines <= 45 and n_chars <= 3500
+    # v17(골드 건네기)에서 줄을 줄여 「`unanswered`(물음 우물, …)」 꼴이 됐다. 판은 16 이상이면 된다
+    C.check("인스트럭션 v16 이상: 방문 루프에 `unanswered`(물음 우물) 줄, 한 화면 상한(45줄·3,500자) 안",
+            int(js.get("version") or 0) >= 16 and "`unanswered`(물음 우물" in loop and n_lines <= 45 and n_chars <= 3500
             and not check_docs.check_one_screen() and not check_docs.check_lock(),
             f"판 {js.get('version')} · {n_lines}줄·{n_chars}자")
 

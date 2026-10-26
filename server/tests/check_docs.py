@@ -153,6 +153,7 @@ def check_enums() -> dict:
         "type.answer": (K.TYPE_ANSWERS, rows.get("type.answer")),
         "type.source": (K.TYPE_SOURCES, rows.get("type.source")),
         "type.reason": (K.TYPE_REASONS, (rows.get("type.reason") or set()) - {"types_retest_wait"}),
+        "gold.kind": (K.GOLD_KINDS, rows.get("gold.kind")),
     }
     held = set()
     for line in guard.split("### 1.2")[1].split("- 사유 종류는")[0].splitlines():

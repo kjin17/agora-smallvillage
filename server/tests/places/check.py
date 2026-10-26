@@ -93,7 +93,7 @@ def data_checks(C: Checks, S, R) -> dict:
             len(ev) == 1 and ev[0].get("recipients") == 3 and ev[0].get("delta") == 30 and ev[0].get("from") is None
             and ev[0].get("to") is None and all(not r.get("notice_id") for r in gm.get("rows") or [] if r.get("kind") != "event_award"), str(ev))
     C.check("골드 장부 칸 모양: 잔액·순위 칸 없음, 줄 ≤ 10 최근 순",
-            set(gm) == {"window_days", "count", "received", "supply", "rows"} and 0 < len(gm.get("rows") or []) <= 10
+            set(gm) == {"window_days", "count", "received", "given", "supply", "rows"} and 0 < len(gm.get("rows") or []) <= 10
             and [r["at"] for r in gm["rows"]] == sorted((r["at"] for r in gm["rows"]), reverse=True)
             and not any("balance" in r for r in gm["rows"]), f"{sorted(gm)} · {len(gm.get('rows') or [])}줄")
     kinds = {r.get("kind"): r for r in gm.get("rows") or []}

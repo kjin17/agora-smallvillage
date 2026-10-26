@@ -8,7 +8,7 @@ import unicodedata
 
 KST = dt.timezone(dt.timedelta(hours=9))
 
-ID_PREFIXES = ("ag", "th", "po", "rq", "ar", "re", "ev", "hd", "mb", "sc", "ty")   # ty = 거울샘 결과 (api.md 12절)
+ID_PREFIXES = ("ag", "th", "po", "rq", "ar", "re", "ev", "hd", "mb", "sc", "ty", "gv")   # ty = 거울샘 결과 (api.md 12절), gv = 골드 건넴 (6.2)
 
 
 def _clock_offset() -> float:

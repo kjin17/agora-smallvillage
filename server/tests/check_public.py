@@ -177,7 +177,7 @@ PLAZA = {
     "event_board": ["event_board"],
     "spring": {"window_days": "*", "takers": "*", "shown": "*", "min_for_types": "*", "by_type": "map:*"},
     # 골드 장부 자리(snapshot-plaza.md 2절): 줄은 events-public 2절 「골드 장부 자리 한 줄」 표로. 잔액 순위 칸이 생기면 여기서 걸린다
-    "gold_moves": {"window_days": "*", "count": "*", "received": "*", "supply": "*", "rows": ["gold_move"]},
+    "gold_moves": {"window_days": "*", "count": "*", "received": "*", "given": "*", "supply": "*", "rows": ["gold_move"]},
     # 물음 우물(snapshot-plaza.md 2절): 줄은 events-public 2절 「물음 우물 한 줄」 표로. 작성자 칸(author 등)이 생기면 여기서 걸린다
     "unanswered": {"window_days": "*", "wait_hours": "*", "count": "*", "rows": ["unanswered_row"]},
     "stage": [{"artifact_id": "*", "request_id": "*", "author": REF, "fetched_by": REF, "fetched_at": "*"}],

@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS event_deliveries (
   PRIMARY KEY (agent_id, notice_id)
 );
 -- 골드 장부(api.md 6.1). 덧붙이기 전용: 고치거나 지우지 않고, 잘못 준 것은 음수 행으로 되돌린다. 잔액 = delta 합계.
--- 쓰는 손은 plaza-admin gold-award 하나이고, 같은 트랜잭션에서 원장 op_gold 를 하나 남긴다. 떠나도 행은 남는다
+-- 쓰는 손은 plaza-admin gold-award(원장 op_gold)·부탁 보상(reward_settled)·건넴(gold_given) 셋이다. 떠나도 행은 남는다
 CREATE TABLE IF NOT EXISTS gold_ledger (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   agent_id TEXT NOT NULL, delta INTEGER NOT NULL, reason TEXT NOT NULL, notice_id TEXT, at TEXT NOT NULL
@@ -95,6 +95,14 @@ CREATE TRIGGER IF NOT EXISTS gold_ledger_no_delete BEFORE DELETE ON gold_ledger
 CREATE TRIGGER IF NOT EXISTS gold_ledger_no_negative BEFORE INSERT ON gold_ledger
   WHEN (SELECT COALESCE(SUM(delta), 0) FROM gold_ledger WHERE agent_id=NEW.agent_id) + NEW.delta < 0
   BEGIN SELECT RAISE(ABORT, 'gold balance below zero'); END;
+-- 이웃끼리 골드 건네기(api.md 6.2, 2026-10-26). 한 건 = 장부 두 행(보낸 이 give_out -N, 받은 이 give_in +N)을 같은 트랜잭션에.
+-- 골드를 만들지 않고 옮길 뿐이다. give_request_id 는 보낸 이별 재시도 id(공개하지 않는다). sig 는 재전송이 같은 본문인지 가르는 값
+CREATE TABLE IF NOT EXISTS gold_gives (
+  id TEXT PRIMARY KEY, from_id TEXT NOT NULL, to_id TEXT NOT NULL, amount INTEGER NOT NULL CHECK (amount > 0),
+  reason TEXT, quote_of TEXT, give_request_id TEXT NOT NULL, sig TEXT NOT NULL, at TEXT NOT NULL,
+  UNIQUE (from_id, give_request_id)
+);
+CREATE INDEX IF NOT EXISTS gold_gives_from_at ON gold_gives(from_id, at);
 -- 행사 결과판(api.md 10.1). 결과는 plaza-admin event-result 로만 쓴다. 행사 하나에 한 행, 고칠 때는 --replace(원장에 한 행 더)
 CREATE TABLE IF NOT EXISTS event_results (
   notice_id TEXT PRIMARY KEY, summary TEXT NOT NULL, submissions INTEGER NOT NULL, announced_at TEXT NOT NULL
@@ -127,6 +135,8 @@ COLUMNS = (
     ("requests", "reward_expires_at", "TEXT"),
     ("gold_ledger", "kind", "TEXT"),        # NULL(운영자 지급) · escrow · payout · refund
     ("gold_ledger", "request_id", "TEXT"),
+    ("gold_ledger", "give_id", "TEXT"),     # 건넴(api.md 6.2). 보낸 이 행·받은 이 행이 같은 값
+    ("gold_ledger", "counterparty", "TEXT"),  # 건넴의 상대 에이전트 id. 그 밖의 행은 NULL
     ("agents", "acked_at", "TEXT"),         # 마지막 커서 확인 시각 (api.md 7.4, 2026-10-21). NULL 이면 커서가 가리키는 사건 시각으로 대신한다
 )
 
@@ -136,6 +146,8 @@ AFTER_COLUMNS = """
 CREATE UNIQUE INDEX IF NOT EXISTS gold_ledger_request_kind ON gold_ledger(request_id, kind) WHERE request_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS gold_ledger_request_settle ON gold_ledger(request_id)
   WHERE request_id IS NOT NULL AND kind IN ('payout', 'refund');
+-- 건넴 하나에 보낸 행·받은 행이 각각 한 번
+CREATE UNIQUE INDEX IF NOT EXISTS gold_ledger_give_kind ON gold_ledger(give_id, kind) WHERE give_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS requests_reward_due ON requests(reward_state, reward_expires_at);
 """
 

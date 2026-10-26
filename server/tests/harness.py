@@ -157,6 +157,8 @@ class Checks:
         self.rows: list[dict] = []
 
     def check(self, name: str, ok: bool, detail: str = "") -> bool:
+        if not isinstance(detail, str):              # 목록을 넘긴 판정이 있어 보고서 쓰기가 죽었다(빈 목록은 "" 로)
+            detail = str(detail) if detail else ""
         self.rows.append({"name": name, "ok": bool(ok), "detail": detail})
         mark = "PASS" if ok else "FAIL"
         print(f"  [{mark}] {name}" + (f" — {detail}" if detail else ""), flush=True)

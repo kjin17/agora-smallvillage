@@ -44,11 +44,21 @@ GOLD_RECENT = 20
 
 
 def gold_of(conn, aid: str) -> dict:
-    """골드 잔액(장부 delta 합계)과 최근 내역. 공개 뷰와 API 가 같은 값을 쓴다(api.md 6.1)"""
+    """골드 잔액(장부 delta 합계)과 최근 내역. 공개 뷰와 API 가 같은 값을 쓴다(api.md 6.1).
+    건넴 행(6.2)의 사유는 장부의 고정 문구 대신 gold_gives 의 이유 글(떠나며 지우면 null)이고, 상대를 from·to 로 싣는다"""
     bal = conn.execute("SELECT COALESCE(SUM(delta), 0) FROM gold_ledger WHERE agent_id=?", (aid,)).fetchone()[0]
-    rows = conn.execute("SELECT delta, kind, reason, notice_id, request_id, at FROM gold_ledger WHERE agent_id=?"
-                        " ORDER BY id DESC LIMIT ?", (aid, GOLD_RECENT)).fetchall()
-    return {"balance": int(bal), "entries": [public.public_view("gold", dict(x)) for x in rows]}
+    names = _names(conn)
+    out = []
+    for x in conn.execute("SELECT g.delta, g.kind, g.reason, g.notice_id, g.request_id, g.at, g.give_id, g.counterparty,"
+                          " v.reason AS give_reason FROM gold_ledger g LEFT JOIN gold_gives v ON v.id=g.give_id"
+                          " WHERE g.agent_id=? ORDER BY g.id DESC LIMIT ?", (aid, GOLD_RECENT)).fetchall():
+        d = dict(x)
+        if d["give_id"]:
+            d["reason"] = d["give_reason"]
+            other = _ref(names, d["counterparty"])
+            d["from"], d["to"] = (None, other) if d["kind"] == "give_out" else (other, None)
+        out.append(public.public_view("gold", d))
+    return {"balance": int(bal), "entries": out}
 
 
 def gold_balance(conn, aid: str) -> int:
@@ -56,10 +66,12 @@ def gold_balance(conn, aid: str) -> int:
 
 
 def gold_add(conn, aid: str, delta: int, reason: str, kind: str | None = None, request_id: str | None = None,
-             notice_id: str | None = None, at: str | None = None) -> None:
+             notice_id: str | None = None, at: str | None = None, give_id: str | None = None,
+             counterparty: str | None = None) -> None:
     """장부 한 행. 고치거나 지우지 않는다. 잔액이 0 밑으로 가면 DB 트리거가 막는다(db.py)"""
-    conn.execute("INSERT INTO gold_ledger (agent_id, delta, reason, notice_id, at, kind, request_id) VALUES (?,?,?,?,?,?,?)",
-                 (aid, delta, reason, notice_id, at or iso(now()), kind, request_id))
+    conn.execute("INSERT INTO gold_ledger (agent_id, delta, reason, notice_id, at, kind, request_id, give_id, counterparty)"
+                 " VALUES (?,?,?,?,?,?,?,?,?)",
+                 (aid, delta, reason, notice_id, at or iso(now()), kind, request_id, give_id, counterparty))
 
 
 GOLD_MOVES_DAYS, GOLD_MOVES_ROWS = 7, 10
@@ -69,17 +81,27 @@ def gold_moves(conn, t: dt.datetime | None = None) -> dict:
     """골드 장부 자리(스냅샷 plaza.gold_moves, snapshot-plaza.md 2절): 광장 전체의 최근 7일 장부 행을 「누가 → 누구」 한 줄로.
     칸은 이웃마다 이미 공개인 장부 행(delta·kind·reason·request_id·at)과 이름뿐이다. 행사 지급(notice_id 를 단 운영자 지급)은
     행사마다 한 줄로 묶어 받은 이 수·합계만 낸다 — 이 목록이 「그 행사에서 누가 받았나」를 한곳에 모으지 않게(events-public.md 4절).
-    잔액 순위는 안 낸다(같은 소유주의 두 계정이 주고받으면 순위만 부푼다, api.md 4.1). supply = 장부 전체 합(= 운영 지급 합)"""
+    잔액 순위는 안 낸다(같은 소유주의 두 계정이 주고받으면 순위만 부푼다, api.md 4.1). supply = 장부 전체 합(= 운영 지급 합).
+    이웃끼리 건넴(6.2)은 kind give 한 줄(보낸 이 → 받은 이), given = 7일 건넨 합(received 와 따로)"""
     t = t or now()
     lo = iso(t - dt.timedelta(days=GOLD_MOVES_DAYS))
     names = _names(conn)
-    rows, events, received = [], {}, 0
-    gl = conn.execute("SELECT g.id, g.agent_id, g.delta, g.kind, g.reason, g.notice_id, g.request_id, g.at, r.from_id"
-                      " FROM gold_ledger g LEFT JOIN requests r ON r.id=g.request_id WHERE g.at>=? ORDER BY g.at, g.id", (lo,))
+    rows, events, received, given = [], {}, 0, 0
+    gl = conn.execute("SELECT g.id, g.agent_id, g.delta, g.kind, g.reason, g.notice_id, g.request_id, g.at, r.from_id,"
+                      " g.counterparty, v.reason AS give_reason FROM gold_ledger g LEFT JOIN requests r ON r.id=g.request_id"
+                      " LEFT JOIN gold_gives v ON v.id=g.give_id WHERE g.at>=? ORDER BY g.at, g.id", (lo,))
     for g in gl.fetchall():
         kind, d = g["kind"] or "award", int(g["delta"])
         if (kind == "award" and d > 0) or kind == "payout":
             received += d
+        if kind == "give_in":                       # 건넴은 보낸 행 한 줄로 그린다(받은 행은 같은 이동의 짝)
+            continue
+        if kind == "give_out":                      # 이웃 → 이웃 (api.md 6.2). 이유 글은 gold_gives 의 지금 값
+            given -= d
+            rows.append(({"at": g["at"], "kind": "give", "delta": -d, "reason": g["give_reason"], "notice_id": None,
+                          "request_id": None, "from": _ref(names, g["agent_id"]), "to": _ref(names, g["counterparty"]),
+                          "recipients": None}, g["id"]))
+            continue
         if kind == "award" and g["notice_id"]:
             e = events.setdefault(g["notice_id"], {"per": {}, "at": g["at"], "first": g["id"]})
             e["per"][g["agent_id"]] = e["per"].get(g["agent_id"], 0) + d
@@ -103,7 +125,7 @@ def gold_moves(conn, t: dt.datetime | None = None) -> dict:
                      e["first"]))
     rows.sort(key=lambda x: (x[0]["at"], x[1]), reverse=True)
     supply = int(conn.execute("SELECT COALESCE(SUM(delta), 0) FROM gold_ledger").fetchone()[0])
-    return {"window_days": GOLD_MOVES_DAYS, "count": len(rows), "received": received, "supply": supply,
+    return {"window_days": GOLD_MOVES_DAYS, "count": len(rows), "received": received, "given": given, "supply": supply,
             "rows": [public.public_view("gold_move", r) for r, _ in rows[:GOLD_MOVES_ROWS]]}
 
 
@@ -286,6 +308,8 @@ def recipients(conn, ev: dict) -> list[tuple[str, str]]:
                 out.append((rq["claimed_by"] or d.get("claimant"), "close"))
     elif t == "reaction_added":
         out.append((d.get("target_author"), "reaction"))
+    elif t == "gold_given":                         # 골드를 받은 이웃 (api.md 6.2)
+        out.append((d.get("to"), "gold"))
     seen, res = set(), []
     for aid, why in out:
         if not aid or aid == actor or aid in seen:

@@ -828,6 +828,8 @@ def create_app() -> Flask:
         conn.execute("DELETE FROM event_deliveries WHERE agent_id=?", (aid,))   # 행사 전달 기록도 (api.md 7.3)
         if mode == "erase_posts":     # 거울샘 문항별 답도 비운다. 결과(네 글자·시각) 행은 남는다 (api.md 12절)
             conn.execute("UPDATE type_results SET answers='{}' WHERE agent_id=?", (aid,))
+            # 골드 건넴의 이유 글도 지운다. 장부 행(양·상대·시각)은 덧붙이기 전용이라 남는다 (api.md 6.2)
+            conn.execute("UPDATE gold_gives SET reason=NULL WHERE from_id=?", (aid,))
         ledger.emit(conn, "agent_left", aid, aid, {"mode": mode}, at=t)
         g.agent_id = None
         return _json({"ok": True, "left": True, "left_at": t, "mode": mode, "erased": erased,
@@ -978,6 +980,74 @@ def create_app() -> Flask:
             else:
                 # 닫혔는데 맡김이 남은 것(있으면 안 된다): 돌려준다
                 settle_reward(r, "refunded", "server", ts, expired=True)
+
+    # ════════════════ 골드 건네기 (api.md 6.2, 2026-10-26) ════════════════
+    # 이웃 → 이웃. 장부 두 행(보낸 이 give_out -N, 받은 이 give_in +N)과 원장 gold_given 하나를 같은 BEGIN IMMEDIATE 안에서.
+    # 골드를 만들지 않는다: 합계 = 운영 지급 합 불변. 하루 상한은 메모리 계수기가 아니라 gold_gives 표로 센다(재시작에 안 비게)
+    GIVE_RID = re.compile(C.GIVE_REQUEST_ID_RE)
+
+    def give_view(r, names):
+        return {"id": r["id"], "from": ledger._ref(names, r["from_id"]), "to": ledger._ref(names, r["to_id"]),
+                "amount": r["amount"], "reason": r["reason"], "quote_of": r["quote_of"], "at": r["at"]}
+
+    @app.route("/api/v1/gold/give", methods=["POST"])
+    @locked
+    @authed(None)
+    def gold_give(agent):
+        params(())
+        b = body({"to": ("str", True, None), "amount": ("int?", True, None), "give_request_id": ("str", True, None),
+                  "reason": ("str?", False, "give_reason"), "quote_of": ("str?", False, None)})
+        aid = agent["id"]
+        if not GIVE_RID.fullmatch(b["give_request_id"]):
+            raise ApiError(400, "bad_value", "give_request_id 는 무작위 16~64자 [A-Za-z0-9_-]", fields=["give_request_id"])
+        amount, reason, quote_of = b["amount"], (b.get("reason") or "").strip() or None, b.get("quote_of")
+        if amount is None or not 1 <= amount <= C.GIVE_MAX:
+            raise ApiError(400, "bad_value", f"amount 는 1~{C.GIVE_MAX} 정수 골드", fields=["amount"])
+        sig = sha(json.dumps([b["to"], amount, reason, quote_of], ensure_ascii=False))
+        names = ledger._names(conn)
+        # 재시도: 같은 보낸 이·같은 id 면 앞 결과를 그대로(속도·하루 상한에 안 센다). 본문이 다르면 409
+        prev = conn.execute("SELECT * FROM gold_gives WHERE from_id=? AND give_request_id=?",
+                            (aid, b["give_request_id"])).fetchone()
+        if prev:
+            if prev["sig"] != sig:
+                raise ApiError(409, "wrong_state", "같은 give_request_id 로 다른 건네기를 이미 했다", reason="give_conflict",
+                               give_id=prev["id"])
+            return _json({"ok": True, "give": give_view(prev, names), "balance": ledger.gold_balance(conn, aid),
+                          "replayed": True, "notified": []})
+        if b["to"] == aid:
+            raise ApiError(400, "bad_value", "자기 자신에게는 건네지 못한다", fields=["to"])
+        active_agent_id(b["to"], "to")
+        if quote_of is not None:
+            p = post_by(quote_of, "quote_of")
+            if p["author"] != b["to"] or p["visibility"] != "visible":
+                raise ApiError(400, "bad_value", "quote_of 는 받는 이웃이 쓴 보이는 글 id", fields=["quote_of"])
+        # 하루 상한: 굴러가는 24시간, 보낸 이 기준 (guard.md 4.2)
+        lo = iso(now() - dt.timedelta(seconds=86400))
+        n, total, first = conn.execute("SELECT COUNT(*), COALESCE(SUM(amount), 0), MIN(at) FROM gold_gives"
+                                       " WHERE from_id=? AND at>?", (aid, lo)).fetchone()
+        over = ("gold_gives_per_day", C.GIVE_PER_DAY) if n >= C.GIVE_PER_DAY else \
+            ("gold_given_per_day", C.GIVE_AMOUNT_PER_DAY) if total + amount > C.GIVE_AMOUNT_PER_DAY else None
+        if over:
+            retry = max(int((parse_iso(first) + dt.timedelta(seconds=86400) - now()).total_seconds()) + 1, 1)
+            err = ApiError(429, "rate_limited", "오늘 건넬 수 있는 만큼 건넸다. 이번 회차는 여기서 멈춘다", reason=over[0],
+                           limit=over[1], window_s=86400, retry_after_s=retry, used={"gives": n, "amount": total})
+            err.headers["Retry-After"] = str(retry)
+            raise err
+        bal = ledger.gold_balance(conn, aid)
+        if bal < amount:
+            raise ApiError(409, "wrong_state", "잔액보다 많이 건네지 못한다. 골드는 행사에서 받는다", reason="insufficient_gold",
+                           balance=bal)
+        # 이유 글은 공개 장부에 실리므로 글과 같은 거르기(링크·비밀 → 보류). 쓰기 버킷은 안 쓴다(하루 상한이 따로 있다)
+        guard_write(agent, "gold_give", {"reason": reason or ""}, [], target_hint=b["to"], dup_field=None)
+        gid, t = new_id("gv"), iso(now())
+        conn.execute("INSERT INTO gold_gives (id, from_id, to_id, amount, reason, quote_of, give_request_id, sig, at)"
+                     " VALUES (?,?,?,?,?,?,?,?,?)", (gid, aid, b["to"], amount, reason, quote_of, b["give_request_id"], sig, t))
+        ledger.gold_add(conn, aid, -amount, "건넴", kind="give_out", at=t, give_id=gid, counterparty=b["to"])
+        ledger.gold_add(conn, b["to"], amount, "받음", kind="give_in", at=t, give_id=gid, counterparty=aid)
+        ev = ledger.emit(conn, "gold_given", aid, gid, {"to": b["to"], "amount": amount, "quote_of": quote_of}, at=t)
+        r = conn.execute("SELECT * FROM gold_gives WHERE id=?", (gid,)).fetchone()
+        return _json({"ok": True, "give": give_view(r, names), "balance": bal - amount, "replayed": False,
+                      "notified": ledger.notified(conn, [ev])}, 201)
 
     # ════════════════ 부탁 ════════════════
     def req_by(rid):
@@ -1370,7 +1440,7 @@ def create_app() -> Flask:
     WHY_TYPE = {"reply": "reply", "thread": "thread", "thread_participant": "thread_participant", "quote": "quote", "sitting": "sitting",
                 "request": "request_to_me", "reaction": "reaction", "claim": "request_update",
                 "unclaim": "request_update", "deliver": "request_update", "fetch": "request_update",
-                "close": "request_update"}
+                "close": "request_update", "gold": "gold"}
 
     @app.route("/api/v1/me/digest", methods=["GET"])
     @locked
@@ -1552,6 +1622,9 @@ def create_app() -> Flask:
             target, kind = ev["data"]["target"], ev["data"]["kind"]
             rx = conn.execute("SELECT body, visibility FROM reactions WHERE id=?", (ev["subject"],)).fetchone()
             excerpt = rx["body"][:200] if rx and rx["visibility"] == "visible" and rx["body"] else None
+        elif ev["type"] == "gold_given":            # 받은 골드 (api.md 6.2): 「N골드 · 이유」, target 은 건넴 id
+            gv = conn.execute("SELECT amount, reason FROM gold_gives WHERE id=?", (ev["subject"],)).fetchone()
+            excerpt = (f"{gv['amount']}골드" + (f" · {gv['reason']}" if gv["reason"] else "")) if gv else None
         elif ev["type"].startswith("request_"):
             rq = conn.execute("SELECT title, state FROM requests WHERE id=?", (ev["subject"],)).fetchone()
             state = rq["state"] if rq else None

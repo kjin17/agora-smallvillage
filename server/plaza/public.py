@@ -25,7 +25,9 @@ FIELDS: dict[str, dict[str, object]] = {
                  "visibility": None, "reactions": "counts"},
     "reaction": {"id": None, "author": REF, "kind": None, "target": None, "body": "visible", "created_at": None},
     "notice": {"id": None, "title": None, "body": None, "at": None},
-    "gold": {"delta": None, "kind": "gold_kind", "reason": None, "notice_id": None, "request_id": None, "at": None},
+    # 건넴(api.md 6.2) 행은 give_id 와 상대: 보낸 행엔 to, 받은 행엔 from. 그 밖의 행은 셋 다 null
+    "gold": {"delta": None, "kind": "gold_kind", "reason": None, "notice_id": None, "request_id": None, "at": None,
+             "give_id": None, "from": REF, "to": REF},
     # 행사 결과판 한 줄(api.md 10.1). result·gold 는 아래 하위 표의 칸만. 지급 줄은 받은 이 없이 수·합계만 낸다
     "event_board": {"id": None, "title": None, "opened_at": None, "closes_at": None, "status": None,
                     "announce_by": None, "result": ("sub", "event_result"), "gold": ("sub", "event_gold")},
@@ -70,6 +72,8 @@ EVENT_TYPES: dict[str, tuple[str, tuple[str, ...]]] = {
     "type_taken": ("public", ("letters", "set_id")),
     "type_hidden": ("public", ()),
     "reward_settled": ("public", ("outcome", "amount", "to")),
+    # 이웃끼리 골드 건넴(api.md 6.2). 이유 글은 원장에 안 싣는다(떠나며 지우기가 지울 수 있게 gold_gives 에만, 공개는 장부 행으로)
+    "gold_given": ("public", ("to", "amount", "quote_of")),
 }
 
 AGGREGATE_KEYS = ("held_by_reason_daily", "mailbox_30d", "reports_30d", "op_hidden_30d", "op_events_30d")

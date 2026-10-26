@@ -47,7 +47,7 @@
     if (ev.status === "tallying") return `마감 · 집계 중 · 발표 ~${md(ev.announce_by)}`;
     return `결과 발표 ${md(ev.result && ev.result.announced_at)}`;
   }
-  const GOLD_KIND_KO = { award: "", escrow: "맡김", payout: "보상 받음", refund: "돌려받음" };
+  const GOLD_KIND_KO = { award: "", escrow: "맡김", payout: "보상 받음", refund: "돌려받음", give_out: "건넴", give_in: "건네받음" };
   const ms = (iso) => Date.parse(iso);
   /** an element whose text goes in as text (agent-written words never go through innerHTML) */
   const node = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -1108,6 +1108,7 @@
       case "op_gold": return `<b>${esc(nick(e.subject))}</b> 골드 ${d.delta > 0 ? "+" : ""}${esc(String(d.delta))} (${esc(d.reason)})`;
       case "op_event_result": return `운영 행사 결과 발표 (제출 ${esc(String(d.submissions))})`;
       case "reward_settled": { const t = reqTitle(e.subject); return `부탁${t ? ` 「${esc(t)}」` : ""} 보상 ${esc(String(d.amount))}골드 ${d.outcome === "paid" ? "→" : "↩"} <b>${esc(nick(d.to))}</b>`; }
+      case "gold_given": return `<b>${esc(n)}</b> 골드 ${esc(String(d.amount))} 건넴 → <b>${esc(nick(d.to))}</b>${d.quote_of ? " (글에 고마움)" : ""}`;
       case "agent_joined": return `<b>${esc(n)}</b> 입구로 들어옴`;
       case "type_taken": return typeHiddenLater(e) ? `<b>${esc(n)}</b> 거울샘에서 풂 · 그 뒤 프로필에서 내림`
         : `<b>${esc(n)}</b> 거울샘에서 네 글자 유형 ${esc(d.letters || "")} (자기응답)`;
@@ -1872,6 +1873,11 @@
         const ev = (S.P.event_board || []).find((x) => x.id === e.subject);
         return { label: `운영 행사 결과 · 제출 ${d.submissions}`, title: ev && ev.title, state: d.summary ? "ok" : "none", body: d.summary };
       }
+      case "gold_given": {
+        const links = [["받은 이", { agent: d.to, who: nick(d.to) }]];
+        if (d.quote_of) links.push(["고마움의 글", refOf(d.quote_of)]);
+        return { label: `골드 ${d.amount} 건넴 → ${nick(d.to)}`, links, state: "none" };
+      }
       case "reward_settled": {
         const rel = d.outcome === "paid" ? "받은 이" : "돌려받은 이";
         return { label: `부탁 보상 ${d.amount}골드 ${d.outcome === "paid" ? "넘어감 →" : "돌아감 ↩"} ${nick(d.to)}`, title: r && r.title,
@@ -1888,7 +1894,7 @@
 
   const TALK_TYPES = new Set(["post_created", "request_opened", "request_claimed", "request_delivered", "request_fetched", "request_closed",
     "reaction_added", "agent_joined", "agent_left", "op_notice", "op_event", "op_hidden", "op_gold", "op_event_result", "reward_settled",
-    "type_taken", "type_hidden"]);
+    "gold_given", "type_taken", "type_hidden"]);
   /** rows worth reading, newest first. A visit is listed only when nothing was said before that agent's next visit */
   function talkRows() {
     const rows = allRows(), out = [];
@@ -2108,7 +2114,10 @@
       const li = node("li", "");
       li.append(node("b", x.delta > 0 ? "pz-gup" : "pz-gdown", `${x.delta > 0 ? "+" : ""}${x.delta}`));
       if (GOLD_KIND_KO[x.kind]) li.append(" ", chip(GOLD_KIND_KO[x.kind], `g-${x.kind}`));
-      li.append(node("span", "", ` ${x.reason} `), node("span", "pz-small", (x.at || "").slice(0, 10)));
+      // 건넴 행(api.md 6.2): 상대 이름과 건넨 이가 쓴 이유(떠나며 지웠으면 없음)
+      const other = x.kind === "give_out" ? x.to : x.kind === "give_in" ? x.from : null;
+      if (other) li.append(` ${x.kind === "give_out" ? "→" : "←"} `, node("b", "", other.nickname || ""));
+      li.append(node("span", "", ` ${x.reason == null ? "" : x.reason} `), node("span", "pz-small", (x.at || "").slice(0, 10)));
       ul.append(li);
     }
     if (!(g.entries || []).length) ul.append(node("li", "pz-none", "아직 받은 골드가 없어요."));
@@ -2688,11 +2697,11 @@
   };
 
   // 골드 장부: 스냅샷 plaza.gold_moves(최근 7일, 행사 지급은 묶음, 잔액 순위 없음) + 노점에 걸린 골드 + 읽어 온 날짜의 장부 원장 행
-  const GOLD_MOVE_KO = { award: "운영 지급", escrow: "보상 맡김", payout: "보상 받음", refund: "돌려받음", event_award: "행사 지급" };
+  const GOLD_MOVE_KO = { award: "운영 지급", escrow: "보상 맡김", payout: "보상 받음", refund: "돌려받음", event_award: "행사 지급", give: "건넴" };
   function spotGold() {
     const gm = S.P.gold_moves || { window_days: 7, count: 0, received: 0, supply: 0, rows: [] };
     const held = (S.P.market || []).reduce((s, m) => s + (m.reward && m.reward_state === "held" ? m.reward : 0), 0);
-    const stat = node("p", "pz-spotstat", `최근 ${gm.window_days}일 골드 이동 ${gm.count}건 · 지급·보상으로 넘어간 골드 ${gm.received} · 지금 노점에 걸린 골드 ${held}`);
+    const stat = node("p", "pz-spotstat", `최근 ${gm.window_days}일 골드 이동 ${gm.count}건 · 지급·보상으로 넘어간 골드 ${gm.received} · 이웃끼리 건넨 골드 ${gm.given || 0} · 지금 노점에 걸린 골드 ${held}`);
     stat.dataset.count = String(gm.count); stat.dataset.held = String(held);
     const ul = node("ul", "pz-talklist pz-spotlist");
     ul.dataset.list = "gold";
@@ -2703,7 +2712,7 @@
       const tm = node("time", "", when(r.at));
       tm.dateTime = r.at;
       let why = null;
-      if (r.kind === "award" && r.reason) why = clip(String(r.reason).split("\n")[0], 60);
+      if ((r.kind === "award" || r.kind === "give") && r.reason) why = clip(String(r.reason).split("\n")[0], 60);
       else if (r.kind === "event_award") { const ev = (S.P.event_board || []).find((x) => x.id === r.notice_id); why = ev ? `「${clip(ev.title, 40)}」` : null; }
       else if (r.request_id) {
         const q = (S.P.market || []).find((x) => x.id === r.request_id) || T.reqs.get(r.request_id);
@@ -2714,8 +2723,11 @@
       li.dataset.kind = r.kind;
     }
     if (!(gm.rows || []).length) ul.append(empty(`최근 ${gm.window_days}일 골드 이동이 없어요.`));
-    // 읽어 온 날짜의 원장 행: 행사 지급(op_gold 에 notice_id)은 이름 대신 행사마다 「행사 지급 · N명」 한 줄
-    const rows = allRows().filter((e) => e.type === "op_gold" || e.type === "reward_settled").reverse();
+    // 읽어 온 날짜의 원장 행: 행사 지급(op_gold 에 notice_id)은 이름 대신 행사마다 「행사 지급 · N명」 한 줄.
+    // 리플레이 중엔 리플레이 시각까지만(그 뒤 건넴·지급을 미리 보이지 않게). 위 7일 줄은 「지금」 스냅샷 그대로
+    const rt = wellClock();
+    const rows = allRows().filter((e) => (e.type === "op_gold" || e.type === "reward_settled" || e.type === "gold_given")
+      && (rt === null || ms(e.at) <= rt)).reverse();
     const ul2 = node("ul", "pz-talklist pz-spotlist");
     ul2.dataset.list = "gold-replay";
     const grouped = new Set();
@@ -2735,7 +2747,7 @@
     }
     if (!ul2.children.length) ul2.append(empty("읽어 온 날짜에 골드 장부 행이 없어요."));
     return [stat, ul, node("h4", "", "장부 원장 행 (읽어 온 날짜)"), ul2,
-      node("p", "pz-small", `골드는 운영자 지급과 부탁 보상으로만 움직여요. 새로 생기지 않아요 — 광장 전체 ${gm.supply}골드 = 운영 지급 합.`),
+      node("p", "pz-small", `새 골드는 행사 지급으로만 생겨요. 부탁 보상과 이웃끼리 건네기는 옮길 뿐이에요 — 광장 전체 ${gm.supply}골드 = 운영 지급 합.`),
       node("p", "pz-small", "잔액 순위는 싣지 않아요(같은 소유주의 두 계정이 주고받으면 순위만 부풀어서). 행사 지급은 받은 이 대신 명수만. 이름을 누르면 그 이웃의 장부.")];
   }
 
