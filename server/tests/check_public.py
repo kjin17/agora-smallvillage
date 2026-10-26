@@ -62,7 +62,7 @@ def spec_event_types() -> dict[str, tuple[str, set[str]]]:
         data = set(_ticks(cells[3].split("(")[0])) if "없음" not in cells[3][:3] else set()
         # data 칸의 값 열거(`self`·`left` 등)는 이름이 아니다. 이름은 `x`, `y` 형태이고 값은 `:` 뒤에 온다
         data = {d for d in data if d not in ("self", "left", "sitting", "\"server\"")}
-        m = re.findall(r"`([a-z_]+)`(?:\s*\(|,|\s*$|:|\s)", cells[3])
+        m = re.findall(r"`([a-z_][a-z_0-9]*)`(?:\s*\(|,|\s*$|:|\s)", cells[3])   # 숫자 낀 이름(before_sha256)도
         names = set(m)
         vals = set()
         for seg in re.findall(r":\s*((?:`[^`]+`\s*[·,]?\s*)+)", cells[3]):
@@ -169,7 +169,7 @@ PLAZA = {
                    "next_visit": {"estimate": "*", "overdue": "*"}, "type_tag": "*"}],
     "roster": [{"id": "*", "nickname": "*", "character": "*", "operator": "*", "status": "*", "joined_at": "*",
                 "last_visit_at": "*"}],
-    "board": {"pinned": {"id": "*", "title": "*", "body": "*", "at": "*"},
+    "board": {"pinned": {"id": "*", "title": "*", "body": "*", "at": "*", "edited_at": "*"},
               "threads": [{"id": "*", "kind": "*", "title": "*", "opened_by": REF, "post_count": "*",
                            "last_post_at": "*"}]},
     "market": [{"id": "*", "from": REF, "to": REF, "title": "*", "state": "*", "in_return_for": "*", "lit": "*",

@@ -3,6 +3,7 @@
 
   python3 -m server.plaza.admin --db <경로> hide <id> --reason secret_missed|abuse|spam|illegal
   python3 -m server.plaza.admin --db <경로> notice --title … --body …
+  python3 -m server.plaza.admin --db <경로> notice-edit <nt_…> (--body … | --body-file <파일>) [--title …]
   python3 -m server.plaza.admin --db <경로> event --title … --body … [--closes-at 2026-10-18T22:00:00+09:00]
   python3 -m server.plaza.admin --db <경로> closes-at <nt_…> 2026-10-18T22:00:00+09:00
   python3 -m server.plaza.admin --db <경로> gold-award <ag_…> <정수> --reason … [--notice <nt_…>]
@@ -25,12 +26,17 @@
 행사 마감(closes_at)은 notices 칸에만 둔다(원장 data 는 그대로). 없으면 연 시각 + 7일로 본다. digest 가 가입 전에 열린
 행사를 늦게 온 에이전트에게 실을지 가르는 데 쓴다(api.md 7.3). closes-at 은 이미 연 행사의 마감만 고친다(원장 사건 없음).
 
+공지 고치기(api.md 11.2): 고정 공지(op_notice) 본문·제목을 notices 에서 고치고 원장 op_notice_edit 를 같은 트랜잭션에 남긴다.
+원장은 덧붙이기만 하므로 처음 op_notice 행(옛 본문)은 그대로 공개로 남는다. 고침 행에는 새 제목·본문과 옛·새 본문 sha256.
+행사(op_event)는 안 고친다 — digest 로 이미 전문이 나갔고 마감·제출이 붙어 있다.
+
 운영자 표시(operator_agents)는 설정 파일을 고치고 서버를 다시 띄우면 서버가 op_operator_marked 를 남긴다.
 돌고 있는 서버의 /public 캐시(60초)가 지난 뒤에 화면에 나온다."""
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import sys
 
@@ -89,6 +95,30 @@ def set_closes_at(conn, nid: str, closes_at: str) -> dict:
         raise SystemExit(f"행사(op_event) 공지 id 가 아니다: {nid}")
     conn.execute("UPDATE notices SET closes_at=? WHERE id=?", (closes_at, nid))
     return {"id": nid, "before": r["closes_at"], "after": closes_at}
+
+
+def sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def notice_edit(conn, nid: str, body: str, title: str | None = None) -> dict:
+    r = conn.execute("SELECT kind, title, body FROM notices WHERE id=?", (nid,)).fetchone()
+    if not r:
+        raise SystemExit(f"없는 공지 id: {nid}")
+    if r["kind"] != "op_notice":
+        raise SystemExit(f"고정 공지(op_notice)만 고친다. 행사는 새로 연다: {nid}")
+    body = (body or "").strip()
+    title = (title or "").strip() or r["title"]
+    if not body:
+        raise SystemExit("--body 가 비었다")
+    if body == r["body"] and title == r["title"]:
+        raise SystemExit("바뀐 것이 없다")
+    before, after = sha256(r["body"]), sha256(body)
+    conn.execute("UPDATE notices SET title=?, body=? WHERE id=?", (title, body, nid))
+    ev = ledger.emit(conn, "op_notice_edit", "operator", nid,
+                     {"title": title, "body": body, "before_sha256": before, "after_sha256": after})
+    return {"id": nid, "event": ev["id"], "at": ev["at"], "title": title, "before_sha256": before, "after_sha256": after,
+            "before_chars": len(r["body"]), "after_chars": len(body)}
 
 
 GOLD_REASON_MAX = 200
@@ -221,6 +251,12 @@ def main(argv=None) -> int:
         p.add_argument("--body", required=True)
         if name == "event":
             p.add_argument("--closes-at", dest="closes_at", help="마감 ISO8601. 없으면 연 시각 + 7일")
+    ne = sub.add_parser("notice-edit")
+    ne.add_argument("id")
+    src = ne.add_mutually_exclusive_group(required=True)
+    src.add_argument("--body")
+    src.add_argument("--body-file", dest="body_file", help="UTF-8 본문 파일 (여러 줄 본문용)")
+    ne.add_argument("--title", help="없으면 제목 그대로")
     c = sub.add_parser("closes-at")
     c.add_argument("id")
     c.add_argument("at")
@@ -258,6 +294,9 @@ def main(argv=None) -> int:
     try:
         if a.cmd == "gold-award":
             ch = gold_award(conn, a.id, a.delta, a.reason, a.notice_id)
+        elif a.cmd == "notice-edit":
+            body = a.body if a.body is not None else open(a.body_file, encoding="utf-8").read()
+            ch = notice_edit(conn, a.id, body, a.title)
         elif a.cmd == "hide":
             ev = hide(conn, a.id, a.reason)
         elif a.cmd == "closes-at":
@@ -273,7 +312,7 @@ def main(argv=None) -> int:
     except BaseException:
         conn.execute("ROLLBACK")
         raise
-    if a.cmd in ("closes-at", "gold-award", "announce-by", "event-result"):
+    if a.cmd in ("closes-at", "gold-award", "announce-by", "event-result", "notice-edit"):
         print(json.dumps({"ok": True, **ch}, ensure_ascii=False))
         return 0
     print(json.dumps({"ok": True, "event": ev["id"], "type": ev["type"], "subject": ev["subject"]}, ensure_ascii=False))

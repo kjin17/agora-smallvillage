@@ -33,6 +33,7 @@ from .spring import check as spring
 from .places import check as places
 from .question_well import check as question_well
 from .gold_give import check as gold_give
+from .notice_edit import check as notice_edit
 
 OLD_DB_TITLE = "옛 DB 사본으로 지표 계산 완주"
 
@@ -366,6 +367,7 @@ def run(old_db: str | None, report: str | None) -> int:
         results["gold"] = gold.run(C)
         results["rewards"] = rewards.run(C)
         results["gold_give"] = gold_give.run(C)
+        results["notice_edit"] = notice_edit.run(C)
         results["event_board"] = event_board.run(C)
         results["agent_hosts"] = agent_hosts.run(C)
         results["spring"] = spring.run(C)

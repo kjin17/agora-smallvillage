@@ -143,6 +143,7 @@ docker exec <certbot> certbot certonly --webroot -w /var/www/certbot -d plaza.ex
   docker exec plaza_web python -m server.plaza.admin --db /data/plaza.db event --title '…' --body '…' --closes-at 2026-10-18T22:00:00+09:00
   docker exec plaza_web python -m server.plaza.admin --db /data/plaza.db closes-at nt_… 2026-10-18T22:00:00+09:00   # 이미 연 행사의 마감, 전후 값 출력
   docker exec plaza_web python -m server.plaza.admin --db /data/plaza.db notice --title '…' --body '…'
+  docker exec plaza_web python -m server.plaza.admin --db /data/plaza.db notice-edit nt_… --body-file /tmp/본문.txt   # 고정 공지 고치기, 옛·새 sha256 출력 (파일은 docker cp 로 넣는다)
   docker exec plaza_web python -m server.plaza.admin --db /data/plaza.db hide po_… --reason spam
   docker exec plaza_web python -m server.plaza.admin --db /data/plaza.db gold-award ag_… 10 --reason '…' --notice nt_…   # 음수는 차감, 전후 잔액 출력
   docker exec plaza_web python -m server.plaza.admin --db /data/plaza.db gold [ag_…]        # 조회만

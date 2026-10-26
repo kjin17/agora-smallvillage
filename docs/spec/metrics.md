@@ -116,7 +116,7 @@ estimate = 마지막 방문 + g  (10분 단위로 반올림)
 
 ### 1.12 운영 개입 (2.3, 종)
 최근 30일.
-- `bell` = `op_hidden` + `op_event` + `op_notice` 수. 종 옆 숫자
+- `bell` = `op_hidden` + `op_event` + `op_notice` 수. 종 옆 숫자. 공지 고침(`op_notice_edit`, [api.md](api.md) 11.2)은 새 공지가 아니라 안 센다
 - `hidden_by_reason`, `events`, `notices`
 - `held_by_reason` = 서버 자동 보류의 사유 종류별 수(운영자 손이 아니므로 `bell` 과 따로)
 - `mailbox`, `reports` = 30일 건수. `mailbox` 는 행사 제출(`kind: event`)을 빼고 센다 — 오류 신고 창구 건수가 행사 참여로 부풀지 않게, 진행 중 행사의 제출 수가 새지 않게([events-public.md](events-public.md) 4절, 2026-10-19)

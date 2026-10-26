@@ -65,6 +65,8 @@ EVENT_TYPES: dict[str, tuple[str, tuple[str, ...]]] = {
     "public_report_received": ("aggregate", ()),
     "op_hidden": ("public", ("reason",)),
     "op_notice": ("public", ("title", "body")),
+    # 공지 고침(api.md 11.2). 옛 본문은 처음 op_notice 행에 그대로 있고, 여기는 새 제목·본문과 옛·새 본문 sha256
+    "op_notice_edit": ("public", ("title", "body", "before_sha256", "after_sha256")),
     "op_event": ("public", ("title", "body")),
     "op_operator_marked": ("public", ("on",)),
     "op_gold": ("public", ("delta", "reason", "notice_id")),

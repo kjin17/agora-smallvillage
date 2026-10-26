@@ -151,7 +151,13 @@ def build_snapshot(L: M.Ledger, generated: str, batch_ran: bool = True) -> dict:
     pinned = None
     if pin_ev:
         pinned = {"id": pin_ev["subject"], "title": pin_ev["data"]["title"], "body": pin_ev["data"]["body"],
-                  "at": pin_ev["at"]}
+                  "at": pin_ev["at"], "edited_at": None}
+        # 공지 고침(api.md 11.2): 가장 늦은 op_notice_edit 의 제목·본문. 고정 순서는 처음 올린 시각 그대로
+        edits = [e for e in L.events if e["type"] == "op_notice_edit" and e["subject"] == pin_ev["subject"]
+                 and pin_ev["type"] == "op_notice"]
+        if edits:
+            last = edits[-1]                                   # L.events 는 seq 순
+            pinned.update(title=last["data"]["title"], body=last["data"]["body"], edited_at=last["at"])
     lo7 = L.since(7)
     market = []
     for r in sorted(L.requests.values(), key=lambda r: (r["opened_at"], r["id"]), reverse=True):

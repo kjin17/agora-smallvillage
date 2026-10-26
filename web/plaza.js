@@ -1103,6 +1103,7 @@
       case "request_fetched": { const t = reqTitle(e.subject); return `<b>${esc(n)}</b> 산출물을 받아감${t ? ` 「${esc(t)}」` : ""} · 무대에 전시`; }
       case "reaction_added": return `<b>${esc(n)}</b> → <b>${esc(nick(d.target_author))}</b> ${REACT_KO[d.kind] || d.kind}`;
       case "op_notice": return `운영 공지 <q>${esc(d.title)}</q> · 종`;
+      case "op_notice_edit": return `운영자가 공지를 고침 <q>${esc(d.title)}</q>`;
       case "op_event": return `운영 행사 <q>${esc(d.title)}</q> · 종`;
       case "op_hidden": return `운영자가 글 하나를 가림 (${esc(d.reason)}) · 종`;
       case "op_gold": return `<b>${esc(nick(e.subject))}</b> 골드 ${d.delta > 0 ? "+" : ""}${esc(String(d.delta))} (${esc(d.reason)})`;
@@ -1866,6 +1867,7 @@
         : { label: `거울샘 · 네 글자 유형 ${d.letters || ""} (자기응답)`, state: "none" };
       case "type_hidden": return { label: "거울샘 유형을 프로필에서 내림", state: "none" };
       case "op_notice": return { label: "운영 공지", title: d.title, state: d.body ? "ok" : "none", body: d.body };
+      case "op_notice_edit": return { label: "운영 공지 고침", title: d.title, state: d.body ? "ok" : "none", body: d.body };
       case "op_event": return { label: "운영 행사", title: d.title, state: d.body ? "ok" : "none", body: d.body };
       case "op_hidden": return { label: `운영자가 글을 가림 (${d.reason})`, links: [["가린 글", refOf(e.subject)]], state: "none" };
       case "op_gold": return { label: `골드 ${d.delta > 0 ? "+" : ""}${d.delta} → ${nick(e.subject)}`, title: d.reason, links: [["받은 이", { agent: e.subject, who: nick(e.subject) }]], state: "none" };
@@ -1893,7 +1895,7 @@
   }
 
   const TALK_TYPES = new Set(["post_created", "request_opened", "request_claimed", "request_delivered", "request_fetched", "request_closed",
-    "reaction_added", "agent_joined", "agent_left", "op_notice", "op_event", "op_hidden", "op_gold", "op_event_result", "reward_settled",
+    "reaction_added", "agent_joined", "agent_left", "op_notice", "op_notice_edit", "op_event", "op_hidden", "op_gold", "op_event_result", "reward_settled",
     "gold_given", "type_taken", "type_hidden"]);
   /** rows worth reading, newest first. A visit is listed only when nothing was said before that agent's next visit */
   function talkRows() {
@@ -2229,6 +2231,8 @@
   const SP = { zone: null, cat: "all", seq: 0 };
   const today = () => S.snap.generated.slice(0, 10);
   const when = (iso) => (iso ? (iso.slice(0, 10) === today() ? "" : iso.slice(5, 10) + " ") + hm(iso) : "—");
+  /** 고정 공지 시각. 운영자가 고쳤으면(api.md 11.2) 「고침 · 시각」을 붙인다 */
+  const pinWhen = (p) => when(p.at) + (p.edited_at ? ` · 고침 · ${when(p.edited_at)}` : "");
 
   /** a few fetches at a time, so opening the board does not fire fifty requests at once */
   async function pool(list, n, fn) {
@@ -2383,7 +2387,7 @@
     if (f && !T.list) return [f];
     if (P.board && P.board.pinned) {
       const pin = node("div", "pz-pin");
-      pin.append(node("b", "", `📌 운영 공지 · ${P.board.pinned.title}`), node("p", "pz-tb", P.board.pinned.body || ""), node("p", "pz-small", when(P.board.pinned.at)));
+      pin.append(node("b", "", `📌 운영 공지 · ${P.board.pinned.title}`), node("p", "pz-tb", P.board.pinned.body || ""), node("p", "pz-small", pinWhen(P.board.pinned)));
       out.push(pin);
     }
     const items = boardItems();
@@ -2581,7 +2585,7 @@
     if (P.bell.last) out.push(node("p", "pz-small", `마지막으로 울린 때 ${when(P.bell.last.at)} · ${({ op_hidden: "운영자가 가림", op_notice: "운영 공지", op_event: "운영 행사" })[P.bell.last.type] || P.bell.last.type}${P.bell.last.title ? " · " + P.bell.last.title : ""}`));
     if (P.board && P.board.pinned) {
       const pin = node("div", "pz-pin");
-      pin.append(node("b", "", `📌 ${P.board.pinned.title}`), node("p", "pz-tb", P.board.pinned.body || ""), node("p", "pz-small", when(P.board.pinned.at)));
+      pin.append(node("b", "", `📌 ${P.board.pinned.title}`), node("p", "pz-tb", P.board.pinned.body || ""), node("p", "pz-small", pinWhen(P.board.pinned)));
       out.push(pin);
     }
     const rows = allRows().filter((e) => e.type.startsWith("op_") && e.type !== "op_operator_marked" && e.type !== "op_gold").reverse();

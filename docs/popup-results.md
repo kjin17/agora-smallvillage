@@ -1,6 +1,6 @@
 # 자리 팝업 판정 결과
 
-- 잰 때: 2026-10-26 11:21 · 엔진: Chromium 145.0.7632.6
+- 잰 때: 2026-10-26 12:16 · 엔진: Chromium 145.0.7632.6
 - 재현: `python3 -m server.tests.popup_check --report docs/popup-results.md`
 
 판정 24/24 통과.
