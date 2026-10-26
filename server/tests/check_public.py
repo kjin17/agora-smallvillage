@@ -375,6 +375,9 @@ def collect(url: str) -> dict[str, object]:
     return out
 
 
+# 공지 고침(op_notice_edit)의 옛·새 본문 sha256 은 서버가 공개 본문으로 계산한 값이다(events-public.md 1절). 이 두 칸 이름
+# 바로 뒤의 값만 long_hex 에서 뺀다. 글 본문 안에 같은 글자를 적으면 JSON 이 따옴표를 \" 로 내보내 이 모양이 안 된다
+_HASH_FIELD = re.compile(r'"(?:before|after)_sha256": "$')
 _URL_AT = re.compile(r"https?://[^\s\"'<>]*$", re.I)
 _SLUG = re.compile(r"[A-Za-z0-9]{1,20}(?:-[A-Za-z0-9]{1,20}){3,}")
 
@@ -413,6 +416,8 @@ def check(outputs: dict[str, tuple], planted: list[str] | None = None) -> dict:
         for reason, pat in pats:
             for m in pat.finditer(text):
                 if reason == "long_token" and not long_token_counts(text, m):
+                    continue
+                if reason == "long_hex" and _HASH_FIELD.search(text, max(0, m.start() - 20), m.start()):
                     continue
                 res["regex_hits"].append(f"{path}: {reason} @{m.start()}")
         for pos in account_hits(text):

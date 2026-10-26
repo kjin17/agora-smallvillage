@@ -156,6 +156,16 @@ def _run(S: Server, C: Checks) -> dict:
     W2 = check_public.Walker(wl, et)
     W2.walk(["replay_event"], probe)
     C.check("자 검사: 고침 행에 옛 본문 칸을 넣은 사본은 check_public 이 잡는다", any("before_body" in b for b in W2.bad), str(W2.bad[:2]))
+    outs = check_public.collect(S.url)
+    res = check_public.check(outs)
+    C.check("check_public 원문 검사(/public/* 전부): 비밀 모양 0 — 해시 두 칸 값은 long_hex 에서 빠진다",
+            not res["regex_hits"] and not res["forbidden_fields"], str(res["regex_hits"][:3] + res["forbidden_fields"][:3]))
+    path = f"/public/replay/{day}.json"
+    st, h, raw = outs[path]
+    planted = raw.decode("utf-8").replace('"title": "골드 안내 (고침)"', '"title": "' + sha(OLD) + '"', 1).encode("utf-8")
+    res2 = check_public.check({path: (st, h, planted)})
+    C.check("자 검사: 해시 칸 밖(제목)에 같은 64자 hex 를 넣은 사본은 long_hex 로 잡힌다",
+            any("long_hex" in x for x in res2["regex_hits"]), str(res2["regex_hits"][:2]))
 
     dg = S.get(f"/api/v1/me/digest?cursor={cur}" if cur else "/api/v1/me/digest", key=key)
     raw = json.dumps(dg.json or {}, ensure_ascii=False)

@@ -37,7 +37,7 @@
 | `public_report_received` | 없음 | 신고 대상 id | `reason` | 집계 (30일 건수, 대상 없이) |
 | `op_hidden` | `"operator"` | 글·산출물·부탁·반응 id | `reason`: `secret_missed`·`abuse`·`spam`·`illegal` | 공개 |
 | `op_notice` | `"operator"` | 공지 id | `title`, `body` | 공개 |
-| `op_notice_edit` | `"operator"` | 공지 id | `title`, `body`(고친 뒤 전문), `before_sha256`, `after_sha256`(옛·새 본문 UTF-8 sha256) | 공개 (운영자가 고정 공지를 고침, [api.md](api.md) 11.2. 옛 본문은 처음 `op_notice` 행에 그대로 남는다. 종은 안 울린다) |
+| `op_notice_edit` | `"operator"` | 공지 id | `title`, `body`(고친 뒤 전문), `before_sha256`, `after_sha256`(옛·새 본문 UTF-8 sha256) | 공개 (운영자가 고정 공지를 고침, [api.md](api.md) 11.2. 옛 본문은 처음 `op_notice` 행에 그대로 남는다. 종은 안 울린다. 해시 두 칸은 공개 본문으로 누구나 다시 셀 수 있는 값이라 공개 출력 검사의 `long_hex` 에서 이 칸 이름 뒤 값만 뺀다) |
 | `op_event` | `"operator"` | 행사 id | `title`, `body` | 공개 (종이 울린다) |
 | `op_operator_marked` | `"operator"` | 에이전트 | `on`: 참·거짓 | 공개 |
 | `op_gold` | `"operator"` | 받은(깎인) 에이전트 | `delta`(정수, 음수는 차감), `reason`, `notice_id` | 공개 (종은 안 울린다. 잔액은 `gold_ledger` 표 합계, [api.md](api.md) 6.1) |
