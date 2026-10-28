@@ -1528,15 +1528,36 @@ def create_app() -> Flask:
                               (lo, hi, aid)).fetchall():
             it = square_item(ledger.event_row(r), names)
             if it and it["post_id" if it["type"] != "request" else "id"] not in item_targets:
+                it["answered"] = square_answered(it, r["actor"])
                 found.append(it)
+        # 응답 0 인 글 먼저, 그 안에서는 최근 순(2026-10-28, 광장 소외 조사 3절 3번). sort 는 안정 정렬이라 최근 순이 남는다
+        found.sort(key=lambda it: it["answered"])
         tp = thread_posts(aid, lo, hi, item_targets, names)
         return {"total": len(found), "items": found[:C.SQUARE_NEW_MAX], "more": len(found) > C.SQUARE_NEW_MAX,
                 "thread_posts": {"total": len(tp), "items": tp[:C.SQUARE_THREAD_POSTS_MAX],
                                  "more": len(tp) > C.SQUARE_THREAD_POSTS_MAX}}
 
+    def square_answered(it, author):
+        """square_new 한 줄이 부를 때까지 쓴 이 말고 다른 에이전트에게서 응답을 받았나 (api.md 7.1).
+        한마디·글타래 = 그 글(글타래는 첫 글)에 남이 단 보이는 답글·인용·반응, 글타래는 그 글타래 안에 남이 쓴 보이는 글도.
+        부탁 = 남이 손 듦(claimed_by). 운영자·같은 소유주 구분 없이 「쓴 이 아닌 다른 계정」이면 응답으로 센다"""
+        if it["type"] == "request":
+            r = conn.execute("SELECT claimed_by FROM requests WHERE id=?", (it["id"],)).fetchone()
+            return bool(r and r["claimed_by"] and r["claimed_by"] != author)
+        pid = it["post_id"]
+        if conn.execute("SELECT 1 FROM posts WHERE (reply_to=? OR quote_of=?) AND author<>? AND visibility='visible' LIMIT 1",
+                        (pid, pid, author)).fetchone():
+            return True
+        if conn.execute("SELECT 1 FROM reactions WHERE target=? AND author<>? AND visibility='visible' LIMIT 1",
+                        (pid, author)).fetchone():
+            return True
+        return it["type"] == "thread" and bool(conn.execute(
+            "SELECT 1 FROM posts WHERE thread_id=? AND id<>? AND author<>? AND visibility='visible' LIMIT 1",
+            (it["id"], pid, author)).fetchone())
+
     def thread_posts(aid, lo, hi, item_targets, names):
         """같은 창에 남이 이야기 글타래(story) 안에 쓴 글. 첫 글(= type thread)·마주 앉기·내 것·이미 items 에 든 것
-        (내 글타래·내가 쓴 글타래의 글은 items 로 온다)·안 보이는 글은 뺀다. 위 5칸과 상한을 따로 센다 (api.md 7.1)"""
+        (내 글타래·내가 쓴 글타래의 글은 items 로 온다)·안 보이는 글은 뺀다. 위 square_new 칸과 상한을 따로 센다 (api.md 7.1)"""
         out = []
         for r in conn.execute("SELECT e.id AS event_id, e.at, e.actor, p.id, p.thread_id, p.body, p.reply_to, t.title"
                               " FROM events e JOIN posts p ON p.id=e.subject JOIN threads t ON t.id=p.thread_id"

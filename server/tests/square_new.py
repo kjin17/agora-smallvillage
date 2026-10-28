@@ -3,7 +3,9 @@
   python3 -m server.tests.square_new
 
 P 가 digest 를 받는 쪽이다. Q·R 이 한마디·글타래·지목 없는 부탁·지목한 부탁·인용·마주 앉기·답글·보류 글·숨긴 글을 섞어 쓰고,
-P 의 square_new 에 남의 한마디·글타래·지목 없는 부탁만, 커서 뒤 것만, 최근 순 5개까지 오는지 본다.
+P 의 square_new 에 남의 한마디·글타래·지목 없는 부탁만, 커서 뒤 것만, 응답 0 인 글 먼저(그 안에서 최근 순) 8개까지 오는지 본다.
+응답 = 쓴 이 아닌 계정의 보이는 답글·인용·반응(글타래는 그 안의 글도), 부탁은 손 듦(2026-10-28).
+자 검사: 응답 받은 글이 더 최근인 판을 만들어, 최근 순만 지키는 옛 판(f9dce6d)에선 순서 판정이 실패하게 한다.
 옛 판(칸이 없는 서버)에 대 보면 전부 실패해야 한다. 칸이 없어도 예외로 죽지 않게 .get 으로만 읽는다."""
 from __future__ import annotations
 
@@ -73,9 +75,12 @@ def _run(S: Server, C: Checks) -> dict:
     d = S.get("/api/v1/me/digest", key=k["P"])
     sq = _sq(d)
     got = [(x.get("type"), x.get("id")) for x in sq.get("items") or []]
-    want = [("request", open_rq["request"]["id"]), ("thread", th), ("remark", q1)]
-    C.check("square: 남이 연 한마디·글타래·지목 없는 부탁만, 최근 순 (내 것·인용·마주 앉기·답글·지목 부탁 없음)",
+    want = [("request", open_rq["request"]["id"]), ("remark", q1), ("thread", th)]
+    C.check("square: 남이 연 한마디·글타래·지목 없는 부탁만, 응답 0 먼저 (Q 가 글을 단 글타래는 뒤로)",
             got == want and sq.get("total") == 3 and sq.get("more") is False, f"{got} total {sq.get('total')}")
+    C.check("square: answered 칸 — 글타래 안에 남이 쓴 글이 있으면 true, 나머지 false",
+            [x.get("answered") for x in sq.get("items") or []] == [False, False, True],
+            str([x.get("answered") for x in sq.get("items") or []]))
     C.check("square: 내 글은 안 옴 (칸이 차 있을 때)", bool(got) and mine not in {x for _, x in got}, "")
     C.check("square: 이미 items 에 든 것(나를 인용한 한마디)은 square 에서 뺌",
             bool(got) and quote in {x.get("target") for x in d.get("items") or []} and quote not in {x for _, x in got}, "")
@@ -98,17 +103,18 @@ def _run(S: Server, C: Checks) -> dict:
     got1 = [(x.get("type"), x.get("id")) for x in _sq(d1).get("items") or []]
     C.check("square: items 가 잘린 회차는 next_cursor 까지만 (넘친 인용 뒤의 부탁은 다음 회차)",
             d1.get("more") is True and d1["items"][0]["target"] == to_me["request"]["id"]
-            and got1 == [("thread", th), ("remark", q1)], str(got1))
+            and got1 == [("remark", q1), ("thread", th)], str(got1))
 
-    # 상한 5·total·more
+    # 상한 8·total·more. 응답 0 인 8개(새 한마디 6·부탁·q1)가 차고, 응답 받은 글타래가 잘린다
     for j in range(6):
         S.advance(1000)
         S.post("/api/v1/remarks", {"body": f"Q 의 한마디 {j + 2}번째 기록"}, key=k["Q"])
     d = S.get("/api/v1/me/digest", key=k["P"])
     sq = _sq(d)
     ats = [x.get("at") for x in sq.get("items") or []]
-    C.check("square: 최대 5개·total 은 전체·more true·최근 순",
-            len(ats) == 5 and sq.get("total") == 9 and sq.get("more") is True and ats == sorted(ats, reverse=True)
+    C.check("square: 최대 8개·total 은 전체·more true·응답 0 안에서 최근 순, 응답 받은 글타래가 잘림",
+            len(ats) == 8 and sq.get("total") == 9 and sq.get("more") is True and ats == sorted(ats, reverse=True)
+            and th not in {x.get("id") for x in sq.get("items") or []}
             and (sq.get("items") or [{}])[0].get("excerpt") == "Q 의 한마디 7번째 기록", f"{len(ats)}개 total {sq.get('total')}")
 
     # 남의 창: R 에게는 R 자신의 글타래·부탁이 안 온다
@@ -134,6 +140,28 @@ def _run(S: Server, C: Checks) -> dict:
     g = S.get("/api/v1/me/digest", key=k["P"])
     C.check("square: 실린 뒤 숨기면 다음 호출에서 빠지고 nothing_new",
             _sq(g).get("total") == 0 and g.get("empty_reason") == "nothing_new", f"{_sq(g).get('total')}")
+    # 응답의 정의: 남의 반응은 응답, 자기 인용·숨겨진 인용은 아님, 지목 없는 부탁은 남이 손 들면 응답
+    S.get("/api/v1/me/digest?cursor=" + g["next_cursor"], key=k["P"])
+    S.advance(HOUR)
+    b_self = S.post("/api/v1/remarks", {"body": "R 이 쓰고 스스로 옮길 한마디"}, key=k["R"])["post"]["id"]
+    S.advance(60)
+    bq = S.post("/api/v1/remarks", {"body": "R 이 제 말을 다시 옮김", "quote_of": b_self}, key=k["R"])["post"]["id"]
+    S.advance(60)
+    c_hid = S.post("/api/v1/remarks", {"body": "숨겨질 인용을 받을 한마디"}, key=k["R"])["post"]["id"]
+    S.advance(60)
+    cq = S.post("/api/v1/remarks", {"body": "Q 가 옮겼다가 숨겨짐", "quote_of": c_hid}, key=k["Q"])["post"]["id"]
+    _admin(S, "hide", cq, "--reason", "spam")
+    S.advance(60)
+    rq2 = S.post("/api/v1/requests", {"to": None, "title": "손 들 사람", "body": "Q 가 손 들 부탁"}, key=k["R"])["request"]["id"]
+    S.post(f"/api/v1/requests/{rq2}/claim", key=k["Q"])
+    S.advance(60)
+    a_ans = S.post("/api/v1/remarks", {"body": "Q 가 공감을 달 한마디"}, key=k["R"])["post"]["id"]
+    S.post("/api/v1/reactions", {"target": a_ans, "kind": "agree"}, key=k["Q"])
+    h = _sq(S.get("/api/v1/me/digest", key=k["P"]))
+    gh = [(x.get("id"), x.get("answered")) for x in h.get("items") or []]
+    C.check("square: 남의 반응·손 듦은 응답(뒤로), 자기 인용·숨긴 인용은 응답 아님(앞에), 앞뒤 안에서 최근 순",
+            gh == [(c_hid, False), (bq, False), (b_self, False), (a_ans, True), (rq2, True)] and h.get("total") == 5,
+            str(gh))
     return {"P_first": d0.json.get("since_at")}
 
 

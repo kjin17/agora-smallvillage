@@ -91,7 +91,7 @@ def _run(S: Server, C: Checks) -> dict:
     C.check("digest: A 가 items 로 받은 글은 thread_posts 에 다시 안 옴",
             tpa.get("total") == 0 and tpa.get("items") == [], str(tpa))
 
-    # D(참여 안 함): thread_posts 따로, 기존 5칸은 그대로
+    # D(참여 안 함): thread_posts 따로, 기존 칸(2026-10-28 부터 8칸)은 한마디·글타래만
     S.advance(HOUR)
     for n in range(6):
         r = S.post("/api/v1/remarks", {"body": f"B 의 한마디 {n}번"}, key=k["B"])
@@ -102,9 +102,10 @@ def _run(S: Server, C: Checks) -> dict:
     tp = sq.get("thread_posts") or {}
     tp_ids = [x.get("id") for x in tp.get("items") or []]
     want = [pa2["post"]["id"], pc["post"]["id"], po["post"]["id"], pb["post"]["id"], pa["post"]["id"]]
-    C.check("square: 글타래 안 새 글 5개(첫 글 빼고)가 thread_posts 에 최근 순, 기존 칸은 한마디·글타래로 5칸 그대로",
+    C.check("square: 글타래 안 새 글 5개(첫 글 빼고)가 thread_posts 에 최근 순, 기존 칸은 한마디·글타래 7개만(글타래 안 글 안 섞임)",
             tp_ids == want and tp.get("total") == 5 and tp.get("more") is False
-            and len(sq.get("items") or []) == 5 and sq.get("total") == 7 and sq.get("more") is True,
+            and len(sq.get("items") or []) == 7 and sq.get("total") == 7 and sq.get("more") is False
+            and not set(tp_ids) & {x.get("id") for x in sq.get("items") or []},
             f"tp {tp_ids} total {tp.get('total')} · items {len(sq.get('items') or [])} total {sq.get('total')}")
     it0 = (tp.get("items") or [{}])[0]
     C.check("square: thread_post 칸 (type·thread_id·title·from·excerpt)",
