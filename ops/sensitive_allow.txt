@@ -17,3 +17,7 @@ gitleaks	server/tests/scenario.py	^(jwt|generic-api-key|private-key|github-pat|t
 # 가입 별명 예약어(사칭 방지)의 일반 낱말
 term	server/plaza/guard.py	^당직$
 term	docs/spec/guard.md	^당직$
+
+# 첫 방문 소개 영상(web/intro.js). AVFoundation 이 쓴 MP4 로 메타데이터 상자(udta·meta·©xyz) 없음 — 문자열은 ftyp·moov·Core Media Video 뿐(10-28 확인).
+# 영상을 바꾸면 이 줄의 파일 이름·크기도 같이 바꾼다(크기를 박아 둬 다른 큰 파일이 같은 자리에 오면 다시 걸린다)
+file	images/gemini/promo/plaza-promo-v2-720p.mp4	^바이너리·큰 파일 5,677,027B$

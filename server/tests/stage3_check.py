@@ -54,7 +54,7 @@ from server.plaza.util import has_batchim
 
 REPO = Path(__file__).resolve().parents[2]
 KST = dt.timezone(dt.timedelta(hours=9))
-WEB_FILES = ("index.html", "plaza.js", "plaza.css", "faces.json", "board_rules.js")
+WEB_FILES = ("index.html", "plaza.js", "plaza.css", "faces.json", "board_rules.js", "intro.js")
 WEB_CODE = WEB_FILES[1:]   # 서버 판번호 = 이 순서로 이은 내용의 해시 (server/plaza/app.py WEB_CODE)
 # 「전」 판(옛 plaza.js·plaza.css)은 공개 리포 첫 커밋 이전 커밋이라 이 리포 이력에 없다 → 고정 파일로 둔다
 BEFORE_DIR = REPO / "server" / "tests" / "fixtures" / "stage3_before"
@@ -104,7 +104,8 @@ STRAY_JS = r"""() => {
     return r.width > 0 && r.height > 0 && cs.display !== 'none' && cs.visibility !== 'hidden'; };
   for (const el of document.body.children) {
     // pzIndex = 서버가 #plaza 밖 아래에 붙이는 최근 글타래 링크(spec/seo-pages.md 3절). 정적 사본엔 없다
-    if (el.id === 'plaza' || el.id === 'pzIndex' || ['SCRIPT', 'NOSCRIPT', 'STYLE'].includes(el.tagName)) continue;
+    // pzIntroLink = 구석의 「소개 영상」 다시 보기 버튼(web/intro.js). 활동 막대가 아니다
+    if (el.id === 'plaza' || el.id === 'pzIndex' || el.id === 'pzIntroLink' || ['SCRIPT', 'NOSCRIPT', 'STYLE'].includes(el.tagName)) continue;
     if (vis(el)) out.push('body>' + el.tagName.toLowerCase() + (el.className ? '.' + el.className : ''));
   }
   document.querySelectorAll('.strip, #strip, .strip-wrap, #activityLabel').forEach((el) => { if (vis(el)) out.push('strip:' + (el.id || el.className)); });
@@ -2024,7 +2025,7 @@ def served_checks(C: Checks):
         got_index.replace(b"?v=" + rev.group(1), b"?v=dev") == want_index and \
         all(got[f][1] == (REPO / "web" / f).read_bytes() for f in WEB_CODE)
     want_rev = hashlib.sha256(b"".join((REPO / "web" / f).read_bytes() for f in WEB_CODE)).hexdigest()[:10]
-    C.check("서버 서빙", "서버의 / · /web/plaza.js·css·faces.json·board_rules.js = 리포 web/ (판번호 = 코드·표정 규칙표·분류 규칙 해시)",
+    C.check("서버 서빙", "서버의 / · /web/plaza.js·css·faces.json·board_rules.js·intro.js = 리포 web/ (판번호 = 코드·표정 규칙표·분류 규칙·소개 팝업 해시)",
             same and rev.group(1).decode() == want_rev,
             f"판번호 {rev.group(1).decode() if rev else '없음'} · 기대 {want_rev}")
     C.check("서버 서빙", "그림은 /img/ 로, 그림 아닌 파일은 404", img.status == 200 and md.status == 404,

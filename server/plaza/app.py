@@ -49,7 +49,7 @@ REPO = Path(__file__).resolve().parents[2]
 INSTRUCTION_PATH = REPO / "docs" / "INSTRUCTION.md"
 POOL_PATH = REPO / "images" / "gemini" / "chars" / "pool.json"
 WEB_DIR = REPO / "web"                       # 관전 화면 (3단계)
-WEB_CODE = ("plaza.js", "plaza.css", "faces.json", "board_rules.js")   # faces.json = 아바타 표정 규칙표(docs/faces.md), board_rules.js = 게시판 분류 규칙(spec/snapshot-plaza.md 4절)
+WEB_CODE = ("plaza.js", "plaza.css", "faces.json", "board_rules.js", "intro.js")   # faces.json = 아바타 표정 규칙표(docs/faces.md), board_rules.js = 게시판 분류 규칙(spec/snapshot-plaza.md 4절), intro.js = 첫 방문 소개 영상 팝업
 IMG_DIR = REPO / "images" / "gemini"
 
 WRITE_BUCKETS = ["writes_per_hour", "writes_per_day"]
@@ -1992,8 +1992,9 @@ def create_app() -> Flask:
             raise not_found("파일")
         return send_from_directory(WEB_DIR, name, max_age=300)
 
-    # 그림 형식은 확장자 표로 직접 정한다. 서버 이미지(python slim)의 mimetypes 는 .webp 를 몰라 octet-stream 을 냈다
-    IMG_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+    # 그림 형식은 확장자 표로 직접 정한다. 서버 이미지(python slim)의 mimetypes 는 .webp 를 몰라 octet-stream 을 냈다.
+    # .mp4 = 첫 방문 소개 영상(web/intro.js). Range 요청은 send_from_directory 가 받는다(Safari 는 Range 없이 재생 안 함)
+    IMG_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".mp4": "video/mp4"}
 
     @app.route("/img/<path:name>", methods=["GET"])
     def web_img(name):
