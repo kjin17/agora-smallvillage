@@ -2060,6 +2060,22 @@ def square_checks(C: Checks):
             for p in S.get(f"/public/threads/{t['id']}.json")["posts"]:
                 body[p["id"]] = p
         titles = {t["id"]: t["title"] for t in pub["threads"]}
+        made = [e for e in evs if e["type"] == "post_created"]
+
+        def answered(kind, oid, pid, author, p):
+            """api.md 7.1 answered 를 공개 문으로: 남의 보이는 답글·인용·반응(글타래는 안의 남의 글), 부탁은 남의 손 듦"""
+            if kind == "request":
+                return bool(p.get("claimed_by")) and p["claimed_by"] != author
+            if any((p.get("reactions") or {}).values()):
+                return True
+            for e in made:
+                q = body.get(e["subject"])
+                if e["actor"] == author or e["subject"] == pid or (q and q.get("visibility") != "visible"):
+                    continue
+                d = e["data"]
+                if pid in (d.get("reply_to"), d.get("quote_of")) or (kind == "thread" and d.get("thread_id") == oid):
+                    return True
+            return False
 
         def expect(me, targets, keep_hidden=False):
             i0 = next(k for k, e in enumerate(evs) if e["type"] == "agent_joined" and e["actor"] == me)
@@ -2081,10 +2097,11 @@ def square_checks(C: Checks):
                 shown = p.get("visibility", "visible" if p["body"] is not None else "hidden") == "visible"  # 공개 부탁엔 visibility 칸이 없다: 숨김·지움이면 body null
                 if (keep_hidden or shown) and (it[2] or it[1]) not in targets:
                     out.append({"type": it[0], "id": it[1], "post_id": it[2], "title": it[3], "at": e["at"],
-                                "from": e["actor"], "excerpt": (p["body"] or "")[:200] or None})
-            return out[::-1]
+                                "from": e["actor"], "excerpt": (p["body"] or "")[:200] or None,
+                                "answered": answered(it[0], it[1], it[2], e["actor"], p)})
+            return sorted(out[::-1], key=lambda x: x["answered"])           # 응답 0 먼저, 그 안에서 최근 순 (api.md 7.1)
 
-        bad, totals, hidden_seen, probe = [], {}, 0, 0
+        bad, totals, hidden_seen, probe, mixed = [], {}, 0, 0, 0
         for n in D.AGENTS:
             d = S.get("/api/v1/me/digest", key=R.key[n])
             sq = (d.json or {}).get("square_new") or {}
@@ -2092,17 +2109,19 @@ def square_checks(C: Checks):
             want = expect(R.id[n], tg)
             probe += expect(R.id[n], tg, keep_hidden=True) != want
             got = [{"type": x.get("type"), "id": x.get("id"), "post_id": x.get("post_id"), "title": x.get("title"),
-                    "at": x.get("at"), "from": (x.get("from") or {}).get("id"), "excerpt": x.get("excerpt")}
+                    "at": x.get("at"), "from": (x.get("from") or {}).get("id"), "excerpt": x.get("excerpt"),
+                    "answered": x.get("answered")}
                    for x in sq.get("items") or []]
             totals[n] = sq.get("total")
             hidden_seen += sum(1 for x in got if x["id"] in (R.p.get("lx"), R.r["open2"]))
-            if got != want[:5] or sq.get("total") != len(want) or sq.get("more") != (len(want) > 5):
-                bad.append(f"{n}: 받음 {[x['id'] for x in got]} total {sq.get('total')} · 공개 문 {[x['id'] for x in want[:5]]} {len(want)}")
+            if got != want[:8] or sq.get("total") != len(want) or sq.get("more") != (len(want) > 8):
+                bad.append(f"{n}: 받음 {[x['id'] for x in got]} total {sq.get('total')} · 공개 문 {[x['id'] for x in want[:8]]} {len(want)}")
+            mixed += len({x["answered"] for x in want[:8]}) > 1
             er = "nothing_to_me" if want else "nothing_new"
             if d.get("empty_reason") != (None if d.get("items") else er):
                 bad.append(f"{n}: empty_reason {d.get('empty_reason')}")
-        C.check(G, "열한 명 모두: square_new = 공개 문으로 다시 센 남의 한마디·글타래·지목 없는 부탁 (최근 5개·total·more·excerpt)",
-                not bad and any(totals.values()), "; ".join(bad[:3]) or f"total {totals}")
+        C.check(G, "열한 명 모두: square_new = 공개 문으로 다시 센 남의 한마디·글타래·지목 없는 부탁 (응답 0 먼저·최근 순 8개·answered·total·more·excerpt)",
+                not bad and any(totals.values()) and mixed > 0, "; ".join(bad[:3]) or f"total {totals} · 응답 섞인 칸 {mixed}명")
         C.check(G, "숨긴 한마디·숨긴 부탁은 누구의 square_new 에도 없음, 보류 글자도 없음",
                 all(v is not None for v in totals.values()) and hidden_seen == 0 and HELD_MARK not in repr([x.json for x in S.log if "/me/digest" in x.path]), "")
         C.check(G, "자 검사: 숨김 거르기를 빼고 센 기대값은 「다름」", probe > 0, f"{probe}명에게서 다름")
