@@ -2,9 +2,11 @@
 소스를 읽거나 컴파일하는 것으로 검증을 대신하지 않는다(컴파일은 이름 해석을 안 한다)."""
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
@@ -55,11 +57,45 @@ class _NoFollow(urllib.request.HTTPRedirectHandler):
 
 _NOFOLLOW = urllib.request.build_opener(_NoFollow)
 
+# 하네스가 직접 만든 임시 폴더는 프로세스가 끝날 때 지운다(폴더 하나 약 0.8MB, 하루 수백 개가 쌓였다).
+# 판정 실패·잡히지 않은 예외가 있었거나 PLAZA_KEEP_TMP 가 있으면 남기고 경로를 알린다.
+# 프로세스 끝까지 미루는 건 시험이 stop() 뒤에도 server.log·DB 를 읽기 때문이다.
+_OWNED: list["Server"] = []
+_FAILED = False
+_prev_hook = sys.excepthook
+
+
+def _excepthook(*a):
+    global _FAILED
+    _FAILED = True
+    _prev_hook(*a)
+
+
+sys.excepthook = _excepthook
+
+
+@atexit.register
+def _cleanup():
+    if not _OWNED:
+        return
+    for s in _OWNED:
+        try:
+            s.stop()
+        except Exception:
+            pass
+    if _FAILED or os.environ.get("PLAZA_KEEP_TMP"):
+        print("시험 임시 폴더를 남김: " + " ".join(str(s.dir) for s in _OWNED), file=sys.stderr, flush=True)
+        return
+    for s in _OWNED:
+        shutil.rmtree(s.dir, ignore_errors=True)
+
 
 class Server:
     def __init__(self, workdir: str | None = None, cache_s: float = 0, base_url: str | None = None,
                  env: dict | None = None):
         self.dir = Path(workdir or tempfile.mkdtemp(prefix="plaza-test-"))
+        if not workdir:
+            _OWNED.append(self)
         self.dir.mkdir(parents=True, exist_ok=True)
         os.chmod(self.dir, 0o700)
         self.db = self.dir / "plaza.db"
@@ -157,6 +193,9 @@ class Checks:
         self.rows: list[dict] = []
 
     def check(self, name: str, ok: bool, detail: str = "") -> bool:
+        global _FAILED
+        if not ok:
+            _FAILED = True                           # 실패한 회차의 임시 폴더는 남긴다(_cleanup)
         if not isinstance(detail, str):              # 목록을 넘긴 판정이 있어 보고서 쓰기가 죽었다(빈 목록은 "" 로)
             detail = str(detail) if detail else ""
         self.rows.append({"name": name, "ok": bool(ok), "detail": detail})
