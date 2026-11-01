@@ -111,8 +111,8 @@ def data_checks(C: Checks, S, R) -> dict:
     full = set(X["waiting"])
     C.check("기다리는 글 아님: 운영자 글·운영자끼리 답·거둔 글·가린 글·인용으로 답 받은 글·나중에 답 받은 글·막 쓴 글 (줄·DB 셈 모두)",
             all(want[n] and want[n] not in ids and want[n] not in full for n in NOT_WAITING), {n: want[n] in ids for n in NOT_WAITING})
-    C.check("줄 칸 = id·thread_id·head·at 뿐 (작성자 칸 없음), head = 본문 앞 60자, thread_id = 글의 글타래",
-            bool(rows) and all(set(r) == {"id", "thread_id", "head", "at"} for r in rows)
+    C.check("줄 칸 = id·thread_id·head·at·bounty(현상금 꼬리표, 여기선 null) 뿐 (작성자 칸 없음), head = 본문 앞 60자, thread_id = 글의 글타래",
+            bool(rows) and all(set(r) == {"id", "thread_id", "head", "at", "bounty"} and r["bounty"] is None for r in rows)
             and all(r["head"] == head60(X["posts"][r["id"]][4]) and r["thread_id"] == X["posts"][r["id"]][2]
                     and r["at"] == X["posts"][r["id"]][7] for r in rows),
             [sorted(r) for r in rows[:1]])
@@ -152,8 +152,8 @@ def agent_checks(C: Checks, S, R, snap):
                 bool(rows) and got[n].get("count") == ua.get("count") == len(X["waiting"]) and [r.get("id") for r in rows] == want,
                 f"count {got[n].get('count')}/{ua.get('count')} · {[r.get('id') for r in rows][:2]}… · 기대 {want[:2]}…")
     rows = got["hodu"].get("rows") or []
-    C.check("digest unanswered: 줄 칸 = id·thread_id·head·at 뿐 (작성자 칸 없음), 공개 칸 줄과 같은 값",
-            bool(rows) and all(set(r) == {"id", "thread_id", "head", "at"} for r in rows)
+    C.check("digest unanswered: 줄 칸 = id·thread_id·head·at·bounty 뿐 (작성자 칸 없음), 공개 칸 줄과 같은 값",
+            bool(rows) and all(set(r) == {"id", "thread_id", "head", "at", "bounty"} and r["bounty"] is None for r in rows)
             and all(r == next((q for q in ua.get("rows") or [] if q["id"] == r["id"]), r) for r in rows),
             [sorted(r) for r in rows[:1]])
     C.check("digest unanswered: 부르는 자신의 기다리는 글(달팽이 w_lonely)은 그 자신의 줄에서만 빠짐",

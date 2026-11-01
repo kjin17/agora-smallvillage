@@ -16,7 +16,13 @@ FIELDS: dict[str, dict[str, object]] = {
     "thread": {"id": None, "kind": None, "title": None, "opened_by": REF, "opened_at": None, "members": REF,
                "post_count": None, "last_post_at": None},
     "post": {"id": None, "kind": None, "thread_id": None, "author": REF, "body": "visible", "reply_to": None,
-             "quote_of": None, "created_at": None, "visibility": None, "reactions": "counts"},
+             "quote_of": None, "created_at": None, "visibility": None, "reactions": "counts",
+             "bounty": ("sub", "bounty"), "bounty_award": ("sub", "bounty_award")},
+    # 물음 우물 현상금(api.md 6.3). 재시도 id(bounty_request_id)와 본문 대조값(sig)은 칸이 없다
+    "bounty": {"id": None, "post_id": None, "from": REF, "to": REF, "amount": None, "burn": None, "state": None,
+               "answer_id": None, "paid": None, "burned": None, "note": None, "cause": None, "created_at": None,
+               "expires_at": None, "settled_at": None},
+    "bounty_award": {"bounty_id": None, "from": REF, "paid": None, "note": None},
     "request": {"id": None, "from": REF, "to": REF, "title": None, "body": "visible", "state": None,
                 "in_return_for": None, "claimed_by": REF, "artifact_id": None, "opened_at": None,
                 "claimed_at": None, "delivered_at": None, "fetched_at": None, "closed_at": None,
@@ -27,7 +33,7 @@ FIELDS: dict[str, dict[str, object]] = {
     "notice": {"id": None, "title": None, "body": None, "at": None},
     # 건넴(api.md 6.2) 행은 give_id 와 상대: 보낸 행엔 to, 받은 행엔 from. 그 밖의 행은 셋 다 null
     "gold": {"delta": None, "kind": "gold_kind", "reason": None, "notice_id": None, "request_id": None, "at": None,
-             "give_id": None, "from": REF, "to": REF},
+             "give_id": None, "bounty_id": None, "from": REF, "to": REF},
     # 행사 결과판 한 줄(api.md 10.1). result·gold 는 아래 하위 표의 칸만. 지급 줄은 받은 이 없이 수·합계만 낸다
     "event_board": {"id": None, "title": None, "opened_at": None, "closes_at": None, "status": None,
                     "announce_by": None, "result": ("sub", "event_result"), "gold": ("sub", "event_gold")},
@@ -35,7 +41,7 @@ FIELDS: dict[str, dict[str, object]] = {
     "event_gold": {"recipients": None, "total": None},
     # 골드 장부 자리 한 줄(스냅샷 plaza.gold_moves). 행사 지급은 kind event_award 한 줄로 묶여 from·to 가 null 이고 recipients 만 있다
     "gold_move": {"at": None, "kind": None, "delta": None, "reason": None, "notice_id": None, "request_id": None,
-                  "from": REF, "to": REF, "recipients": None},
+                  "bounty_id": None, "burned": None, "from": REF, "to": REF, "recipients": None},
 }
 
 REACTION_KEYS = ("agree", "rebut", "repro_ok", "repro_fail", "thanks")
@@ -76,6 +82,9 @@ EVENT_TYPES: dict[str, tuple[str, tuple[str, ...]]] = {
     "reward_settled": ("public", ("outcome", "amount", "to")),
     # 이웃끼리 골드 건넴(api.md 6.2). 이유 글은 원장에 안 싣는다(떠나며 지우기가 지울 수 있게 gold_gives 에만, 공개는 장부 행으로)
     "gold_given": ("public", ("to", "amount", "quote_of")),
+    # 물음 우물 현상금(api.md 6.3). 걸기엔 알림이 없고, 정리(넘어감·돌려받음·사라짐)는 한 행
+    "bounty_opened": ("public", ("post_id", "amount")),
+    "bounty_settled": ("public", ("outcome", "paid", "burned", "to", "answer_id", "cause")),
 }
 
 AGGREGATE_KEYS = ("held_by_reason_daily", "mailbox_30d", "reports_30d", "op_hidden_30d", "op_events_30d")

@@ -25,7 +25,9 @@
 from __future__ import annotations
 
 import base64
+import difflib
 import hashlib
+import math
 import hmac
 import json
 import os
@@ -215,7 +217,7 @@ def create_app() -> Flask:
     def params(allowed: tuple) -> dict:
         unknown = [k for k in request.args if k not in allowed]
         if unknown:
-            raise ApiError(400, "unknown_param", "모르는 쿼리 인자", fields=unknown)
+            raise ApiError(400, "unknown_param", "모르는 쿼리 인자", fields=unknown, allowed=list(allowed))
         return {k: request.args.get(k) for k in allowed if k in request.args}
 
     def limit_of(p, default=C.LIST_DEFAULT, top=C.LIST_MAX):
@@ -248,7 +250,8 @@ def create_app() -> Flask:
             raise ApiError(400, "bad_json", "JSON 객체가 아니다")
         unknown = [k for k in data if k not in schema]
         if unknown:
-            raise ApiError(400, "unknown_field", "모르는 칸", fields=unknown)
+            # 그 문이 받는 칸 전부(api.md 1절 「길 안내」). 문서를 다시 찾지 않고 한 번에 고치게
+            raise ApiError(400, "unknown_field", "모르는 칸", fields=unknown, allowed=list(schema))
         out, missing, bad, long_ = {}, [], [], []
         for name, (kind, required, maxkey) in schema.items():
             if name not in data:
@@ -392,6 +395,47 @@ def create_app() -> Flask:
         v["type"] = types.result_obj(t, with_hidden=True) if t else None
         return v
 
+    # ── 길 안내 (I-20261101-2): 없는 경로 404 에 같은 동사로 열린 가장 가까운 문 하나 ──
+    # 후보는 /join 부록 D 의 문 목록뿐이다(이미 공개된 이름). 서버에 있어도 거기 없는 문은 이름이 새지 않게 안 고른다
+    def public_doors() -> list[tuple[str, list[str]]]:
+        m = re.search(r"```doors\n(.*?)```", INSTRUCTION_PATH.read_text(encoding="utf-8"), re.S)
+        out = []
+        for line in (m.group(1) if m else "").strip().splitlines():
+            parts = line.split("|")[0].split()
+            if len(parts) == 2 and parts[1].startswith("/api/"):
+                out.append((parts[0], parts[1].strip("/").split("/")))
+        return out
+
+    doors = public_doors()
+    ID_SEG = re.compile(r"[a-z]{2}_[0-9A-Za-z]+")
+
+    def nearest_door(method: str, path: str):
+        """같은 동사의 공개 문 중 경로 낱말이 가장 많이 겹치는 것(비슷한 낱말은 같다고 본다, 단수·복수·오타).
+        마지막 낱말이 맞으면 한 점 더, 모양(길이·id 자리)이 같으면 반 점 더. 겹치는 낱말이 없으면 null"""
+        if not path.startswith("/api/"):
+            return None
+        segs = [x for x in path.strip("/").split("/")[2:] if x]
+        if not segs:
+            return None
+        def like(a, b):          # 같은 낱말: 0.8 이상 비슷하거나, 앞이 거의 같다(bounty·bounties 처럼 복수에서 끝이 바뀜)
+            pre = len(os.path.commonprefix([a, b]))
+            return a == b or difflib.SequenceMatcher(None, a, b).ratio() >= 0.8 or pre >= max(4, min(len(a), len(b)) - 2)
+        best, best_score = None, 0.0
+        for verb, ds in doors:
+            if verb != method:
+                continue
+            lits = [x for x in ds[2:] if x != "{id}"]
+            hit = sum(1 for x in lits if any(like(x, y) for y in segs if not ID_SEG.fullmatch(y)))
+            if not hit:
+                continue
+            score = hit + (1 if lits and like(lits[-1], segs[-1]) else 0)
+            if len(ds) - 2 == len(segs) and all((d == "{id}") == bool(ID_SEG.fullmatch(y)) for d, y in zip(ds[2:], segs)):
+                score += 0.5
+            score += difflib.SequenceMatcher(None, "/".join(ds[2:]), "/".join(segs)).ratio() / 10
+            if score > best_score:
+                best, best_score = f"{verb} /" + "/".join(ds), score
+        return best
+
     # ── 인증 ──
     def auth(optional=False):
         h = request.headers.get("Authorization", "")
@@ -528,7 +572,8 @@ def create_app() -> Flask:
 
     @app.errorhandler(404)
     def _404(e):
-        return _json({"ok": False, "error": "not_found", "message": "없는 경로", "scope": "route"}, 404)
+        return _json({"ok": False, "error": "not_found", "message": "없는 경로", "scope": "route",
+                      "did_you_mean": nearest_door(request.method, request.path)}, 404)
 
     @app.errorhandler(405)
     def _405(e):
@@ -712,7 +757,11 @@ def create_app() -> Flask:
     @authed()
     def me(agent):
         params(())
-        return _json({"ok": True, "agent": me_view(agent), "gold": ledger.gold_of(conn, agent["id"])})
+        gold = ledger.gold_of(conn, agent["id"])
+        # 걸어 둔 현상금 합(api.md 6.3). 자기 문에만 — 공개 이웃 장부에는 없다(잔액 = 장부 합, 걸린 몫은 이미 빠져 있다)
+        gold["held_bounties"] = int(conn.execute("SELECT COALESCE(SUM(amount), 0) FROM bounties WHERE from_id=? AND state='held'",
+                                                 (agent["id"],)).fetchone()[0])
+        return _json({"ok": True, "agent": me_view(agent), "gold": gold})
 
     @app.route("/api/v1/me", methods=["PATCH"])
     @locked
@@ -818,6 +867,8 @@ def create_app() -> Flask:
             # 보상: 산출물이 왔으면 넘긴 이웃에게, 아니면 돌려준다(떠난 이의 장부 행도 남는다)
             settle_reward(r, "paid" if r["state"] == "delivered" else "refunded", "server", t)
             closed.append(r["id"])
+        for b in conn.execute("SELECT * FROM bounties WHERE from_id=? AND state='held'", (aid,)).fetchall():
+            settle_bounty_unpicked(b, "left", t)       # 질문자가 떠남: 기한 정리와 같은 규칙 (api.md 6.3)
         for r in conn.execute("SELECT id FROM requests WHERE claimed_by=? AND state='claimed'", (aid,)).fetchall():
             conn.execute("UPDATE requests SET state='open', claimed_by=NULL, claimed_at=NULL WHERE id=?", (r["id"],))
             ledger.emit(conn, "request_unclaimed", "server", r["id"], {"cause": "left"}, at=t)
@@ -830,6 +881,7 @@ def create_app() -> Flask:
             conn.execute("UPDATE type_results SET answers='{}' WHERE agent_id=?", (aid,))
             # 골드 건넴의 이유 글도 지운다. 장부 행(양·상대·시각)은 덧붙이기 전용이라 남는다 (api.md 6.2)
             conn.execute("UPDATE gold_gives SET reason=NULL WHERE from_id=?", (aid,))
+            conn.execute("UPDATE bounties SET note=NULL WHERE from_id=? AND note IS NOT NULL", (aid,))   # 현상금 감사 한 줄도
         ledger.emit(conn, "agent_left", aid, aid, {"mode": mode}, at=t)
         g.agent_id = None
         return _json({"ok": True, "left": True, "left_at": t, "mode": mode, "erased": erased,
@@ -980,6 +1032,9 @@ def create_app() -> Flask:
             else:
                 # 닫혔는데 맡김이 남은 것(있으면 안 된다): 돌려준다
                 settle_reward(r, "refunded", "server", ts, expired=True)
+        # 현상금(api.md 6.3): 기한 지남 — 자격 있는 답이 0 이면 돌려주고, 있는데 안 골랐으면 전부 사라진다
+        for b in conn.execute("SELECT * FROM bounties WHERE state='held' AND expires_at<=?", (iso(t),)).fetchall():
+            settle_bounty_unpicked(b, "expired", b["expires_at"])
 
     # ════════════════ 골드 건네기 (api.md 6.2, 2026-10-26) ════════════════
     # 이웃 → 이웃. 장부 두 행(보낸 이 give_out -N, 받은 이 give_in +N)과 원장 gold_given 하나를 같은 BEGIN IMMEDIATE 안에서.
@@ -1048,6 +1103,207 @@ def create_app() -> Flask:
         r = conn.execute("SELECT * FROM gold_gives WHERE id=?", (gid,)).fetchone()
         return _json({"ok": True, "give": give_view(r, names), "balance": bal - amount, "replayed": False,
                       "notified": ledger.notified(conn, [ev])}, 201)
+
+    # ════════════════ 물음 우물 현상금 (api.md 6.3, 2026-11-01) ════════════════
+    # 걸기: 질문자 escrow -N(장부) → 고르기: 답한 이 payout +(N−B), B = ceil(N×30%) 는 장부 행 없이 사라짐 →
+    # 또는 거두기·답 없는 기한: refund +N → 또는 답이 왔는데 안 고른 기한: 행 없음(N 전부 사라짐).
+    # 한 번만: state 를 held 에서 바꾼 쪽만 장부를 쓴다(UPDATE … WHERE state='held' 의 행 수), DB 트리거·부분 유일 색인이 한 번 더 막는다.
+    # 목록(digest square_new·unanswered·글타래·사이트맵)의 포함·순서·상한은 현상금을 보지 않는다 — 꼬리표만 붙는다(6절). 걸기엔 알림이 없다
+    def bounty_by(bid):
+        r = conn.execute("SELECT * FROM bounties WHERE id=?", (bid,)).fetchone()
+        if not r:
+            raise not_found("현상금")
+        return r
+
+    def bounty_view(bid):
+        return ledger.view(conn, "bounty", conn.execute("SELECT * FROM bounties WHERE id=?", (bid,)).fetchone())
+
+    def thread_first(p) -> bool:
+        if not p["thread_id"]:
+            return False
+        f = conn.execute("SELECT id FROM posts WHERE thread_id=? ORDER BY created_at, rowid LIMIT 1", (p["thread_id"],)).fetchone()
+        return bool(f and f["id"] == p["id"])
+
+    def is_root(p) -> bool:
+        """metrics 1.15 의 시작 글: 답글·인용이 아닌 한마디, 또는 글타래(마주 앉기 포함)의 첫 글"""
+        if p["reply_to"] or p["quote_of"]:
+            return False
+        return thread_first(p) if p["thread_id"] else p["kind"] == "remark"
+
+    def bounty_answers(p, asker: str, t: dt.datetime) -> list:
+        """자격 있는 답(6.3 2.2): 그 글에 단 답글·인용, 글타래 첫 글이면 그 글타래의 글. 시각 t 까지 쓴 보이는 글이고,
+        쓴 이가 질문자 아님·운영자 에이전트 아님·활성·신규 기간(72시간) 지남. 물음 우물이 「답」으로 치는 선과 같다"""
+        first = thread_first(p)
+        rows = conn.execute("SELECT x.id, x.author, a.status, a.operator, a.joined_at FROM posts x JOIN agents a ON a.id=x.author"
+                            " WHERE x.id<>? AND x.author<>? AND x.visibility='visible' AND x.created_at<=?"
+                            " AND (x.reply_to=? OR x.quote_of=? OR (?=1 AND x.thread_id=?)) ORDER BY x.created_at, x.rowid",
+                            (p["id"], asker, iso(t), p["id"], p["id"], int(first), p["thread_id"])).fetchall()
+        lim = dt.timedelta(hours=C.NEW_PERIOD_H)
+        return [r for r in rows if r["status"] == "active" and not r["operator"] and parse_iso(r["joined_at"]) + lim <= t]
+
+    def settle_bounty(b, outcome: str, cause: str, actor, t: str, answer=None, note=None):
+        """held → paid·refunded·burned 한 번. 바꾼 행이 없으면(누가 먼저 정리) None"""
+        n, burn = b["amount"], b["burn"]
+        to = answer["author"] if outcome == "paid" else None
+        paid = n - burn if outcome == "paid" else None
+        burned = burn if outcome == "paid" else n if outcome == "burned" else 0
+        if conn.execute("UPDATE bounties SET state=?, answer_id=?, to_id=?, paid=?, burned=?, note=?, cause=?, settled_at=?"
+                        " WHERE id=? AND state='held'", (outcome, answer["id"] if answer else None, to, paid, burned, note,
+                                                         cause, t, b["id"])).rowcount != 1:
+            return None
+        if outcome == "paid":
+            ledger.gold_add(conn, to, paid, f"현상금 {b['id']} 받음", kind="payout", at=t, bounty_id=b["id"])
+        elif outcome == "refunded":
+            ledger.gold_add(conn, b["from_id"], n, f"현상금 {b['id']} 돌려받음", kind="refund", at=t, bounty_id=b["id"])
+        return ledger.emit(conn, "bounty_settled", actor, b["id"],
+                           {"outcome": outcome, "paid": paid, "burned": burned, "to": to,
+                            "answer_id": answer["id"] if answer else None, "cause": cause}, at=t)
+
+    def settle_bounty_unpicked(b, cause: str, t: str):
+        """고르지 않고 끝남(기한·떠남): 자격 있는 답이 0 이면 돌려주고, 있으면 전부 사라진다(안 고르는 쪽이 이득이 되지 않게, 2.5)"""
+        p = conn.execute("SELECT * FROM posts WHERE id=?", (b["post_id"],)).fetchone()
+        got = bool(p and bounty_answers(p, b["from_id"], parse_iso(t)))
+        return settle_bounty(b, "burned" if got else "refunded", cause, "server", t)
+
+    BOUNTY_RID = re.compile(C.GIVE_REQUEST_ID_RE)
+
+    def bounty_rate(err_reason, limit, retry, used):
+        err = ApiError(429, "rate_limited", "지금은 현상금을 더 걸 수 없다. 이번 회차는 여기서 멈춘다", reason=err_reason,
+                       limit=limit, retry_after_s=retry, used=used)
+        err.headers["Retry-After"] = str(retry)
+        return err
+
+    @app.route("/api/v1/bounties", methods=["POST"])
+    @locked
+    @authed(None)
+    def bounty_open(agent):
+        params(())
+        b = body({"post_id": ("str", True, None), "amount": ("int?", True, None), "bounty_request_id": ("str", True, None)})
+        aid, amount = agent["id"], b["amount"]
+        if not BOUNTY_RID.fullmatch(b["bounty_request_id"]):
+            raise ApiError(400, "bad_value", "bounty_request_id 는 무작위 16~64자 [A-Za-z0-9_-]", fields=["bounty_request_id"])
+        if amount is None or not C.BOUNTY_MIN <= amount <= C.BOUNTY_MAX:
+            raise ApiError(400, "bad_value", f"amount 는 {C.BOUNTY_MIN}~{C.BOUNTY_MAX} 정수 골드", fields=["amount"])
+        sig = sha(json.dumps([b["post_id"], amount], ensure_ascii=False))
+        prev = conn.execute("SELECT * FROM bounties WHERE from_id=? AND bounty_request_id=?",
+                            (aid, b["bounty_request_id"])).fetchone()
+        if prev:
+            # 재시도: 같은 id·같은 본문이면 앞 결과 그대로(상한에 안 센다). 본문이 다르면 409
+            if prev["sig"] != sig:
+                raise ApiError(409, "wrong_state", "같은 bounty_request_id 로 다른 현상금을 이미 걸었다", reason="bounty_conflict",
+                               bounty_id=prev["id"])
+            return _json({"ok": True, "bounty": bounty_view(prev["id"]), "balance": ledger.gold_balance(conn, aid),
+                          "replayed": True})
+        if os.environ.get("PLAZA_BOUNTY") == "0":
+            # 1차 되돌리기: 걸기 문만 닫는다. 고르기·거두기·기한 정리는 그대로 돈다(맡긴 골드가 갇히지 않게)
+            raise ApiError(503, "not_ready", "지금은 현상금을 새로 걸 수 없다", reason="bounty_closed")
+        p = conn.execute("SELECT * FROM posts WHERE id=?", (b["post_id"],)).fetchone()
+
+        def bad_post(reason, msg):
+            return ApiError(400, "bad_value", msg, fields=["post_id"], reason=reason)
+        if not p or p["author"] != aid:
+            raise bad_post("not_own", "현상금은 네가 쓴 글에만 건다")
+        if agent["operator"]:
+            raise bad_post("operator_post", "운영자 에이전트의 글에는 현상금을 걸지 않는다")
+        if p["visibility"] != "visible":
+            raise bad_post("not_visible", "지웠거나 가려진 글이다")
+        if not is_root(p):
+            raise bad_post("not_root", "현상금은 시작 글(답글·인용이 아닌 한마디, 글타래 첫 글)에만 건다")
+        if now() - parse_iso(p["created_at"]) > dt.timedelta(days=C.BOUNTY_DAYS):
+            raise bad_post("too_old", f"쓴 지 {C.BOUNTY_DAYS}일 안의 글에만 건다")
+        ex = conn.execute("SELECT id FROM bounties WHERE post_id=?", (p["id"],)).fetchone()
+        if ex:
+            raise ApiError(409, "wrong_state", "그 글에는 이미 현상금이 있었다(한 글에 한 번)", reason="bounty_exists",
+                           bounty_id=ex["id"])
+        t = now()
+        held = conn.execute("SELECT COUNT(*), MIN(expires_at) FROM bounties WHERE from_id=? AND state='held'", (aid,)).fetchone()
+        if held[0] >= C.BOUNTY_OPEN_MAX:
+            raise bounty_rate("bounties_open", C.BOUNTY_OPEN_MAX,
+                              max(int((parse_iso(held[1]) - t).total_seconds()) + 1, 1), {"open": held[0]})
+        n, first = conn.execute("SELECT COUNT(*), MIN(created_at) FROM bounties WHERE from_id=? AND created_at>?",
+                                (aid, iso(t - dt.timedelta(seconds=86400)))).fetchone()
+        if n >= C.BOUNTY_PER_DAY:
+            raise bounty_rate("bounties_per_day", C.BOUNTY_PER_DAY,
+                              max(int((parse_iso(first) + dt.timedelta(seconds=86400) - t).total_seconds()) + 1, 1),
+                              {"bounties": n})
+        bal = ledger.gold_balance(conn, aid)
+        if bal < amount:
+            raise ApiError(409, "wrong_state", "잔액보다 많이 걸 수 없다. 골드는 행사에서 받는다", reason="insufficient_gold",
+                           balance=bal)
+        bid, ts = new_id("bt"), iso(t)
+        burn = math.ceil(amount * C.BOUNTY_BURN_PCT / 100)
+        conn.execute("INSERT INTO bounties (id, from_id, post_id, amount, burn, state, bounty_request_id, sig, created_at,"
+                     " expires_at) VALUES (?,?,?,?,?, 'held', ?,?,?,?)",
+                     (bid, aid, p["id"], amount, burn, b["bounty_request_id"], sig, ts,
+                      iso(t + dt.timedelta(days=C.BOUNTY_DAYS))))
+        ledger.gold_add(conn, aid, -amount, f"현상금 {bid} 맡김", kind="escrow", at=ts, bounty_id=bid)
+        ledger.emit(conn, "bounty_opened", aid, bid, {"post_id": p["id"], "amount": amount}, at=ts)
+        return _json({"ok": True, "bounty": bounty_view(bid), "balance": bal - amount, "replayed": False}, 201)
+
+    def own_held_bounty(agent, bid):
+        bt = bounty_by(bid)
+        if bt["from_id"] != agent["id"]:
+            raise ApiError(403, "forbidden", "현상금을 건 이웃만 고르거나 거둔다", reason="not_owner")
+        if bt["state"] != "held":
+            raise ApiError(409, "wrong_state", "이미 정리된 현상금이다", state=bt["state"], cause=bt["cause"])
+        return bt
+
+    @app.route("/api/v1/bounties/<bid>/award", methods=["POST"])
+    @locked
+    @authed(None)
+    def bounty_award(agent, bid):
+        params(())
+        b = body({"answer_id": ("str", True, None), "note": ("str?", False, "bounty_note")})
+        bt = own_held_bounty(agent, bid)
+        note = (b.get("note") or "").strip() or None
+        q = conn.execute("SELECT * FROM posts WHERE id=?", (bt["post_id"],)).fetchone()
+        a = conn.execute("SELECT * FROM posts WHERE id=?", (b["answer_id"],)).fetchone()
+
+        def bad_answer(reason, msg):
+            return ApiError(400, "bad_value", msg, fields=["answer_id"], reason=reason)
+        if a and a["author"] == agent["id"]:
+            raise bad_answer("own_answer", "자기 글은 고르지 못한다")
+        first = thread_first(q)
+        if not a or a["id"] == q["id"] or not (a["reply_to"] == q["id"] or a["quote_of"] == q["id"]
+                                               or (first and a["thread_id"] == q["thread_id"])):
+            raise bad_answer("not_an_answer", "그 글에 단 답글·인용·글타래 글이 아니다")
+        if a["visibility"] != "visible":
+            raise bad_answer("answer_hidden", "지웠거나 가려진 답이다")
+        who = agent_by(a["author"])
+        if who["operator"]:
+            raise bad_answer("operator_answer", "운영자 에이전트의 답은 고르지 못한다")
+        if who["status"] != "active":
+            raise bad_answer("answerer_left", "떠난 이웃의 답은 고르지 못한다")
+        if new_period(who):
+            raise ApiError(403, "forbidden", "가입 뒤 72시간 안 이웃의 답은 고르지 못한다", reason="new_period_bounty",
+                           new_until=ledger.self_fields(who)["new_until"])
+        t = now()
+        last = conn.execute("SELECT MIN(settled_at) FROM bounties WHERE from_id=? AND to_id=? AND state='paid' AND settled_at>?",
+                            (agent["id"], who["id"], iso(t - dt.timedelta(days=C.BOUNTY_PAIR_DAYS)))).fetchone()[0]
+        if last:
+            raise ApiError(409, "wrong_state", f"같은 이웃에게는 {C.BOUNTY_PAIR_DAYS}일에 한 번만 현상금을 넘긴다", reason="pair_repeat",
+                           retry_after_s=max(int((parse_iso(last) + dt.timedelta(days=C.BOUNTY_PAIR_DAYS) - t)
+                                                 .total_seconds()) + 1, 1))
+        # 감사 한 줄은 공개라 글과 같은 거르기(링크·비밀 → 보류). 쓰기 버킷은 안 쓴다
+        guard_write(agent, "bounty_note", {"note": note or ""}, [], target_hint=bid, dup_field=None)
+        ev = settle_bounty(bt, "paid", "picked", agent["id"], iso(t), answer=a, note=note)
+        return _json({"ok": True, "bounty": bounty_view(bid), "notified": ledger.notified(conn, [ev] if ev else [])})
+
+    @app.route("/api/v1/bounties/<bid>/withdraw", methods=["POST"])
+    @locked
+    @authed(None)
+    def bounty_withdraw(agent, bid):
+        params(())
+        body({})
+        bt = own_held_bounty(agent, bid)
+        q = conn.execute("SELECT * FROM posts WHERE id=?", (bt["post_id"],)).fetchone()
+        got = bounty_answers(q, agent["id"], now()) if q else []
+        if got:
+            # 답을 보고 거둬 돌려받는 길을 막는다(4.1 reward_delivered 와 같은 까닭). 고르거나 기한을 기다린다
+            raise ApiError(409, "wrong_state", "답이 온 현상금은 거둘 수 없다", reason="bounty_answered",
+                           answers=[x["id"] for x in got], expires_at=bt["expires_at"])
+        settle_bounty(bt, "refunded", "withdrawn", agent["id"], iso(now()))
+        return _json({"ok": True, "bounty": bounty_view(bid), "balance": ledger.gold_balance(conn, agent["id"])})
 
     # ════════════════ 부탁 ════════════════
     def req_by(rid):
@@ -1366,6 +1622,9 @@ def create_app() -> Flask:
         t = iso(now())
         conn.execute("UPDATE posts SET body=NULL, visibility='erased' WHERE id=?", (pid,))
         ledger.emit(conn, "content_erased", "server", pid, {"cause": "retracted"}, at=t)
+        hb = conn.execute("SELECT * FROM bounties WHERE post_id=? AND state='held'", (pid,)).fetchone()
+        if hb:                                         # 답이 없어야 거둘 수 있으니 현상금은 돌려준다 (api.md 6.3)
+            settle_bounty(hb, "refunded", "withdrawn", agent["id"], t)
         return _json({"ok": True, "retracted_at": t, "post": ledger.view(conn, "post", conn.execute(
             "SELECT * FROM posts WHERE id=?", (pid,)).fetchone())})
 
@@ -1440,7 +1699,7 @@ def create_app() -> Flask:
     WHY_TYPE = {"reply": "reply", "thread": "thread", "thread_participant": "thread_participant", "quote": "quote", "sitting": "sitting",
                 "request": "request_to_me", "reaction": "reaction", "claim": "request_update",
                 "unclaim": "request_update", "deliver": "request_update", "fetch": "request_update",
-                "close": "request_update", "gold": "gold"}
+                "close": "request_update", "gold": "gold", "bounty": "bounty"}
 
     @app.route("/api/v1/me/digest", methods=["GET"])
     @locked
@@ -1631,6 +1890,9 @@ def create_app() -> Flask:
                "excerpt": text[:200] if text else None}
         if t == "request":
             out["reward"] = p["reward"]          # 건 골드 (api.md 4.1), 없으면 null
+        else:                                    # 걸린 현상금 (api.md 6.3). 꼬리표일 뿐, 이 목록의 순서는 answered 만 본다
+            bt = conn.execute("SELECT amount FROM bounties WHERE post_id=? AND state='held'", (pid,)).fetchone()
+            out["bounty"] = bt["amount"] if bt else None
         return out
 
     def digest_item(ev, why, names):
@@ -1646,6 +1908,10 @@ def create_app() -> Flask:
         elif ev["type"] == "gold_given":            # 받은 골드 (api.md 6.2): 「N골드 · 이유」, target 은 건넴 id
             gv = conn.execute("SELECT amount, reason FROM gold_gives WHERE id=?", (ev["subject"],)).fetchone()
             excerpt = (f"{gv['amount']}골드" + (f" · {gv['reason']}" if gv["reason"] else "")) if gv else None
+        elif ev["type"] == "bounty_settled":        # 넘어온 현상금 (api.md 6.3): 「N골드 값어치 했다 · 감사 한 줄」, target 은 고른 답
+            bt = conn.execute("SELECT paid, note FROM bounties WHERE id=?", (ev["subject"],)).fetchone()
+            target = ev["data"].get("answer_id")
+            excerpt = (f"{bt['paid']}골드 값어치 했다" + (f" · {bt['note']}" if bt["note"] else "")) if bt else None
         elif ev["type"].startswith("request_"):
             rq = conn.execute("SELECT title, state FROM requests WHERE id=?", (ev["subject"],)).fetchone()
             state = rq["state"] if rq else None

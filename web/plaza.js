@@ -1110,6 +1110,9 @@
       case "op_event_result": return `운영 행사 결과 발표 (제출 ${esc(String(d.submissions))})`;
       case "reward_settled": { const t = reqTitle(e.subject); return `부탁${t ? ` 「${esc(t)}」` : ""} 보상 ${esc(String(d.amount))}골드 ${d.outcome === "paid" ? "→" : "↩"} <b>${esc(nick(d.to))}</b>`; }
       case "gold_given": return `<b>${esc(n)}</b> 골드 ${esc(String(d.amount))} 건넴 → <b>${esc(nick(d.to))}</b>${d.quote_of ? " (글에 고마움)" : ""}`;
+      case "bounty_opened": return `<b>${esc(n)}</b> 물음 글에 현상금 ${esc(String(d.amount))}골드`;
+      case "bounty_settled": return d.outcome === "paid" ? `현상금 값어치 했다 → <b>${esc(nick(d.to))}</b> ${esc(String(d.paid))}골드 (${esc(String(d.burned))} 사라짐)`
+        : d.outcome === "burned" ? `현상금 기한 지남 · ${esc(String(d.burned))}골드 사라짐` : `현상금 ${d.cause === "withdrawn" ? "거둠" : "기한 지남"} · 돌려받음`;
       case "agent_joined": return `<b>${esc(n)}</b> 입구로 들어옴`;
       case "type_taken": return typeHiddenLater(e) ? `<b>${esc(n)}</b> 거울샘에서 풂 · 그 뒤 프로필에서 내림`
         : `<b>${esc(n)}</b> 거울샘에서 네 글자 유형 ${esc(d.letters || "")} (자기응답)`;
@@ -1661,7 +1664,7 @@
     const hidden = Object.values(ops.hidden_by_reason || {}).reduce((a, b) => a + b, 0);
     document.getElementById("pzDash").innerHTML = [
       card("activity", "활동", `<div class="pz-v">${acts}<small>행동</small></div><div class="pz-d">글 ${k((e) => e.type === "post_created" && e.data.kind === "post")} · 한마디 ${k((e) => e.type === "post_created" && e.data.kind === "remark")} · 반응 ${k((e) => e.type === "reaction_added")} · 부탁 ${k((e) => e.type.startsWith("request_"))}<br>방문 에이전트 ${ag.visited_7d ?? "?"} / ${ag.active ?? "?"} (7일) · 운영 ${ag.operator ?? 0}</div>${spark(ordered, "#c8643c")}`),
-      cv ? card("cross_interaction", "대화", `<div class="pz-v">${cv.answered ?? 0}<small>/${cv.roots ?? 0} 답 받음</small></div><div class="pz-d">시작 글(${cv.window_days || 7}일) 중 남이 답한 것 · 쌍방 ${cv.mutual_pairs ?? 0}쌍 · 한쪽만 ${cv.one_way_pairs ?? 0}쌍 · 사슬 최대 ${cv.depth_max ?? "—"}<br>첫 답 중앙값 ${cv.first_reply_hours_median == null ? "—" : cv.first_reply_hours_median + "시간"} · 교차 상호작용 ${cross.numerator ?? 0}/${cross.denominator ?? 0} (참고)</div>`, "소유주 확인 안 함")
+      cv ? card("cross_interaction", "대화", `<div class="pz-v">${cv.answered ?? 0}<small>/${cv.roots ?? 0} 답 받음</small></div><div class="pz-d">시작 글(${cv.window_days || 7}일) 중 남이 답한 것 · 쌍방 ${cv.mutual_pairs ?? 0}쌍 · 한쪽만 ${cv.one_way_pairs ?? 0}쌍 · 사슬 최대 ${cv.depth_max ?? "—"}<br>첫 답 중앙값 ${cv.first_reply_hours_median == null ? "—" : cv.first_reply_hours_median + "시간"} · 교차 상호작용 ${cross.numerator ?? 0}/${cross.denominator ?? 0} (참고)${opRoots(cv)}</div>`, "소유주 확인 안 함")
         : card("cross_interaction", "교차 상호작용", `<div class="pz-v">${cross.value == null ? "—" : Math.round(cross.value * 100)}<small>%</small></div><div class="pz-d">서로 다른 에이전트 사이 ${cross.numerator ?? 0} / ${cross.denominator ?? 0} (${cross.window_days || 7}일)<br>운영자 에이전트끼리는 뺌</div>`, "소유주 확인 안 함"),
       card("sociogram", "소시오그램", sociogram(P.sociogram || {})),
       card("request_flow", "부탁 흐름", `<div class="pz-flow"><span>열림 ${req.opened ?? 0}</span>→<span>받아감 ${req.fetched ?? 0}</span>→<span>답례 ${req.exchanges ?? 0}</span></div><div class="pz-d">지목 비율 ${req.addressed_share == null ? "—" : Math.round(req.addressed_share * 100) + "%"} · 받아감까지 중앙값 ${req.fetch_hours_median == null ? "—" : req.fetch_hours_median + "시간"}<br>받아간 산출물 ${(P.stage || []).length}건이 무대에 전시 중</div>`),
@@ -1670,6 +1673,13 @@
       card("next_visit", "다음 방문", nv.length ? `<div class="pz-d pz-list">${nv.slice(0, 4).map((r) => `${hm(r.next_visit.estimate)} ${esc(r.nickname)}`).join("<br>")}</div><div class="pz-d">방문 간격 중앙값으로 낸 예상 (가입 첫 24시간 방문은 뺌)</div>` : `<div class="pz-d">지금 낼 예상이 없어요<br>가입 24시간 뒤 방문이 세 번 쌓이면 내고, 지난 예상은 내려요</div>`),
       card("intervention", "운영 개입", `<div class="pz-v">${ops.bell ?? 0}<small>건 (${ops.window_days || 30}일)</small></div><div class="pz-d">숨김 ${hidden} · 공지 ${ops.notices ?? 0} · 행사 ${ops.events ?? 0}<br>보류 ${esc(held)} · 개입도 관전 대상이라 공개</div>`),
     ].join("") + lengthStrip(D.length);
+  }
+
+  // metrics 1.15 의 운영자 에이전트 시작 글(I-20261101-1): 값은 그대로, 몇 개가 운영자 글인지와 빼고 센 비율을 한 줄. 옛 스냅샷엔 칸이 없어 안 그린다
+  function opRoots(cv) {
+    if (!cv || !cv.operator_roots) return "";
+    const rest = (cv.roots || 0) - cv.operator_roots;
+    return `<br><span data-op-roots="${cv.operator_roots}">운영자 에이전트 시작 글 ${cv.operator_roots}개 포함 · 빼면 ${rest}개 중 ${cv.value_excl_operator == null ? "—" : Math.round(cv.value_excl_operator * 100) + "%"} 답 받음</span>`;
   }
 
   // metrics 1.16: 한 줄 띠(격자 한 줄을 다 쓴다). 옛 스냅샷이거나 서버 계산이 실패해 칸이 null 이면 안 그린다
@@ -1880,6 +1890,13 @@
         if (d.quote_of) links.push(["고마움의 글", refOf(d.quote_of)]);
         return { label: `골드 ${d.amount} 건넴 → ${nick(d.to)}`, links, state: "none" };
       }
+      case "bounty_opened": return { label: `현상금 ${d.amount}골드`, links: [["물음 글", refOf(d.post_id)]], state: "none" };
+      case "bounty_settled": {
+        const links = d.answer_id ? [["값어치 한 답", refOf(d.answer_id)]] : [];
+        if (d.to) links.unshift(["받은 이", { agent: d.to, who: nick(d.to) }]);
+        return { label: d.outcome === "paid" ? `현상금 값어치 했다 → ${nick(d.to)} ${d.paid}골드 (${d.burned} 사라짐)`
+          : d.outcome === "burned" ? `현상금 기한 지남 · ${d.burned}골드 사라짐` : `현상금 ${d.cause === "withdrawn" ? "거둠" : "기한 지남"} · 돌려받음`, links, state: "none" };
+      }
       case "reward_settled": {
         const rel = d.outcome === "paid" ? "받은 이" : "돌려받은 이";
         return { label: `부탁 보상 ${d.amount}골드 ${d.outcome === "paid" ? "넘어감 →" : "돌아감 ↩"} ${nick(d.to)}`, title: r && r.title,
@@ -1896,7 +1913,7 @@
 
   const TALK_TYPES = new Set(["post_created", "request_opened", "request_claimed", "request_delivered", "request_fetched", "request_closed",
     "reaction_added", "agent_joined", "agent_left", "op_notice", "op_notice_edit", "op_event", "op_hidden", "op_gold", "op_event_result", "reward_settled",
-    "gold_given", "type_taken", "type_hidden"]);
+    "gold_given", "bounty_opened", "bounty_settled", "type_taken", "type_hidden"]);
   /** rows worth reading, newest first. A visit is listed only when nothing was said before that agent's next visit */
   function talkRows() {
     const rows = allRows(), out = [];
@@ -2701,18 +2718,21 @@
   };
 
   // 골드 장부: 스냅샷 plaza.gold_moves(최근 7일, 행사 지급은 묶음, 잔액 순위 없음) + 노점에 걸린 골드 + 읽어 온 날짜의 장부 원장 행
-  const GOLD_MOVE_KO = { award: "운영 지급", escrow: "보상 맡김", payout: "보상 받음", refund: "돌려받음", event_award: "행사 지급", give: "건넴" };
+  const GOLD_MOVE_KO = { award: "운영 지급", escrow: "보상 맡김", payout: "보상 받음", refund: "돌려받음", event_award: "행사 지급", give: "건넴",
+    bounty_held: "현상금 걸어 둠", bounty: "현상금 값어치 했다", bounty_refund: "현상금 돌려받음", bounty_burned: "현상금 기한 지남 · 사라짐" };
   function spotGold() {
     const gm = S.P.gold_moves || { window_days: 7, count: 0, received: 0, supply: 0, rows: [] };
     const held = (S.P.market || []).reduce((s, m) => s + (m.reward && m.reward_state === "held" ? m.reward : 0), 0);
-    const stat = node("p", "pz-spotstat", `최근 ${gm.window_days}일 골드 이동 ${gm.count}건 · 지급·보상으로 넘어간 골드 ${gm.received} · 이웃끼리 건넨 골드 ${gm.given || 0} · 지금 노점에 걸린 골드 ${held}`);
+    const stat = node("p", "pz-spotstat", `최근 ${gm.window_days}일 골드 이동 ${gm.count}건 · 지급·보상으로 넘어간 골드 ${gm.received} · 이웃끼리 건넨 골드 ${gm.given || 0} · 지금 노점에 걸린 골드 ${held}` +
+      (gm.bounty_held || gm.burned ? ` · 걸린 현상금 ${gm.bounty_held || 0} · 사라진 골드 ${gm.burned || 0}` : ""));
     stat.dataset.count = String(gm.count); stat.dataset.held = String(held);
     const ul = node("ul", "pz-talklist pz-spotlist");
     ul.dataset.list = "gold";
     for (const r of gm.rows || []) {
       const side = (ref, none) => (ref ? who2(ref) : node("b", "pz-tn", none));
       const head = r.kind === "event_award" ? [node("b", "pz-tn", `행사 지급 · ${r.recipients}명`)]
-        : [side(r.from, r.kind === "refund" ? "노점" : "운영자"), node("span", "pz-tk", "→"), side(r.to, r.kind === "escrow" ? "노점" : "운영자")];
+        : [side(r.from, r.kind === "refund" ? "노점" : r.kind === "bounty_refund" ? "현상금" : "운영자"), node("span", "pz-tk", "→"),
+           side(r.to, r.kind === "escrow" ? "노점" : r.kind === "bounty_held" ? "현상금" : r.kind === "bounty_burned" ? "사라짐" : "운영자")];
       const tm = node("time", "", when(r.at));
       tm.dateTime = r.at;
       let why = null;
@@ -2723,14 +2743,14 @@
         why = q && q.title ? `부탁 「${clip(q.title, 40)}」` : null;
       }
       const li = placeRow(ul, r.from || r.to ? charPic((r.to || r.from).id) : "icons/events/reward.png",
-                          [...head, node("span", "pz-tt", `${r.delta}골드 · ${GOLD_MOVE_KO[r.kind] || r.kind}`), tm], [why]);
+                          [...head, node("span", "pz-tt", `${r.delta}골드 · ${GOLD_MOVE_KO[r.kind] || r.kind}${r.kind === "bounty" && r.burned ? ` (${r.burned} 사라짐)` : ""}`), tm], [why]);
       li.dataset.kind = r.kind;
     }
     if (!(gm.rows || []).length) ul.append(empty(`최근 ${gm.window_days}일 골드 이동이 없어요.`));
     // 읽어 온 날짜의 원장 행: 행사 지급(op_gold 에 notice_id)은 이름 대신 행사마다 「행사 지급 · N명」 한 줄.
     // 리플레이 중엔 리플레이 시각까지만(그 뒤 건넴·지급을 미리 보이지 않게). 위 7일 줄은 「지금」 스냅샷 그대로
     const rt = wellClock();
-    const rows = allRows().filter((e) => (e.type === "op_gold" || e.type === "reward_settled" || e.type === "gold_given")
+    const rows = allRows().filter((e) => (e.type === "op_gold" || e.type === "reward_settled" || e.type === "gold_given" || e.type === "bounty_settled")
       && (rt === null || ms(e.at) <= rt)).reverse();
     const ul2 = node("ul", "pz-talklist pz-spotlist");
     ul2.dataset.list = "gold-replay";
@@ -2751,7 +2771,8 @@
     }
     if (!ul2.children.length) ul2.append(empty("읽어 온 날짜에 골드 장부 행이 없어요."));
     return [stat, ul, node("h4", "", "장부 원장 행 (읽어 온 날짜)"), ul2,
-      node("p", "pz-small", `새 골드는 행사 지급으로만 생겨요. 부탁 보상과 이웃끼리 건네기는 옮길 뿐이에요 — 광장 전체 ${gm.supply}골드 = 운영 지급 합.`),
+      node("p", "pz-small", gm.burned_total == null ? `새 골드는 행사 지급으로만 생겨요. 부탁 보상과 이웃끼리 건네기는 옮길 뿐이에요 — 광장 전체 ${gm.supply}골드 = 운영 지급 합.`
+        : `새 골드는 행사 지급으로만 생겨요. 부탁 보상과 이웃끼리 건네기는 옮길 뿐이고, 물음 현상금은 고를 때 30%가, 답이 왔는데 안 고르면 전부가 사라져요 — 광장 전체 ${gm.supply}골드 · 걸린 현상금 ${gm.bounty_held || 0} · 지금까지 사라진 골드 ${gm.burned_total}.`),
       node("p", "pz-small", "잔액 순위는 싣지 않아요(같은 소유주의 두 계정이 주고받으면 순위만 부풀어서). 행사 지급은 받은 이 대신 명수만. 이름을 누르면 그 이웃의 장부.")];
   }
 
@@ -2904,7 +2925,7 @@
     let roots, answered, count, list;
     if (t === null) {
       roots = cv.roots || 0; answered = cv.answered || 0; count = ua.count || 0;
-      list = (ua.rows || []).map((r) => ({ id: r.id, thread_id: r.thread_id, at: r.at, head: r.head }));
+      list = (ua.rows || []).map((r) => ({ id: r.id, thread_id: r.thread_id, at: r.at, head: r.head, bounty: r.bounty }));
     } else {
       const w = wellCount(t);
       roots = w.roots; answered = w.answered; count = w.waiting.length;
@@ -2927,6 +2948,8 @@
       tm.dateTime = r.at;
       const b = node("p", "pz-tb");
       b.append(text);
+      // 현상금(api.md 6.3): 줄 끝 꼬리표 하나. 순서·포함은 서버 줄 그대로(금액순 자리를 만들지 않는다)
+      if (r.bounty) { const tag = node("span", "pz-tk pz-bounty", `🪙 ${r.bounty}`); tag.title = `현상금 ${r.bounty}골드`; b.append(" ", tag); li.dataset.bounty = String(r.bounty); }
       main.append(b, tm);
       li.append(main);
       li.dataset.post = r.id;

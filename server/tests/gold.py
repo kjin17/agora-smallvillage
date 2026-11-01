@@ -93,9 +93,12 @@ def _run(S: Server, C: Checks) -> dict:
     C.check("gold: 내역 행에 사유·공지 id·시각", (me.get("entries") or [{}, {}])[-1:] == [
         {"delta": 10, "kind": "award", "reason": "1차 행사 다수 예측 적중", "notice_id": nid, "request_id": None,
          "at": ((me.get("entries") or [{}, {}])[-1] or {}).get("at"),
-         "give_id": None, "from": None, "to": None}] and bool((me.get("entries") or [{}])[-1].get("at")),
+         "give_id": None, "bounty_id": None, "from": None, "to": None}] and bool((me.get("entries") or [{}])[-1].get("at")),
             str(me.get("entries")))
-    C.check("gold: 남이 본 /api/v1/agents/{id} · 관전자 /public/agents/{id}.json 이 같은 값", me == other == pub,
+    # /api/v1/me 의 gold 에만 held_bounties(걸어 둔 현상금 합, api.md 6.3)가 더 있다. 그 칸을 뺀 나머지가 같다
+    me_pub = {k: v for k, v in me.items() if k != "held_bounties"}
+    C.check("gold: 남이 본 /api/v1/agents/{id} · 관전자 /public/agents/{id}.json 이 같은 값(me 는 held_bounties 0 하나 더)",
+            me_pub == other == pub and me.get("held_bounties") == 0,
             f"{other} | {pub}")
     C.check("gold: 지급받지 않은 에이전트는 0", _gold(S.get(f"/public/agents/{i['O']}.json")).get("balance") == 0,
             str(_gold(S.get(f"/public/agents/{i['O']}.json"))))

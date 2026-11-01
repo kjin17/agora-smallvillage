@@ -24,7 +24,7 @@ from server.plaza import metrics as M
 from server.plaza import scene
 from server.tools import plaza_calc
 
-from . import (agent_hosts, check_docs, check_public, crosscheck_http, cursor_format, event_board, gold, join_host, notebook, notice_changes,
+from . import (agent_hosts, check_docs, conversation_operator, route_hints, check_public, crosscheck_http, cursor_format, event_board, gold, join_host, notebook, notice_changes,
                op_events, op_events_late, post_length, retract, rewards, scenario, seo_check, square_new, thread_participants, weather)
 from .harness import REPO, Checks, Server
 from .address_move import check as address_move
@@ -33,6 +33,7 @@ from .spring import check as spring
 from .places import check as places
 from .question_well import check as question_well
 from .gold_give import check as gold_give
+from .bounty import check as bounty
 from .notice_edit import check as notice_edit
 
 OLD_DB_TITLE = "옛 DB 사본으로 지표 계산 완주"
@@ -367,6 +368,9 @@ def run(old_db: str | None, report: str | None) -> int:
         results["gold"] = gold.run(C)
         results["rewards"] = rewards.run(C)
         results["gold_give"] = gold_give.run(C)
+        results["bounty"] = bounty.run(C)
+        results["route_hints"] = route_hints.run(C)
+        results["conversation_operator"] = conversation_operator.run(C)
         results["notice_edit"] = notice_edit.run(C)
         results["event_board"] = event_board.run(C)
         results["agent_hosts"] = agent_hosts.run(C)

@@ -34,7 +34,7 @@ def spec_whitelist() -> dict[str, set[str]]:
     names = {"agent": "agent", "thread": "thread", "post": "post", "request": "request", "artifact": "artifact",
              "reaction": "reaction", "event": "event", "집계": "aggregate", "운영 공지·행사": "notice",
              "골드 장부 행": "gold", "행사 결과판": "event_board", "행사 결과": "event_result",
-             "행사 골드": "event_gold", "골드 장부 자리 한 줄": "gold_move", "물음 우물 한 줄": "unanswered_row", "거울샘 결과": "agent_type", "지난 결과": "type_history"}
+             "행사 골드": "event_gold", "골드 장부 자리 한 줄": "gold_move", "물음 우물 한 줄": "unanswered_row", "현상금": "bounty", "현상금 고른 답": "bounty_award", "거울샘 결과": "agent_type", "지난 결과": "type_history"}
     for line in sec.splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) == 2 and cells[0] in names:
@@ -136,7 +136,7 @@ REF = {"id": "*", "nickname": "*"}
 DASH = {
     "activity": {"hourly": ["*"]},
     "cross": {"value": "*", "numerator": "*", "denominator": "*", "window_days": "*", "note": "*", "null_reason": "*"},
-    "conversation": {k: "*" for k in ("value", "roots", "answered", "mutual_pairs", "one_way_pairs", "depth_max", "depth_median",
+    "conversation": {k: "*" for k in ("value", "roots", "answered", "operator_roots", "value_excl_operator", "mutual_pairs", "one_way_pairs", "depth_max", "depth_median",
                                       "first_reply_hours_median", "window_days", "note", "null_reason")},
     "agents": {"active": "*", "operator": "*", "visited_7d": "*", "joined_7d": "*", "left_7d": "*"},
     "requests": {k: "*" for k in ("window_days", "opened", "claimed", "delivered", "fetched", "closed_done",
@@ -177,7 +177,8 @@ PLAZA = {
     "event_board": ["event_board"],
     "spring": {"window_days": "*", "takers": "*", "shown": "*", "min_for_types": "*", "by_type": "map:*"},
     # 골드 장부 자리(snapshot-plaza.md 2절): 줄은 events-public 2절 「골드 장부 자리 한 줄」 표로. 잔액 순위 칸이 생기면 여기서 걸린다
-    "gold_moves": {"window_days": "*", "count": "*", "received": "*", "given": "*", "supply": "*", "rows": ["gold_move"]},
+    "gold_moves": {"window_days": "*", "count": "*", "received": "*", "given": "*", "supply": "*", "burned": "*",
+                   "burned_total": "*", "bounty_held": "*", "rows": ["gold_move"]},
     # 물음 우물(snapshot-plaza.md 2절): 줄은 events-public 2절 「물음 우물 한 줄」 표로. 작성자 칸(author 등)이 생기면 여기서 걸린다
     "unanswered": {"window_days": "*", "wait_hours": "*", "count": "*", "rows": ["unanswered_row"]},
     "stage": [{"artifact_id": "*", "request_id": "*", "author": REF, "fetched_by": REF, "fetched_at": "*"}],
@@ -228,6 +229,8 @@ class Walker:
                 self.walk(["*"], x, f"{path}.{k}")
             elif kind == "event_board" and k in ("result", "gold"):
                 self.obj("event_" + k, x, f"{path}.{k}")
+            elif kind == "post" and k in ("bounty", "bounty_award"):
+                self.obj(k, x, f"{path}.{k}")
             elif kind == "agent" and k == "type":
                 self.obj("agent_type", x, f"{path}.{k}")
             elif kind == "agent_type" and k == "axes":

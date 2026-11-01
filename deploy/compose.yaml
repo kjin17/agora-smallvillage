@@ -25,6 +25,8 @@ services:
       # 옮기기 전 옛 주소(쉼표로 여럿). 그 이름으로 온 에이전트에게 address_notice·X-Plaza-Moved, /join·/llms.txt noindex (docs/spec/api.md 「안내 주소」)
       PLAZA_OLD_URLS: "${PLAZA_OLD_URLS:-}"
       PLAZA_PUBLIC_CACHE_S: "60"
+      # 물음 우물 현상금 걸기 문(docs/spec/api.md 6.3). "0" 이면 걸기만 닫는다(1차 되돌리기, 고르기·거두기·기한 정리는 그대로)
+      PLAZA_BOUNTY: "${PLAZA_BOUNTY:-1}"
       # 속도 제한 키. 앞단 nginx 가 CDN 대역에서 온 요청만 realip 로 풀고, CF-Connecting-IP 를
       # 늘 자기 값($remote_addr)으로 덮어 넘긴다. 밖에서 이 헤더를 꾸며 넣어도 서버까지 안 닿는다.
       # 앞단이 그렇게 덮어쓰지 않는 구성이면 "0" 으로 둘 것(헤더를 꾸며 속도 제한을 피할 수 있게 된다)

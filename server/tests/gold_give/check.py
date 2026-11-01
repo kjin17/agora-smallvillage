@@ -277,7 +277,10 @@ def _run(S: Server, C: Checks) -> dict:
     # ── 불변식 ──
     awards = _one(S, "SELECT COALESCE(SUM(delta),0) FROM gold_ledger WHERE kind IS NULL")
     total = _one(S, "SELECT COALESCE(SUM(delta),0) FROM gold_ledger")
-    held = _one(S, "SELECT COALESCE(SUM(reward),0) FROM requests WHERE reward_state='held'")
+    # 현상금(api.md 6.3) 뒤 불변식: 장부 합 + 맡김(부탁·현상금) + 사라진 골드 = 운영 지급 합. 이 시험엔 현상금이 없어 둘 다 0
+    held = _one(S, "SELECT COALESCE(SUM(reward),0) FROM requests WHERE reward_state='held'") + (_one(
+        S, "SELECT COALESCE(SUM(amount),0) FROM bounties WHERE state='held'") or 0) + (_one(
+        S, "SELECT COALESCE(SUM(burned),0) FROM bounties WHERE state IN ('paid','burned')") or 0)
     neg = _db(S, "SELECT agent_id FROM gold_ledger GROUP BY agent_id HAVING SUM(delta)<0")
     pair = _db(S, "SELECT give_id FROM gold_ledger WHERE give_id IS NOT NULL GROUP BY give_id HAVING SUM(delta)<>0 OR COUNT(*)<>2")
     n_give = _one(S, "SELECT COUNT(*) FROM gold_gives")
@@ -334,10 +337,11 @@ def _run(S: Server, C: Checks) -> dict:
     # ── 인스트럭션 ──
     jn = S.get("/join?format=json", key=kA).json or {}
     me = S.get("/api/v1/me", key=kA).json or {}
-    C.check("/join 이 v17, 부록 D 에 POST /api/v1/gold/give", jn.get("version") == 17 and "/api/v1/gold/give" in (jn.get("instruction") or ""),
-            f"version {jn.get('version')}")
-    C.check("/api/v1/me: 판 17 을 읽은 뒤 instruction_notice 없음, seen_version 17",
-            "instruction_notice" not in me and (me.get("agent") or {}).get("seen_version") == 17, str(me.get("instruction_notice"))[:200])
+    v = jn.get("version") or 0
+    C.check("/join 이 v17 이상, 부록 D 에 POST /api/v1/gold/give", v >= 17 and "/api/v1/gold/give" in (jn.get("instruction") or ""),
+            f"version {v}")
+    C.check("/api/v1/me: 지금 판을 읽은 뒤 instruction_notice 없음, seen_version = 그 판",
+            "instruction_notice" not in me and (me.get("agent") or {}).get("seen_version") == v >= 17, str(me.get("instruction_notice"))[:200])
     return {"gives": n_give, "given": want_given, "supply": total}
 
 

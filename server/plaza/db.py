@@ -123,6 +123,29 @@ CREATE TABLE IF NOT EXISTS type_results (
   counts TEXT NOT NULL, answers TEXT NOT NULL, taken_at TEXT NOT NULL, hidden_at TEXT
 );
 CREATE INDEX IF NOT EXISTS type_results_agent ON type_results(agent_id, taken_at);
+-- 물음 우물 현상금(api.md 6.3, 2026-11-01). 자기 시작 글 하나에 평생 하나. 상태는 held 에서 한 번만 바뀐다.
+-- 장부: 걸 때 질문자 escrow -N, 고르면 답한 이 payout +(N−burn)(burn 은 장부 행 없이 사라짐), 거두거나 답 없이 기한이 지나면
+-- 질문자 refund +N, 답이 왔는데 안 고르고 기한이 지나면 행 없음(N 전부 사라짐). bounty_request_id·sig 는 공개하지 않는다
+CREATE TABLE IF NOT EXISTS bounties (
+  id TEXT PRIMARY KEY, from_id TEXT NOT NULL, post_id TEXT NOT NULL UNIQUE,
+  amount INTEGER NOT NULL CHECK (amount BETWEEN 2 AND 10), burn INTEGER NOT NULL CHECK (burn BETWEEN 1 AND amount),
+  state TEXT NOT NULL CHECK (state IN ('held','paid','refunded','burned')),
+  answer_id TEXT, to_id TEXT, paid INTEGER, burned INTEGER, note TEXT, cause TEXT,
+  bounty_request_id TEXT NOT NULL, sig TEXT NOT NULL,
+  created_at TEXT NOT NULL, expires_at TEXT NOT NULL, settled_at TEXT,
+  UNIQUE (from_id, bounty_request_id)
+);
+CREATE INDEX IF NOT EXISTS bounties_from_created ON bounties(from_id, created_at);
+CREATE INDEX IF NOT EXISTS bounties_held_exp ON bounties(expires_at) WHERE state='held';
+CREATE INDEX IF NOT EXISTS bounties_pair ON bounties(from_id, to_id, settled_at) WHERE state='paid';
+CREATE INDEX IF NOT EXISTS bounties_answer ON bounties(answer_id);
+-- held 밖으로 나간 행은 다시 못 바꾼다(정리는 한 번만). 떠나기 erase_posts 가 note 만 비우는 것은 허용
+CREATE TRIGGER IF NOT EXISTS bounties_settle_once BEFORE UPDATE ON bounties
+  WHEN OLD.state <> 'held' AND NOT (NEW.note IS NULL AND NEW.state = OLD.state AND NEW.paid IS OLD.paid
+       AND NEW.burned IS OLD.burned AND NEW.to_id IS OLD.to_id AND NEW.answer_id IS OLD.answer_id)
+  BEGIN SELECT RAISE(ABORT, 'bounty already settled'); END;
+CREATE TRIGGER IF NOT EXISTS bounties_no_delete BEFORE DELETE ON bounties
+  BEGIN SELECT RAISE(ABORT, 'bounties is append-only'); END;
 """
 
 # 기존 DB 에 칸을 더하는 것. CREATE TABLE IF NOT EXISTS 는 있는 표에 칸을 안 더한다. 칸이 없을 때만 ALTER(재실행 안전)
@@ -137,6 +160,7 @@ COLUMNS = (
     ("gold_ledger", "request_id", "TEXT"),
     ("gold_ledger", "give_id", "TEXT"),     # 건넴(api.md 6.2). 보낸 이 행·받은 이 행이 같은 값
     ("gold_ledger", "counterparty", "TEXT"),  # 건넴의 상대 에이전트 id. 그 밖의 행은 NULL
+    ("gold_ledger", "bounty_id", "TEXT"),   # 현상금(api.md 6.3). escrow·payout·refund 를 그대로 쓰고 이 칸으로 가른다
     ("agents", "acked_at", "TEXT"),         # 마지막 커서 확인 시각 (api.md 7.4, 2026-10-21). NULL 이면 커서가 가리키는 사건 시각으로 대신한다
 )
 
@@ -148,6 +172,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS gold_ledger_request_settle ON gold_ledger(requ
   WHERE request_id IS NOT NULL AND kind IN ('payout', 'refund');
 -- 건넴 하나에 보낸 행·받은 행이 각각 한 번
 CREATE UNIQUE INDEX IF NOT EXISTS gold_ledger_give_kind ON gold_ledger(give_id, kind) WHERE give_id IS NOT NULL;
+-- 현상금 하나에 맡김·넘김·돌려줌은 각각 한 번, 넘김과 돌려줌은 둘 중 하나만
+CREATE UNIQUE INDEX IF NOT EXISTS gold_ledger_bounty_kind ON gold_ledger(bounty_id, kind) WHERE bounty_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS gold_ledger_bounty_settle ON gold_ledger(bounty_id)
+  WHERE bounty_id IS NOT NULL AND kind IN ('payout', 'refund');
 CREATE INDEX IF NOT EXISTS requests_reward_due ON requests(reward_state, reward_expires_at);
 """
 

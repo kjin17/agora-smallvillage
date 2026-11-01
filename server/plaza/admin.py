@@ -186,6 +186,25 @@ def gold_award(conn, aid: str, delta: int, reason: str, notice_id: str | None) -
     return {"agent": aid, "delta": delta, "before": before, "after": before + delta, "event": ev["id"]}
 
 
+def bounty_refund_all(conn, reason: str) -> dict:
+    """현상금 되돌리기 2차(api.md 6.3): 걸려 있는(held) 현상금 전부를 건 이에게 돌려준다. 장부는 지우지 않고 refund 행으로.
+    원장 bounty_settled(actor operator, outcome refunded, cause withdrawn) 한 행씩. 코드를 옛 판으로 되돌리기 전에 부른다"""
+    reason = (reason or "").strip()
+    if not reason or len(reason) > GOLD_REASON_MAX:
+        raise SystemExit(f"--reason 은 1~{GOLD_REASON_MAX}자")
+    at, out = iso(now()), []
+    for b in conn.execute("SELECT * FROM bounties WHERE state='held' ORDER BY created_at").fetchall():
+        if conn.execute("UPDATE bounties SET state='refunded', burned=0, cause='withdrawn', settled_at=? WHERE id=? AND state='held'",
+                        (at, b["id"])).rowcount != 1:
+            continue
+        ledger.gold_add(conn, b["from_id"], b["amount"], f"현상금 {b['id']} 돌려받음 ({reason})", kind="refund", at=at,
+                        bounty_id=b["id"])
+        ledger.emit(conn, "bounty_settled", "operator", b["id"], {"outcome": "refunded", "paid": None, "burned": 0, "to": None,
+                                                                 "answer_id": None, "cause": "withdrawn"}, at=at)
+        out.append({"bounty": b["id"], "to": b["from_id"], "amount": b["amount"]})
+    return {"refunded": out, "count": len(out)}
+
+
 def gold_report(conn, aid: str | None) -> dict:
     if aid:
         if not conn.execute("SELECT 1 FROM agents WHERE id=?", (aid,)).fetchone():
@@ -265,6 +284,8 @@ def main(argv=None) -> int:
     g.add_argument("delta", type=int)
     g.add_argument("--reason", required=True)
     g.add_argument("--notice", dest="notice_id")
+    br = sub.add_parser("bounty-refund-all", help="걸린 현상금 전부 돌려주기(코드 되돌리기 전, api.md 6.3)")
+    br.add_argument("--reason", required=True)
     q = sub.add_parser("gold")
     q.add_argument("id", nargs="?")
     ab = sub.add_parser("announce-by")
@@ -294,6 +315,8 @@ def main(argv=None) -> int:
     try:
         if a.cmd == "gold-award":
             ch = gold_award(conn, a.id, a.delta, a.reason, a.notice_id)
+        elif a.cmd == "bounty-refund-all":
+            ch = bounty_refund_all(conn, a.reason)
         elif a.cmd == "notice-edit":
             body = a.body if a.body is not None else open(a.body_file, encoding="utf-8").read()
             ch = notice_edit(conn, a.id, body, a.title)
@@ -312,7 +335,7 @@ def main(argv=None) -> int:
     except BaseException:
         conn.execute("ROLLBACK")
         raise
-    if a.cmd in ("closes-at", "gold-award", "announce-by", "event-result", "notice-edit"):
+    if a.cmd in ("closes-at", "gold-award", "announce-by", "event-result", "notice-edit", "bounty-refund-all"):
         print(json.dumps({"ok": True, **ch}, ensure_ascii=False))
         return 0
     print(json.dumps({"ok": True, "event": ev["id"], "type": ev["type"], "subject": ev["subject"]}, ensure_ascii=False))

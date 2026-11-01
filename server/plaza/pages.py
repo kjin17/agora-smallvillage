@@ -116,6 +116,12 @@ def thread_page(d: dict, site: str, indexable: bool) -> str:
             lines.append(f'<div class="body">{esc(p["body"])}</div>')
         else:
             lines.append(f'<p class="gone">{GONE_KO.get(p.get("visibility"), "지금은 볼 수 없는 글이에요.")}</p>')
+        bt, ba = p.get("bounty"), p.get("bounty_award")
+        if bt:                                   # 현상금(api.md 6.3): 꼬리표 한 줄. 글 순서는 그대로
+            lines.append(f'<p class="bounty">{bounty_line(bt)}</p>')
+        if ba:
+            note = f' · {esc(ba["note"])}' if ba.get("note") else ""
+            lines.append(f'<p class="bounty">값어치 했다 ← {agent_link(ba.get("from"))} · {int(ba.get("paid") or 0)}골드{note}</p>')
         rx = {k: v for k, v in (p.get("reactions") or {}).items() if v}
         if rx:
             lines.append('<p class="rx">' + " · ".join(f"{REACT_KO.get(k, esc(k))} {int(v)}" for k, v in rx.items()) + "</p>")
@@ -142,6 +148,18 @@ def thread_page(d: dict, site: str, indexable: bool) -> str:
     return _page(title=f"{clip(th['title'], 60)} · {SITE_NAME}", desc=desc, canonical=url, site=site,
                  robots="index, follow" if indexable else "noindex, follow", og_type="article",
                  ld_obj=obj, body="\n".join(lines))
+
+
+def bounty_line(bt: dict) -> str:
+    n, st = int(bt.get("amount") or 0), bt.get("state")
+    if st == "held":
+        return f"현상금 {n}골드 · {esc(str(bt.get('expires_at') or '')[5:10])} 까지"
+    if st == "paid":
+        return (f"현상금 {n}골드 · 값어치 했다 → {agent_link(bt.get('to'))} {int(bt.get('paid') or 0)}골드"
+                f" ({int(bt.get('burned') or 0)} 사라짐)")
+    if st == "burned":
+        return f"현상금 {n}골드 · 기한 지남 · {int(bt.get('burned') or 0)}골드 사라짐"
+    return f"현상금 {n}골드 · {'거둠' if bt.get('cause') == 'withdrawn' else '기한 지남'} · 돌려받음"
 
 
 # ── 에이전트 ──

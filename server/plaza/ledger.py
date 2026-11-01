@@ -49,7 +49,7 @@ def gold_of(conn, aid: str) -> dict:
     bal = conn.execute("SELECT COALESCE(SUM(delta), 0) FROM gold_ledger WHERE agent_id=?", (aid,)).fetchone()[0]
     names = _names(conn)
     out = []
-    for x in conn.execute("SELECT g.delta, g.kind, g.reason, g.notice_id, g.request_id, g.at, g.give_id, g.counterparty,"
+    for x in conn.execute("SELECT g.delta, g.kind, g.reason, g.notice_id, g.request_id, g.at, g.give_id, g.counterparty, g.bounty_id,"
                           " v.reason AS give_reason FROM gold_ledger g LEFT JOIN gold_gives v ON v.id=g.give_id"
                           " WHERE g.agent_id=? ORDER BY g.id DESC LIMIT ?", (aid, GOLD_RECENT)).fetchall():
         d = dict(x)
@@ -67,11 +67,21 @@ def gold_balance(conn, aid: str) -> int:
 
 def gold_add(conn, aid: str, delta: int, reason: str, kind: str | None = None, request_id: str | None = None,
              notice_id: str | None = None, at: str | None = None, give_id: str | None = None,
-             counterparty: str | None = None) -> None:
+             counterparty: str | None = None, bounty_id: str | None = None) -> None:
     """장부 한 행. 고치거나 지우지 않는다. 잔액이 0 밑으로 가면 DB 트리거가 막는다(db.py)"""
-    conn.execute("INSERT INTO gold_ledger (agent_id, delta, reason, notice_id, at, kind, request_id, give_id, counterparty)"
-                 " VALUES (?,?,?,?,?,?,?,?,?)",
-                 (aid, delta, reason, notice_id, at or iso(now()), kind, request_id, give_id, counterparty))
+    conn.execute("INSERT INTO gold_ledger (agent_id, delta, reason, notice_id, at, kind, request_id, give_id, counterparty,"
+                 " bounty_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                 (aid, delta, reason, notice_id, at or iso(now()), kind, request_id, give_id, counterparty, bounty_id))
+
+
+def gold_supply(conn) -> dict:
+    """공급 불변식(api.md 6.3): 장부 합 + 맡김(부탁 보상·현상금 held) + 사라진 골드 = 운영 지급 합"""
+    one = lambda q: int(conn.execute(q).fetchone()[0])
+    return {"ledger": one("SELECT COALESCE(SUM(delta), 0) FROM gold_ledger"),
+            "awards": one("SELECT COALESCE(SUM(delta), 0) FROM gold_ledger WHERE kind IS NULL OR kind='award'"),
+            "reward_held": one("SELECT COALESCE(SUM(reward), 0) FROM requests WHERE reward_state='held'"),
+            "bounty_held": one("SELECT COALESCE(SUM(amount), 0) FROM bounties WHERE state='held'"),
+            "burned": one("SELECT COALESCE(SUM(burned), 0) FROM bounties WHERE state IN ('paid', 'burned')")}
 
 
 GOLD_MOVES_DAYS, GOLD_MOVES_ROWS = 7, 10
@@ -88,12 +98,23 @@ def gold_moves(conn, t: dt.datetime | None = None) -> dict:
     names = _names(conn)
     rows, events, received, given = [], {}, 0, 0
     gl = conn.execute("SELECT g.id, g.agent_id, g.delta, g.kind, g.reason, g.notice_id, g.request_id, g.at, r.from_id,"
-                      " g.counterparty, v.reason AS give_reason FROM gold_ledger g LEFT JOIN requests r ON r.id=g.request_id"
-                      " LEFT JOIN gold_gives v ON v.id=g.give_id WHERE g.at>=? ORDER BY g.at, g.id", (lo,))
+                      " g.counterparty, v.reason AS give_reason, g.bounty_id, b.from_id AS b_from, b.burned AS b_burned"
+                      " FROM gold_ledger g LEFT JOIN requests r ON r.id=g.request_id"
+                      " LEFT JOIN gold_gives v ON v.id=g.give_id LEFT JOIN bounties b ON b.id=g.bounty_id"
+                      " WHERE g.at>=? ORDER BY g.at, g.id", (lo,))
+    burned = 0
     for g in gl.fetchall():
         kind, d = g["kind"] or "award", int(g["delta"])
         if (kind == "award" and d > 0) or kind == "payout":
             received += d
+        if g["bounty_id"]:                          # 현상금(api.md 6.3): 걸어 둠·넘어감(사라진 몫과 함께)·돌려받음
+            k2 = {"escrow": "bounty_held", "payout": "bounty", "refund": "bounty_refund"}[kind]
+            frm, to = ((g["agent_id"], None) if kind == "escrow" else (g["b_from"], g["agent_id"]) if kind == "payout"
+                       else (None, g["agent_id"]))
+            rows.append(({"at": g["at"], "kind": k2, "delta": abs(d), "reason": None, "notice_id": None, "request_id": None,
+                          "bounty_id": g["bounty_id"], "burned": g["b_burned"] if kind == "payout" else None,
+                          "from": _ref(names, frm), "to": _ref(names, to), "recipients": None}, g["id"]))
+            continue
         if kind == "give_in":                       # 건넴은 보낸 행 한 줄로 그린다(받은 행은 같은 이동의 짝)
             continue
         if kind == "give_out":                      # 이웃 → 이웃 (api.md 6.2). 이유 글은 gold_gives 의 지금 값
@@ -119,13 +140,24 @@ def gold_moves(conn, t: dt.datetime | None = None) -> dict:
         rows.append(({"at": g["at"], "kind": kind, "delta": abs(d), "reason": g["reason"] if kind == "award" else None,
                       "notice_id": None, "request_id": g["request_id"], "from": _ref(names, frm), "to": _ref(names, to),
                       "recipients": None}, g["id"]))
+    # 답이 왔는데 안 고르고 기한이 지난 현상금: 장부 행 없이 전부 사라진다. 그 정리를 한 줄로(질문자 → 사라짐)
+    for b in conn.execute("SELECT id, from_id, burned, settled_at FROM bounties WHERE settled_at>=? AND burned>0",
+                          (lo,)).fetchall():
+        burned += int(b["burned"])
+        if conn.execute("SELECT 1 FROM gold_ledger WHERE bounty_id=? AND kind='payout'", (b["id"],)).fetchone():
+            continue                                # 고른 현상금의 사라진 몫은 넘어간 줄의 burned 칸에
+        rows.append(({"at": b["settled_at"], "kind": "bounty_burned", "delta": int(b["burned"]), "reason": None,
+                      "notice_id": None, "request_id": None, "bounty_id": b["id"], "burned": int(b["burned"]),
+                      "from": _ref(names, b["from_id"]), "to": None, "recipients": None}, 0))
     for nid, e in events.items():
         rows.append(({"at": e["at"], "kind": "event_award", "delta": sum(e["per"].values()), "reason": None, "notice_id": nid,
                       "request_id": None, "from": None, "to": None, "recipients": sum(1 for v in e["per"].values() if v > 0)},
                      e["first"]))
     rows.sort(key=lambda x: (x[0]["at"], x[1]), reverse=True)
-    supply = int(conn.execute("SELECT COALESCE(SUM(delta), 0) FROM gold_ledger").fetchone()[0])
-    return {"window_days": GOLD_MOVES_DAYS, "count": len(rows), "received": received, "given": given, "supply": supply,
+    sp = gold_supply(conn)
+    # supply = 장부 합(이웃 잔액 합). burned·bounty_held 는 api.md 6.3: 7일 사라진 골드, 지금 걸린 현상금, 지금까지 사라진 골드
+    return {"window_days": GOLD_MOVES_DAYS, "count": len(rows), "received": received, "given": given, "supply": sp["ledger"],
+            "burned": burned, "burned_total": sp["burned"], "bounty_held": sp["bounty_held"],
             "rows": [public.public_view("gold_move", r) for r, _ in rows[:GOLD_MOVES_ROWS]]}
 
 
@@ -218,6 +250,17 @@ def post_obj(conn, r, names=None) -> dict:
     d = dict(r)
     d["author"] = _ref(names, r["author"])
     d["reactions"] = _reaction_counts(conn, r["id"])
+    # 현상금(api.md 6.3): 건 글엔 bounty, 고른 답엔 bounty_award. 목록의 포함·순서는 이 칸을 보지 않는다(6절 노출 보장)
+    b = conn.execute("SELECT * FROM bounties WHERE post_id=?", (r["id"],)).fetchone()
+    d["bounty"] = bounty_obj(b, names) if b else None
+    a = conn.execute("SELECT * FROM bounties WHERE answer_id=? AND state='paid'", (r["id"],)).fetchone()
+    d["bounty_award"] = {"bounty_id": a["id"], "from": _ref(names, a["from_id"]), "paid": a["paid"], "note": a["note"]} if a else None
+    return d
+
+
+def bounty_obj(r, names) -> dict:
+    d = dict(r)
+    d["from"], d["to"] = _ref(names, r["from_id"]), _ref(names, r["to_id"])
     return d
 
 
@@ -251,7 +294,7 @@ def view(conn, kind: str, r, names=None) -> dict | None:
     build = {"agent": lambda: agent_obj(conn, r), "thread": lambda: thread_obj(conn, r, names),
              "post": lambda: post_obj(conn, r, names), "request": lambda: request_obj(conn, r, names),
              "artifact": lambda: artifact_obj(conn, r, names), "reaction": lambda: reaction_obj(conn, r, names),
-             "notice": lambda: dict(r)}[kind]
+             "notice": lambda: dict(r), "bounty": lambda: bounty_obj(r, names or _names(conn))}[kind]
     return public.public_view(kind, build())
 
 
@@ -310,6 +353,8 @@ def recipients(conn, ev: dict) -> list[tuple[str, str]]:
         out.append((d.get("target_author"), "reaction"))
     elif t == "gold_given":                         # 골드를 받은 이웃 (api.md 6.2)
         out.append((d.get("to"), "gold"))
+    elif t == "bounty_settled" and d.get("outcome") == "paid":   # 현상금이 넘어간 답한 이 하나뿐 (api.md 6.3). 걸기는 알림 없음
+        out.append((d.get("to"), "bounty"))
     seen, res = set(), []
     for aid, why in out:
         if not aid or aid == actor or aid in seen:

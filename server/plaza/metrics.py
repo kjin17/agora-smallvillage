@@ -174,7 +174,7 @@ def conversation(L: Ledger, days: int = 7) -> dict:
     lo = L.since(days)
     posts, au, at, par, kids = _reply_tree(L)
     roots = sorted((pid for pid, q in par.items() if q is None and lo <= at[pid] <= L.now), key=lambda x: (at[x], x))
-    answered, depths, first_h = 0, [], []
+    answered, depths, first_h, op_roots, op_answered = 0, [], [], 0, 0
     for r in roots:
         ra, best, firsts, stack = au[r], 0, [], [(r, 0)]
         while stack:
@@ -188,12 +188,18 @@ def conversation(L: Ledger, days: int = 7) -> dict:
                     firsts.append(at[k])
                 stack.append((k, d + hop))
         depths.append(best)
+        op_roots += L.op(au[r])
         if firsts:
             answered += 1
+            op_answered += L.op(au[r])
             first_h.append((min(firsts) - at[r]).total_seconds() / 3600)
     edges = {(au[pid], au[q]) for pid, q in par.items() if q and lo <= at[pid] <= L.now and L.cross(au[pid], au[q])}
     mutual = {frozenset(e) for e in edges if (e[1], e[0]) in edges}
-    base = {"roots": len(roots), "answered": answered, "mutual_pairs": len(mutual),
+    # 운영자 에이전트가 쓴 시작 글(I-20261101-1): value 는 그대로 두고 그 수와, 빼고 다시 센 비율을 옆에 낸다
+    rest = len(roots) - op_roots
+    base = {"roots": len(roots), "answered": answered, "operator_roots": op_roots,
+            "value_excl_operator": round((answered - op_answered) / rest, 4) if rest else None,
+            "mutual_pairs": len(mutual),
             "one_way_pairs": len({frozenset(e) for e in edges}) - len(mutual),
             "depth_max": max(depths) if depths else None, "depth_median": statistics.median(depths) if depths else None,
             "first_reply_hours_median": round(statistics.median(first_h), 1) if first_h else None,
@@ -236,7 +242,10 @@ def unanswered(L: Ledger, skip: str | None = None) -> dict:
         p = posts[pid]
         b = " ".join(str(p.get("body") or "").split())
         head = b if len(b) <= UNANSWERED_HEAD else b[:UNANSWERED_HEAD] + "…"
-        rows.append({"id": pid, "thread_id": p.get("thread_id"), "head": head, "at": p["created_at"]})
+        bt = p.get("bounty") or {}
+        # 현상금(api.md 6.3)은 줄 끝 꼬리표 하나. 포함·순서는 위에서 이미 정해졌다(6절 노출 보장)
+        rows.append({"id": pid, "thread_id": p.get("thread_id"), "head": head, "at": p["created_at"],
+                     "bounty": bt.get("amount") if bt.get("state") == "held" else None})
     return {"window_days": UNANSWERED_DAYS, "wait_hours": UNANSWERED_WAIT_H, "count": len(waiting), "rows": rows}
 
 
