@@ -332,6 +332,46 @@ ul.pz-small { padding-left: 18px; }
 .pz-gup { color: #9a6b00; }
 .pz-gdown { color: var(--pz-ink2); }
 
+/* ── 관전 개선 1단계 (2026-11-08, spec/snapshot-plaza.md 4.3) ── */
+/* N1 틀 문장 전광판: 무대 위 한 줄. 줄이 넘치면 가로로 밀어 본다(흰 움직임 없음 — 연출이 아니라 기록) */
+.pz-ticker { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; padding: 6px 12px; min-height: 38px;
+  background: #2f2620; color: #fbf1df; border-radius: 12px; font-size: 13.5px; overflow: hidden; }
+.pz-tkhd { flex: none; font-size: 12.5px; padding: 2px 9px; border-radius: 999px; background: var(--pz-accent); color: #fff; }
+.pz-tklist { flex: 1; min-width: 0; display: flex; gap: 22px; list-style: none; margin: 0; padding: 2px 0; overflow-x: auto; white-space: nowrap;
+  scrollbar-width: thin; scrollbar-color: #6d5a49 transparent; -webkit-mask-image: linear-gradient(to right, #000 92%, transparent); mask-image: linear-gradient(to right, #000 92%, transparent); }
+.pz-tki { flex: none; }
+.pz-tki + .pz-tki::before { content: "·"; margin-right: 22px; margin-left: -12px; color: #8d7a66; }
+.pz-tka { color: inherit; text-decoration: none; }
+a.pz-tka:hover b, a.pz-tka:focus-visible b { text-decoration: underline; text-underline-offset: 3px; }
+.pz-tka time { color: #d9b98f; font-size: 12px; margin-right: 2px; }
+.pz-tka b { color: #fff; font-weight: 800; }
+.pz-tki.scene .pz-tka { color: #ffd9a8; }
+.pz-tki.pz-tkmore, .pz-tki.pz-none { color: #b8a58f; }
+.pz-tknote { flex: none; font-size: 11px; color: #a8957f; }
+/* N3 따라가기 단추: 리플레이 + 연출 켬일 때만 보인다 */
+.pz-zoom button.pz-zfollow { font: 700 12.5px/1 "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", system-ui, sans-serif; }
+.pz-zoom button.pz-zfollow.on { background: var(--pz-ink); color: #fff; }
+.pz-wrap:not(.camok) .pz-zoom [data-z=follow] { display: none; }
+/* N2 답할 차례: 이름표 아래 작은 띠 + 장면의 점선 끈(pzLinks .oweline). 말풍선이 아니다 */
+.pz-owe { display: block; width: max-content; margin: 2px auto 0; padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap;
+  color: #fff; background: var(--pz-accent); }
+/* N8 말없이 다녀감 팻말 (리플레이): 꼬리·아이콘 없는 판 — 말풍선 수에 안 든다 */
+.pz-quiet { position: absolute; left: 50%; bottom: 100%; transform: translate(-50%, -4px); white-space: nowrap; padding: 2px 8px;
+  border-radius: 6px; font-size: 12px; font-weight: 700; color: var(--pz-ink2); background: rgba(255, 253, 248, .92); border: 1.5px dashed var(--pz-muted); }
+/* 에이전트 패널 「관계 한 장」 */
+.pz-rel { border: 1.5px solid var(--pz-line); border-radius: 10px; padding: 4px 12px 8px; margin: 6px 0 4px; background: #fffdf6; }
+.pz-rel h4 { margin-top: 8px; }
+.pz-relsvg { display: block; width: 100%; max-width: 380px; height: auto; margin: 2px auto 0; }
+.pz-rellegend { font-size: 12px; color: var(--pz-ink2); text-align: center; margin: 2px 0 4px; }
+.pz-rellegend i, .pz-rellist i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-left: 6px; }
+.pz-rellist { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.pz-rellist li { padding: 3px 0; overflow-wrap: anywhere; }
+.pz-rellist li + li { border-top: 1px dashed var(--pz-line); }
+.pz-rellist li i { margin: 0 6px 0 0; }
+.pz-rellist .pz-tn { font-size: 13px; }
+.pz-owerow, .pz-quietrow { font-size: 13px; margin: 6px 0 0; }
+.pz-owerow b { color: var(--pz-accent); }
+
 @media (max-width: 1100px) {
   .pz-row { flex-direction: column; }
   .pz-aside { width: auto; border-left: 0; border-top: 1px solid var(--pz-line); }
@@ -351,6 +391,8 @@ ul.pz-small { padding-left: 18px; }
   .pz-scenepop { width: 88%; top: 50%; max-height: calc(100% - 12px); overflow-y: auto; }
   .pz-zoom { right: 6px; bottom: 6px; gap: 4px; }
   .pz-zoom button { min-width: 30px; height: 30px; padding: 0 7px; }
+  .pz-ticker { padding: 5px 8px; gap: 8px; font-size: 12.5px; margin-bottom: 8px; }
+  .pz-tknote { display: none; }
   .pz-weather { display: none; }
   .pz-corner { display: none; }   /* the same line is printed under the stage (drawElsewhere) */
   .pz-modechip { left: 6px; top: 6px; }

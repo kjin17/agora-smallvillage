@@ -129,9 +129,16 @@ class Quiet(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
 
+class _Server(http.server.ThreadingHTTPServer):
+    # 기본 접속 대기열(5)이면 긴 판정 도중 그림 요청이 ERR_CONNECTION_RESET·ERR_SOCKET_NOT_CONNECTED 로 40~55건씩 끊겼다
+    # (11-08 실측, 앞 판 33e2ba9 도 같음). 깨진 그림이 결정성·날씨·몸짓 픽셀 대조와 표정·시설 겹침 판정을 흔들었다
+    request_queue_size = 128
+    daemon_threads = True
+
+
 def serve(root: Path) -> tuple[str, http.server.ThreadingHTTPServer]:
     h = functools.partial(Quiet, directory=str(root))
-    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), h)
+    srv = _Server(("127.0.0.1", 0), h)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return f"http://127.0.0.1:{srv.server_address[1]}", srv
 
@@ -1685,9 +1692,11 @@ def plaza_checks(C: Checks, browser, args, work: Path, extra=(), capture=None):
     C.check("앞 판 흠", "자 검사: 「라일락가」「Pebble와」「Nova-7가」를 「틀림」", len(probe) == 3, ", ".join(probe))
 
     # 4. 결정성: 같은 입력이면 같은 그림 (연출 끔), 생성 시각 1분 차이면 다른 그림
-    def still(base, name, when=None, q="mode=now&motion=0", probe=None):
+    def still(base, name, when=None, q="mode=now&motion=0", probe=None, pre=None):
         ctx, pg = page(1440, 900, q, False, base=base, when=when)
         pg.clock.run_for(2000)
+        if pre:
+            pg.evaluate(pre)
         pg.evaluate("document.fonts.ready")
         # 최근 이야기가 얼굴 그림 수십 장을 더 불러, 같은 그림을 여러 크기로 줄여 그리는 곳에서 몇 점이 흔들렸다(최대 57/255, 줄이는 필터 차이).
         # 그림이 다 받아진 뒤 한 판 더 그리고 찍는다. img.decode() 로 강제로 풀면 오히려 흔들린다(9번 중 2~3번). 깃발 --disable-checker-imaging 과 함께 8/8
@@ -1788,6 +1797,10 @@ M2_MOVED = ("arch", "market")   # 지도 M2: 중앙 → 서쪽 시장 거리
 # 10-25 물음 우물: 앞 판은 561c35a 그대로. 물음 우물은 동쪽이라 첫 화면(중앙)에 안 보여, ae90fd0 으로 올리면 「안 가리면 다름」 자 검사가
 # 성립하지 않는다(10-25 실측: 안 가려도 같은 그림). 장소 넷 모두 [data-place] 로 가린다
 # 10-23 장소 셋: 앞 판을 561c35a 로 올리고, 가리는 곳은 새 장소의 그림·이름표(아래 [data-place])만. 아치 상자는 앞 판에서 이미 지워져 뺐다
+# 11-08 관전 개선 1단계(spec/snapshot-plaza.md 4.3): 광장 탭 맨 위 전광판 띠(#pzTicker)가 새로 생겨 페이지가 그만큼 내려간다.
+# 앞 판과 대기 전에 양쪽에서 띠를 숨겨(display none, 앞 판엔 없음) 자리를 맞춘다. 「답할 차례」 띠(.pz-owe)가 달린 사람은
+# 이름표 아래가 바뀌어 그 사람 상자를 가리고, 끈(#pzLinks .oweline)은 원래 가리던 #pzLinks path 에 든다
+HIDE_NEW_JS = "() => { const t = document.getElementById('pzTicker'); if (t) t.style.display = 'none'; }"
 MOTION_MASK_ZONES = ()
 MOTION_MASK_WORLD = []
 M1_MASK_JS = """([ids, zones, world]) => {
@@ -1800,6 +1813,7 @@ M1_MASK_JS = """([ids, zones, world]) => {
     t.style.cssText = `position:absolute;left:${x0}px;top:${y0}px;width:${x1 - x0}px;height:${y1 - y0}px`;
     document.getElementById('pzStage').appendChild(t); add(t.getBoundingClientRect()); t.remove(); });
   ids.forEach((id) => { const f = document.querySelector(`#pzFigures .pz-agent[data-id="${id}"]`); if (f) deep(f); });
+  document.querySelectorAll('#pzFigures .pz-owe').forEach((o) => deep(o.closest('.pz-agent')));
   document.querySelectorAll('#pzLinks .qline, #pzLinks path:not(.qline)').forEach((q) => add(q.getBoundingClientRect()));
   document.querySelectorAll('#pzThings .pz-lamp, #pzThings .pz-stallsign, #pzThings [data-place]').forEach(deep);
   document.querySelectorAll('#pzMap, #pzThings .pz-door, #pzModeChip, #pzWeather, #pzCorner, #pzZoom').forEach(deep);
@@ -1844,9 +1858,9 @@ def motion_checks(C: Checks, page, still, url: str, url_before: str, before_name
     G = "몸짓"
     q0 = "mode=now&motion=0"
     probe = (M1_MASK_JS, [list(moved_ids), list(MOTION_MASK_ZONES), MOTION_MASK_WORLD])
-    s_new = still(url, "mo_off_new.png", q=q0, probe=probe)
-    still(url, "mo_off_new2.png", q=q0)
-    s_bef = still(url_before, "mo_off_before.png", q=q0, probe=probe)
+    s_new = still(url, "mo_off_new.png", q=q0, probe=probe, pre=HIDE_NEW_JS)
+    still(url, "mo_off_new2.png", q=q0, pre=HIDE_NEW_JS)
+    s_bef = still(url_before, "mo_off_before.png", q=q0, probe=probe, pre=HIDE_NEW_JS)
     boxes = s_new["probe"]["boxes"] + s_bef["probe"]["boxes"]
     ok_c, why_c = same_pixels(shots / "mo_off_new.png", shots / "mo_off_new2.png")
     ok_b, why_b, area = masked_same(shots / "mo_off_new.png", shots / "mo_off_before.png", boxes)
@@ -1864,12 +1878,13 @@ def motion_checks(C: Checks, page, still, url: str, url_before: str, before_name
     pg.clock.run_for(2000)
     until(pg, "[...document.images].every((i) => i.complete) && Plaza.stats().facesPending === 0", tries=60)
     pg.clock.run_for(700)
+    pg.evaluate(HIDE_NEW_JS)
     settle_raster(pg, 1440, 900)
     pg.screenshot(path=str(shots / "mo_on_new.png"), full_page=True)
     ctx.close()
     ok_r, why_r, _ = masked_same(shots / "mo_off_new.png", shots / "mo_on_new.png", boxes)
     C.check(G, "대조군: 연출 끔 화면 두 번 찍어 같은 그림", ok_c, why_c)
-    C.check(G, f"연출 끔(motion=0) = 몸짓 앞 판({before_name}) 그림 픽셀 같음 (점마다 차이 {M1_TOL} 이하; 장소 셋 그림·이름표·문 팻말·동네 띠·틀 위 반투명 띠·양쪽 끝 열 상자 {len(boxes)}개, 틀의 {frac:.0%} 가림), 몸 인라인 transform·몸짓 기호·.mo 0",
+    C.check(G, f"연출 끔(motion=0) = 몸짓 앞 판({before_name}) 그림 픽셀 같음 (점마다 차이 {M1_TOL} 이하; 장소 셋 그림·이름표·문 팻말·동네 띠·틀 위 반투명 띠·양쪽 끝 열·답할 차례 띠 단 사람 상자 {len(boxes)}개, 전광판 띠는 숨김, 틀의 {frac:.0%} 가림), 몸 인라인 transform·몸짓 기호·.mo 0",
             ok_b and frac < 0.35 and off["anyTf"] == 0 and off["pops"] == 0 and off["mo"] == 0,
             f"{why_b} · transform {off['anyTf']} · 기호 {off['pops']} · .mo {off['mo']}")
     C.check(G, "자 검사: 같은 자(같은 가림)로 연출 켬 화면은 「다름」, 가리지 않고 대면 앞 판과 「다름」(장소 셋을 실제로 그림)", not ok_r and not ok_raw, f"{why_r} · 안 가림 {why_raw}")

@@ -263,7 +263,7 @@ def empty_checks(C: Checks, browser):
                 and "골드 이동 0건" in res["gold"]["text"] and "새 이웃 0명" in res["welcome"]["text"] and "인용 사슬 0개" in res["rumor"]["text"],
                 {p: (r["empty"], (r["stat"] or {}).get("text")) for p, r in res.items()})
         gm = ((S.get("/public/snapshot.json").json or {}).get("plaza") or {}).get("gold_moves")
-        C.check("빈 서버: 스냅샷 gold_moves 는 빈 판(0·0·0·[])", gm == {"window_days": 7, "count": 0, "received": 0, "supply": 0, "rows": []}, str(gm))
+        C.check("빈 서버: 스냅샷 gold_moves 는 빈 판(모든 수 0·[], 건넴·현상금 칸 포함)", gm == {"window_days": 7, "count": 0, "received": 0, "given": 0, "supply": 0, "burned": 0, "burned_total": 0, "bounty_held": 0, "rows": []}, str(gm))
         C.check("빈 서버: 페이지 오류 0", not errs, errs[:2])
         ctx.close()
     finally:

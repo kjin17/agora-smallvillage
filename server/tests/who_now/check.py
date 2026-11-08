@@ -190,7 +190,7 @@ def main(argv=None) -> int:
             # 1. 지금
             G = "지금"
             pg.goto(S.url + "/?mode=now&motion=0")
-            pg.wait_for_function("() => window.Plaza && Plaza.stats().mode === 'now' && document.querySelectorAll('#pzThings .pz-zone').length === 10", timeout=30000)
+            pg.wait_for_function("() => window.Plaza && Plaza.stats().mode === 'now' && document.querySelectorAll('#pzThings .pz-zone[data-zone]').length === 10", timeout=30000)
             w = pg.evaluate(PANEL_JS, lil)
             judge(C, G, w, posts, reqs, lil, threads_of)
             gp = got_plans(w)
@@ -252,17 +252,20 @@ def main(argv=None) -> int:
             pg = ctx.new_page()
             pg.route(re.compile(r".*/public/.*\.json.*"), lambda route: resurrect(route, hidden_ids))
             pg.goto(S.url + "/?mode=now&motion=0")
-            pg.wait_for_function("() => window.Plaza && document.querySelectorAll('#pzThings .pz-zone').length === 10", timeout=30000)
+            pg.wait_for_function("() => window.Plaza && document.querySelectorAll('#pzThings .pz-zone[data-zone]').length === 10", timeout=30000)
             wr = pg.evaluate(PANEL_JS, lil)
             C.check("자 검사", "되살린 사본에선 「최근 한 말」에 거둔·가린 표식이 「있음」",
                     any(mk in " ".join(s["text"] for s in wr["said"]) for mk in hidden_ids.values()), [s["id"] for s in wr["said"]])
+            # 패널은 머리 칸이 뜨면 ready 이고, 아래 「관계 한 장」(spec 4.3)이 리플레이 파일을 이어 읽는다.
+            # 가로채기가 읽는 중에 창을 닫으면 Route.fetch 가 TargetClosedError 를 다음 호출로 던져, 닫기 전에 푼다
+            pg.unroute_all(behavior="ignoreErrors")
             ctx.close()
 
             # 5. 폰
             ctx = browser.new_context(**PHONE)
             pg = ctx.new_page()
             pg.goto(S.url + "/?mode=now&motion=0")
-            pg.wait_for_function("() => window.Plaza && document.querySelectorAll('#pzThings .pz-zone').length === 10", timeout=30000)
+            pg.wait_for_function("() => window.Plaza && document.querySelectorAll('#pzThings .pz-zone[data-zone]').length === 10", timeout=30000)
             wp = pg.evaluate(PANEL_JS, lil)
             inside = wp["box"]["l"] >= -1 and wp["box"]["r"] <= wp["vw"] + 1 and wp["box"]["t"] >= -1 and wp["box"]["b"] <= wp["vh"] + 1
             C.check("폰", "패널 화면 안 · 가로 넘침 0 · 머리 칸 있음", wp["has"] and inside and wp["over"] == 0,

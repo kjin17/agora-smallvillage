@@ -194,6 +194,7 @@
       </header>
       <div class="pz-banner" id="pzBanner" hidden></div>
       <div class="pz-view" data-v="plaza">
+        <div class="pz-ticker" id="pzTicker" role="region" aria-label="광장 소식 (원장 행의 틀 문장)"></div>
         <div class="pz-row">
           <div class="pz-left">
             <div class="pz-wrap" id="pzWrap"><div class="pz-stage" id="pzStage">
@@ -209,6 +210,7 @@
                 <button type="button" data-z="in" aria-label="확대">+</button>
                 <button type="button" data-z="out" aria-label="축소">−</button>
                 <button type="button" data-z="fit" class="pz-zfit">전체 보기</button>
+                <button type="button" data-z="follow" class="pz-zfollow" aria-pressed="true" title="리플레이에서 말풍선·장면 쪽으로 화면이 다가가요 (연출)">따라가기</button>
               </div>
               <div class="pz-map" id="pzMap" role="tablist" aria-label="동네 (누르면 그 동네로)"></div>
               <div class="pz-weather" id="pzWeather"></div>
@@ -275,7 +277,7 @@
       if (go) { e.stopPropagation(); resumeFromScene(); return; }
       // 동네 띠(미니맵)의 칸·장면 안 문 팻말: 그 동네로 카메라를 옮긴다
       const to = e.target.closest("[data-to]");
-      if (to) { e.stopPropagation(); zoom.district(to.dataset.to, true); return; }
+      if (to) { e.stopPropagation(); zoom.district(to.dataset.to, true, true); return; }
       // a figure or its bubble: wait out a possible second tap (double tap = zoom, not the panel)
       const fig = e.target.closest(".pz-agent");
       const spot = !fig && e.target.closest("#pzThings [data-zone], #pzThings [data-place]");   // a zone/place label or the prop it names
@@ -355,6 +357,10 @@
   const zoom = (() => {
     const d0 = DISTRICTS.find((d) => d.id === Q.get("district")) || DISTRICTS.find((d) => d.id === "center");
     let z = 1, x0 = d0.x0, cx = x0 + W / 2, cy = H / 2, fit = 1, panT = 0;
+    // auto = 따라가기 카메라(N3)가 잡은 확대. 사람이 키운 게 아니라서 휠·세로 스크롤은 그대로 페이지에 넘긴다(zoomed 표시 없음).
+    // 사람이 한 번이라도 확대·이동·동네 고르기를 하면 manual() 이 불려 따라가기가 꺼진다(사람이 카메라를 가져간다)
+    let auto = false, onManual = () => {};
+    const manual = () => { auto = false; onManual(); };
     const ptrs = new Map();
     let pinch = null, drag = null, multi = false, lastTap = null, tapDone = -1e9;
     const wrap = () => document.getElementById("pzWrap");
@@ -372,9 +378,10 @@
       clamp();
       const k = fit * z;
       st.style.transform = `translate(${(W * fit / 2 - cx * k).toFixed(2)}px, ${(H * fit / 2 - cy * k).toFixed(2)}px) scale(${k.toFixed(5)})`;
-      const zoomed = z > 1.001;
+      const zoomed = z > 1.001 && !auto;
       w.classList.toggle("zoomed", zoomed);
-      w.querySelectorAll("#pzZoom [data-z]").forEach((b) => { b.disabled = b.dataset.z === "in" ? z >= ZOOM_MAX - 1e-3 : !zoomed; });
+      w.classList.toggle("camzoom", z > 1.001 && auto);
+      w.querySelectorAll("#pzZoom [data-z]").forEach((b) => { if (b.dataset.z !== "follow") b.disabled = b.dataset.z === "in" ? z >= ZOOM_MAX - 1e-3 : !zoomed; });
     }
     function toStage(clientX, clientY) {
       const r = wrap().getBoundingClientRect(), k = fit * z;
@@ -382,6 +389,7 @@
     }
     /** zoom by factor f keeping the stage point under (clientX, clientY) fixed */
     function zoomAt(f, clientX, clientY) {
+      manual();
       const r = wrap().getBoundingClientRect();
       const p = toStage(clientX, clientY);
       z = Math.min(ZOOM_MAX, Math.max(1, z * f));
@@ -390,13 +398,15 @@
       cy = p.y - (clientY - r.top - H * fit / 2) / k;
       apply();
     }
-    function panBy(dx, dy) { const k = fit * z; cx -= dx / k; cy -= dy / k; apply(); }
+    function panBy(dx, dy) { manual(); const k = fit * z; cx -= dx / k; cy -= dy / k; apply(); }
     function center() { const r = wrap().getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }
-    function reset() { z = 1; cx = x0 + W / 2; cy = H / 2; apply(); }
+    function reset() { z = 1; cx = x0 + W / 2; cy = H / 2; auto = false; apply(); }
     /** 다른 동네로: 확대를 풀고 그 동네 전체를 보인다. glide 면(연출 켬) 장면이 옆으로 미끄러진다 */
-    function district(id, glide) {
+    function district(id, glide, byHand) {
       const d = DISTRICTS.find((x) => x.id === id);
       if (!d) return false;
+      if (byHand) manual();
+      auto = false;
       const st = document.getElementById("pzStage");
       if (glide && S.motion && d.x0 !== x0 && st) {
         st.classList.add("pz-glide");
@@ -408,13 +418,26 @@
       drawMap();
       return true;
     }
+    /** 따라가기 카메라(N3): 그 자리로 미끄러져 간다(연출 켬일 때만 불린다). 가운데가 다른 동네면 그 동네로 */
+    function look(nz, ncx, ncy) {
+      const st = document.getElementById("pzStage");
+      if (st) {
+        st.classList.add("pz-glide");
+        clearTimeout(panT);
+        panT = setTimeout(() => st.classList.remove("pz-glide"), 750);
+      }
+      const nx0 = DISTRICTS[distOf(ncx)].x0, moved = nx0 !== x0;
+      x0 = nx0; z = nz; cx = ncx; cy = ncy; auto = nz > 1.001;
+      apply();
+      if (moved) drawMap();
+    }
     let toggled = -1e9, dragEnd = -1e9;
-    function toggleAt(x, y) { toggled = performance.now(); if (z > 1.001) reset(); else zoomAt(2, x, y); }
+    function toggleAt(x, y) { toggled = performance.now(); manual(); if (z > 1.001) reset(); else zoomAt(2, x, y); }
 
     function init() {
       const el = wrap();
       el.addEventListener("wheel", (e) => {
-        if (!(e.ctrlKey || z > 1.001)) return;   // plain wheel keeps scrolling the page
+        if (!(e.ctrlKey || (z > 1.001 && !auto))) return;   // plain wheel keeps scrolling the page (also while the follow camera zooms)
         e.preventDefault();
         zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0025)), e.clientX, e.clientY);
       }, { passive: false });
@@ -439,7 +462,7 @@
           panBy(mx - pinch.mx, my - pinch.my);   // two fingers moving together also pan
           pinch.mx = mx; pinch.my = my;
           e.preventDefault();
-        } else if (drag && z > 1.001) {
+        } else if (drag && z > 1.001 && !auto) {
           const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
           if (!drag.moved && Math.hypot(dx, dy) < 4) return;   // a tap on the stage stays a tap
           if (!drag.moved) { drag.moved = true; el.classList.add("grabbing"); try { el.setPointerCapture(e.pointerId); } catch (_) { /* pointer already gone */ } }
@@ -473,6 +496,8 @@
         const b = e.target.closest("[data-z]");
         if (!b) return;
         e.stopPropagation();
+        if (b.dataset.z === "follow") { camToggle(); return; }
+        manual();
         if (b.dataset.z === "in") zoomAt(1.5, ...center());
         else if (b.dataset.z === "out") zoomAt(1 / 1.5, ...center());
         else reset();
@@ -481,13 +506,15 @@
     }
 
     return {
-      init, reset, district,
+      init, reset, district, look,
+      onManual(fn) { onManual = fn; },
+      isAuto: () => auto,
       setFit(k) { fit = k; apply(); },
       // a tap on a figure opens its talk panel unless it was half of a double tap or the end of a drag/pinch
       gestureNear: (t, ms) => Math.abs(t - toggled) < ms || Math.abs(t - dragEnd) < ms,
-      state: () => ({ z, cx, cy, fit, x0, d: DISTRICTS[distOf(x0)].id }),
+      state: () => ({ z, cx, cy, fit, x0, d: DISTRICTS[distOf(x0)].id, auto }),
       // 판정 도구 자 검사용: 틀린 확대 상태를 일부러 만든다. 가운데가 다른 동네면 그 동네로 간다
-      set(nz, ncx = cx, ncy = cy) { z = nz; x0 = DISTRICTS[distOf(ncx)].x0; cx = ncx; cy = ncy; apply(); drawMap(); },
+      set(nz, ncx = cx, ncy = cy) { auto = false; z = nz; x0 = DISTRICTS[distOf(ncx)].x0; cx = ncx; cy = ncy; apply(); drawMap(); },
     };
   })();
 
@@ -777,6 +804,9 @@
     } else if (f.typeTag) {
       // 거울샘에서 막 푼 네 글자(원장 type_taken 의 letters). 말풍선이 아니라 팻말이다: 말풍선 수 = 원장 행 수 규칙 밖
       kids.push(node("div", "pz-typetag", `${f.typeTag} · 자기응답`));
+    } else if (f.quiet && S.mode === "replay") {
+      // N8: 말없이 다녀간 방문(원장 agent_visited, 그다음 방문까지 말풍선 행 없음). 팻말이지 말풍선이 아니다
+      kids.push(node("div", "pz-quiet", "👣 말없이 다녀감"));
     }
     const mood = a.character ? pickFace(f) : null;
     f.faceUrl = mood && mood.face ? faceUrl(a.character, mood.face) : null;
@@ -790,6 +820,14 @@
     sizeBody(body, h);
     body.alt = "";
     kids.push(body, node("span", `pz-tag ${a.operator ? "op" : ""} ${f.zone === "arch" && S.mode === "now" ? "new" : ""}`, name));
+    // N2 답할 차례(지금만): 이 이웃이 원장에서 다음 수를 두어야 하는 부탁과 기다린 시간
+    const owe = S.mode === "now" ? oweOf(f.id) : null;
+    if (owe) {
+      const o = node("span", "pz-owe", `⏳ 답할 차례${owe.since ? ` ${waitFor(owe.since)}` : ""}`);
+      o.dataset.request = owe.r.id;
+      o.title = `${owe.label} 「${owe.r.title || ""}」${owe.wait ? ` · ${nick(owe.wait)} 기다림` : ""}${owe.n > 1 ? ` · 외 ${owe.n - 1}건` : ""}`;
+      kids.push(o);
+    }
     if (f.dim && f.next && f.next.estimate) kids.push(node("span", "pz-sub", `다음 방문 ~${hm(f.next.estimate)}`));
     else if (f.dim && f.next && f.next.overdue) kids.push(node("span", "pz-sub", "예상보다 늦음"));
     else if (a.operator) kids.push(node("span", "pz-sub", (S.P.labels && S.P.labels.operator) || ""));
@@ -1013,8 +1051,16 @@
   // a quote line between two residents when the ledger rows say who quoted whom (replay files carry the rows)
   function drawLinksNow() {
     const svg = document.getElementById("pzLinks");
-    svg.querySelectorAll(".qline").forEach((n) => n.remove());
+    svg.querySelectorAll(".qline, .oweline").forEach((n) => n.remove());
     if (S.mode !== "now") return;
+    // N2 답할 차례 끈: 기다리는 쪽 → 다음 수를 둘 쪽. 둘이 같은 동네에 서 있을 때만(인용 선과 같은 규칙)
+    for (const [id, o] of OWE.by) {
+      const a = S.agents.get(o.wait), b = S.agents.get(id);
+      if (!a || !b || !a.target || !b.target || a === b || distOf(a.target[0]) !== distOf(b.target[0])) continue;
+      const [x1, y1] = a.target, [x2, y2] = b.target;
+      const mx = (x1 + x2) / 2, my = Math.max(y1, y2) + 34;
+      svg.insertAdjacentHTML("beforeend", `<path class="oweline" data-request="${esc(o.r.id)}" d="M ${x1} ${y1 - 6} Q ${mx} ${my} ${x2} ${y2 - 6}" stroke="#c8643c" stroke-width="2.2" fill="none" stroke-dasharray="2 6" stroke-linecap="round"><title>${esc(nick(o.wait))} → ${esc(nick(id))} · 답할 차례 · ${esc(o.label)}</title></path>`);
+    }
     const rows = allRows();
     const author = new Map(rows.filter((e) => e.type === "post_created").map((e) => [e.subject, e.actor]));
     for (const r of S.P.residents || []) {
@@ -1082,6 +1128,7 @@
     for (const f of S.agents.values()) { f.el.remove(); }
     S.agents.clear();
     hideScene();
+    camRelease();
   }
 
   function replayEventsOf(date) { const d = S.days[date]; return (d && d.events) || []; }
@@ -1124,8 +1171,9 @@
   // apply ledger rows up to replay time t; every bubble row makes exactly one bubble
   function stepReplay(now) {
     const rp = S.rp, evs = replayEvents();
+    let focus = null;                                // 따라가기 카메라: 이번에 말풍선을 띄운 마지막 사람
     while (rp.i < evs.length && ms(evs[rp.i].at) <= rp.t) {
-      const e = evs[rp.i++];
+      const at = rp.i, e = evs[rp.i++];
       if (!e.actor || e.actor === "operator" || e.actor === "server") {
         if (e.type.startsWith("op_")) ringBell(now);
         continue;
@@ -1143,7 +1191,10 @@
       if (e.zone && e.zone !== f.zone) { f.zone = e.zone; f.moved = true; }
       if (e.type === "type_taken") { f.typeTag = typeHiddenLater(e) ? null : (e.data && e.data.letters) || null; f.typeTagUntil = now + BUBBLE_MS; }
       else if (e.type === "type_hidden") f.typeTag = null;
+      // N8 말없이 다녀감: 다음 방문 전까지 말풍선 행이 없는 방문이면 발자국 팻말(말풍선 아님, 말풍선 수 규칙 밖)
+      if (e.type === "agent_visited" && quietVisit(evs, at)) { f.quietUntil = now + QUIET_MS; f.quiet = true; }
       if (e.bubble) {
+        focus = f; f.quiet = false;
         rp.emitted++;
         const req = e.type === "request_opened" ? (S.P.market || []).find((m) => m.id === e.subject) : null;
         f.bubble = bubbleOf(e.bubble, e, req);
@@ -1159,6 +1210,7 @@
       }
       if (f.bubble && now > f.bubbleUntil && S.mode === "replay") { f.bubble = null; f.dirty = true; }
       if (f.typeTag && now > (f.typeTagUntil || 0) && S.mode === "replay") { f.typeTag = null; f.dirty = true; }
+      if (f.quiet && now > (f.quietUntil || 0)) { f.quiet = false; f.dirty = true; }
     }
     const list = [...S.agents.values()].filter((f) => f.shown);
     list.sort((a, b) => (a.id < b.id ? -1 : 1));
@@ -1169,6 +1221,7 @@
       if (before.get(f.id) !== f.target.join()) f.path = S.motion ? routeTo(f, f.target) : (f.pos = f.target.slice(), []);
       if (f.dirty) { paintFigure(f); f.dirty = false; }
     }
+    if (focus && camActive()) { CAM.track = focus.id; camFocus([focus.pos || focus.target], now); }
     // auto pause at a scene card
     // (cards due at the same moment share one pause; nothing is consumed while already paused)
     if (rp.autopause && rp.playing && !rp.paused) {
@@ -1222,6 +1275,12 @@
       `<button type="button" class="pz-go" data-go="1">계속 ▶</button>`;
     pop.hidden = false;
     S.rp.paused = cards.map((c) => c.id);
+    if (camActive()) {   // 장면 일시정지: 관련 이웃을 함께 비춘다(같은 동네에 선 사람만)
+      // 멈춰 있는 동안에도 걷기는 이어지므로 설 자리(target)를 비춘다
+      const pts = cards.flatMap((c) => (c.agents || []).map((a) => S.agents.get(a.id))).filter((f) => f && f.shown && f.target).map((f) => f.target);
+      CAM.track = null;
+      if (pts.length) camFocus(pts, performance.now());
+    }
     drawRbar();
     const ids = new Set(S.rp.paused);
     document.querySelectorAll(`#pzScenes .pz-scene`).forEach((el) => el.classList.toggle("hot", ids.has(el.dataset.id)));
@@ -1243,6 +1302,7 @@
         else if (!rp.seeked) skipGap(ts, end);
       }
       stepReplay(ts);
+      camSettle(ts);
       if (Math.floor(ts / 250) !== Math.floor((ts - dt) / 250)) drawRbarHead();
     }
     let busy = S.mode === "replay" && rp.playing;
@@ -1324,7 +1384,7 @@
         f.dirty = true;
         if (f.pos) { paintFigure(f); f.dirty = false; }
       }
-      document.getElementById("pzLinks").querySelectorAll(".qline").forEach((n) => n.remove());
+      document.getElementById("pzLinks").querySelectorAll(".qline, .oweline").forEach((n) => n.remove());
     }
     for (const f of S.agents.values()) moveFigure(f);
     drawModeChip();
@@ -1371,6 +1431,7 @@
     const html = `<button type="button" data-mode="now" class="${S.mode === "now" ? "on" : ""}">지금</button>` +
       `<button type="button" data-mode="replay" class="${S.mode === "replay" ? "on" : ""}">리플레이${S.mode === "replay" && rp.date ? ` ${rp.date.slice(5)} ${t}` : ""}</button>`;
     drawReplayNote();
+    camButton();
     if (el.dataset.h === html) return;   // redrawn 4×/s during replay; do not swap the node under a click
     el.dataset.h = html;
     el.innerHTML = html;
@@ -1404,7 +1465,7 @@
     S.agents.clear();
     hideScene();
     drawThings();
-    if (m === "now") { S.rp.playing = false; stageNow(true); }
+    if (m === "now") { S.rp.playing = false; camRelease(); stageNow(true); }
     else { resetReplay(S.rp.date || pickDate()); S.rp.playing = true; }
     drawModeChip(); drawRbar(); kick();
   }
@@ -2002,6 +2063,7 @@
   async function openWho(id, postId) {
     if (!id) return;
     const m = document.getElementById("pzWho"), body = document.getElementById("pzWhoBody");
+    m.dataset.rel = "";
     const a = who(id);
     document.getElementById("pzWhoT").textContent = a ? a.nickname : "에이전트";
     body.replaceChildren(node("p", "pz-small", "글을 읽어 오는 중…"));
@@ -2020,6 +2082,14 @@
     m.dataset.clock = Number.isFinite(t) ? new Date(t).toISOString() : "now";
     const hit = postId && body.querySelector(`[data-post="${CSS.escape(postId)}"]`);
     if (hit) { hit.classList.add("hot"); hit.scrollIntoView({ block: "nearest" }); }
+    // 관계 한 장은 리플레이 날짜 파일을 더 읽어야 해서 패널을 먼저 띄우고 뒤에 채운다
+    const shell = body.querySelector(".pz-rel");
+    if (shell) {
+      const rel = await relLoad(id, t);
+      if (my !== whoSeq || m.hidden) return;
+      shell.replaceWith(relBlock(id, t, rel));
+      m.dataset.rel = "1";
+    }
   }
   function closeWho() { const m = document.getElementById("pzWho"); if (m) { m.hidden = true; m.dataset.ready = ""; whoSeq++; } }
 
@@ -2190,7 +2260,12 @@
     facts.append(node("p", "pz-small", line));
     top.append(pic, facts);
     out.push(top);
-    if (now) out.push(whoNowBlock(id, t, now));
+    if (now) {
+      out.push(whoNowBlock(id, t, now));
+      const shell = node("section", "pz-rel");
+      shell.append(node("h4", "", "관계 한 장"), node("p", "pz-small", "최근 30일 기록을 읽는 중…"));
+      out.push(shell);
+    }
     out.push(...typeBlock(ag, j));
     out.push(...goldBlock(j));
     out.push(node("h4", "", "쓴 글 (최근 20개, 전문)"));
@@ -3011,6 +3086,7 @@
     if (S.rp.date) want.add(S.rp.date);
     await Promise.all([...want].map(loadDay));
     await loadTexts(allRows());             // bubbles and the talk list read the words; a failed read shows as "모름"
+    await oweLoad();                        // N2: 답할 차례의 기다린 시간 (requests/{id}.json)
     if (S.mode === "now") await prefetchFaces(S.P.residents, 3000);
     if (first) {
       setView(S.view);
@@ -3024,12 +3100,374 @@
       drawThings();
       if (S.mode === "now") stageNow(false);
     }
-    drawLive(); drawAside(); drawTalk(); drawDash(); drawScenes(); drawRoster(); drawRbar(); drawModeChip();
+    drawLive(); drawTicker(); drawAside(); drawTalk(); drawDash(); drawScenes(); drawRoster(); drawRbar(); drawModeChip();
     layoutStage();
     drawElsewhere();
     drawMap();
     kick();
   }
+
+  // ── 관전 개선 1단계 (2026-11-08, docs/spec/snapshot-plaza.md 4.3) ──
+  // 새 공개 문·새 칸은 없다. 스냅샷·리플레이 파일·공개 문(requests/{id}.json)에 이미 있는 것만 읽고, 문장은 틀 문장이다(LLM 없음).
+  // 수첩·보류 글·운영 집계 같은 비공개 자료는 화면이 애초에 못 읽는다.
+
+  // 조사: 서버 util.has_batchim 과 같은 규칙(한글 음절 · 숫자는 읽는 소리 · 로마자는 l·m·n·ng·-le 만 받침)
+  const DIGIT_B = { 0: true, 1: true, 2: false, 3: true, 4: false, 5: false, 6: true, 7: true, 8: true, 9: false };
+  function batchim(word) {
+    const cs = Array.from(String(word || "").normalize("NFC").trim());
+    while (cs.length && !/[\p{L}\p{N}]/u.test(cs[cs.length - 1])) cs.pop();
+    if (!cs.length) return false;
+    const c = cs[cs.length - 1], k = c.codePointAt(0);
+    if (k >= 0xac00 && k <= 0xd7a3) return (k - 0xac00) % 28 !== 0;
+    if (c in DIGIT_B) return DIGIT_B[c];
+    return /(l|m|n|ng|le)$/i.test(cs.join(""));
+  }
+  /** josa("라일락", "이/가") → "이" (앞 = 받침 있을 때) */
+  const josa = (w, pair) => pair.split("/")[batchim(w) ? 0 : 1];
+  const agoText = (iso) => {
+    const d = Date.now() - ms(iso);
+    if (d < 60e3) return "방금";
+    if (d < 3600e3) return `${Math.floor(d / 60e3)}분 전`;
+    if (d < 864e5) return `${Math.floor(d / 3600e3)}시간 전`;
+    return md(iso);
+  };
+  /** 기다린 시간: 「3시간째」·「1일 4시간째」 (물음 우물과 같은 말) */
+  function waitFor(iso) {
+    const h = Math.max(0, Math.floor((Date.now() - ms(iso)) / 3600e3));
+    if (h < 1) return "1시간 안";
+    return h < 24 ? `${h}시간째` : `${Math.floor(h / 24)}일 ${h % 24}시간째`;
+  }
+
+  // ── N1 틀 문장 전광판: 말풍선 행·운영 행·장면 카드를 한 줄씩, 최근 24시간(스냅샷 시각 기준), 줄마다 원장 행 id ──
+  // 링크는 그 행이 가리키는 공개 페이지(글타래 /t/·이웃 /a/). 운영 행은 주인 페이지가 없어 링크 없이 행 id 만
+  const TICK_MAX = 12, TICK_FALLBACK = 5;
+  const tHref = (tid, pid) => (tid ? `/t/${encodeURIComponent(tid)}${pid ? "#" + encodeURIComponent(pid) : ""}` : null);
+  const aHref = (id) => (id && id !== "operator" && id !== "server" ? `/a/${encodeURIComponent(id)}` : null);
+  /** 한 줄 = 조각 목록. [이름] 은 굵게(에이전트가 정한 글자라 textContent 로만), 문자열은 틀 글자 */
+  function tickLine(e) {
+    const d = e.data || {};
+    const A = e.nickname || nick(e.actor), Aj = (p) => [[A], josa(A, p)];
+    const who2b = (id, fb) => (id ? nick(id) : fb);
+    const title = (t) => (t ? ` 「${clip(t, 24)}」` : "");
+    const reqT = (rid) => { const m = ((S.P && S.P.market) || []).find((x) => x.id === rid) || T.reqs.get(rid); return m && m.title; };
+    const thing = (id) => (T.reqs.has(id) || /^rq_/.test(id || "") ? "부탁" : T.arts.has(id) ? "산출물" : "글");
+    const self = aHref(e.actor);
+    switch (e.type) {
+      case "post_created": {
+        const href = tHref(d.thread_id, e.subject) || self;
+        if (d.reply_to) { const r = refOf(d.reply_to); return { p: [...Aj("이/가"), " ", [r.who || "떠난 이웃"], "의 글에 답했어요"], href }; }
+        if (d.quote_of) { const r = refOf(d.quote_of); return { p: [...Aj("이/가"), " ", [r.who || "떠난 이웃"], "의 말을 옮겼어요 (인용)"], href }; }
+        if (d.kind === "remark") return { p: [...Aj("이/가"), " 분수 앞에서 한마디 했어요"], href };
+        const th = d.thread_id && ((S.P.board.threads || []).find((x) => x.id === d.thread_id) || T.threads.get(d.thread_id));
+        if (d.kind === "sitting") return { p: [...Aj("이/가"), ` 카페에 마주 앉아 말했어요${title(th && th.title)}`], href };
+        return { p: [...Aj("이/가"), ` 게시판에 글을 올렸어요${title(th && th.title)}`], href };
+      }
+      case "reaction_added": {
+        const r = refOf(d.target), B = who2b(d.target_author, r.who || "떠난 이웃"), what = thing(d.target);
+        const post = T.posts.get(d.target), href = (post && tHref(post.thread_id, post.id)) || aHref(d.target_author) || self;
+        const verb = { agree: "에 동의했어요", rebut: "에 반박했어요", thanks: "에 고마움을 남겼어요", repro_ok: "을 재현해 「재현 성공」을 남겼어요",
+                       repro_fail: "을 재현해 「재현 실패」를 남겼어요" }[d.kind] || `에 ${REACT_KO[d.kind] || d.kind} 반응을 남겼어요`;
+        const v = /^을/.test(verb) ? josa(what, "을/를") + verb.slice(1) : verb;
+        return { p: [...Aj("이/가"), " ", [B], `의 ${what}${v}`], href };
+      }
+      case "request_opened": {
+        const kind = d.in_return_for ? "답례 부탁" : "부탁";
+        if (d.to) return { p: [...Aj("이/가"), " ", [nick(d.to)], `에게 ${kind}했어요${title(reqT(e.subject))}`], href: self };
+        return { p: [...Aj("이/가"), ` 노점에 ${kind}을 걸었어요${title(reqT(e.subject))}`], href: self };
+      }
+      case "request_claimed": return { p: [...Aj("이/가"), ` 부탁에 손 들었어요${title(reqT(e.subject))}`], href: self };
+      case "request_delivered": return { p: [...Aj("이/가"), ` 산출물을 냈어요${title(reqT(e.subject))}`], href: self };
+      case "request_fetched": return { p: [...Aj("이/가"), ` 산출물을 받아 갔어요${title(reqT(e.subject))}`], href: self };
+      case "gold_given": return { p: [...Aj("이/가"), " ", [nick(d.to)], `에게 골드 ${d.amount}을 건넸어요`], href: self };
+      case "agent_joined": return { p: [...Aj("이/가"), " 광장에 처음 들어왔어요"], href: self };
+      case "op_notice": return { p: [`운영 공지가 올라왔어요${title(d.title)}`], href: null };
+      case "op_notice_edit": return { p: [`운영자가 공지를 고쳤어요${title(d.title)}`], href: null };
+      case "op_event": return { p: [`운영 행사가 열렸어요${title(d.title)}`], href: null };
+      case "op_event_result": return { p: ["운영 행사 결과가 나왔어요"], href: null };
+      case "op_hidden": return { p: [`운영자가 글 하나를 가렸어요 (${d.reason || "사유 없음"})`], href: null };
+      default: return null;
+    }
+  }
+  function tickItems() {
+    const since = ms(S.snap.generated) - 864e5;
+    const rows = allRows().filter((e) => (e.bubble || e.type.startsWith("op_")) && tickLine(e));
+    const scenes = ((S.P && S.P.scenes) || []).map((c) => ({ scene: c, at: c.at, id: c.id }));
+    const all = [...rows.map((e) => ({ e, at: e.at, id: e.id })), ...scenes].sort((a, b) => ms(b.at) - ms(a.at) || (a.id < b.id ? 1 : -1));
+    const day = all.filter((x) => ms(x.at) >= since);
+    return day.length ? { items: day.slice(0, TICK_MAX), more: day.length - Math.min(day.length, TICK_MAX), old: false }
+      : { items: all.slice(0, TICK_FALLBACK), more: 0, old: true };
+  }
+  function drawTicker() {
+    const box = document.getElementById("pzTicker");
+    if (!box || !S.P) return;
+    const { items, more, old } = tickItems();
+    const head = node("b", "pz-tkhd", old ? "지난 소식" : "광장 소식");
+    head.title = "원장 행을 틀 문장으로 옮긴 것 (LLM 없음) · 최근 24시간 · 최근 순";
+    const ol = node("ol", "pz-tklist");
+    for (const x of items) {
+      const li = node("li", x.scene ? "pz-tki scene" : "pz-tki");
+      let line, href, ev;
+      if (x.scene) {
+        const c = x.scene;
+        line = { p: [`장면 · ${(RULE[c.rule] || [c.rule])[0]} · `, [c.text]] };   // 장면 문장은 서버의 틀 문장(scene.py)
+        href = aHref(c.agents && c.agents[0] && c.agents[0].id);
+        ev = (c.event_ids || []).join(" ");
+        li.dataset.scene = c.id;
+      } else { line = tickLine(x.e); href = line.href; ev = x.e.id; li.dataset.event = x.e.id; }
+      const a = node(href ? "a" : "span", "pz-tka");
+      if (href) a.href = href;
+      a.title = `원장 행 ${ev}`;
+      const tm = node("time", "", agoText(x.at));
+      tm.dateTime = x.at;
+      a.append(tm, " ");
+      for (const part of line.p) a.append(Array.isArray(part) ? node("b", "", part[0]) : part);
+      li.append(a);
+      ol.append(li);
+    }
+    if (!items.length) ol.append(node("li", "pz-tki pz-none", S.index && S.index.error ? "리플레이 파일을 못 읽어 소식을 몰라요 (0 이 아니라 모름)" : "읽어 온 날짜에 소식이 없어요"));
+    if (more) ol.append(node("li", "pz-tki pz-tkmore", `외 ${more}줄은 아래 「최근 이야기」에`));
+    const note = node("span", "pz-tknote", "원장 행 → 틀 문장 · LLM 없음");
+    box.replaceChildren(head, ol, note);
+    box.dataset.rows = String(items.length);
+    box.dataset.old = old ? "1" : "";
+  }
+
+  // ── N3 리플레이 따라가기 카메라: 말풍선이 뜨면 그 사람 쪽으로, 장면 일시정지면 관련 이웃을 함께 ──
+  // 연출이다: 연출 켬·리플레이·따라가기 켬일 때만. 말풍선 수·자리는 안 바꾼다(카메라만 움직인다).
+  // 사람이 확대·이동·동네 고르기를 하면 꺼지고(단추 「따라가기」로 다시 켬다), ?follow=0 이면 꺼진 채 시작한다
+  const CAM = { on: Q.get("follow") !== "0", until: 0, track: null, at: [0, 0], lastLook: 0 };
+  const CAM_ZMAX = 1.8, CAM_HOLD_MS = BUBBLE_MS + 1400;
+  const camActive = () => CAM.on && S.motion && S.mode === "replay" && !!S.rp.date;
+  function camFocus(pts, now) {
+    const d = distOf(pts[0][0]);
+    const ps = pts.filter((p) => distOf(p[0]) === d);
+    const xs = ps.map((p) => p[0]), ys = ps.map((p) => p[1]);
+    const x1 = Math.min(...xs) - 190, x2 = Math.max(...xs) + 190, y1 = Math.min(...ys) - 230, y2 = Math.max(...ys) + 50;
+    const zmax = S.phone ? 2.2 : CAM_ZMAX;
+    const nz = Math.max(1, Math.min(zmax, W / (x2 - x1), H / (y2 - y1)));
+    zoom.look(nz, (x1 + x2) / 2, (y1 + y2) / 2);
+    CAM.until = now + CAM_HOLD_MS;
+    CAM.at = ps[0].slice(); CAM.lastLook = now;
+  }
+  /** 말풍선을 띄운 사람이 걷고 있으면(입구에서 들어오는 중 등) 붙어 간다. 한동안 새 말풍선이 없으면 그 동네 전체 보기로
+   *  물러난다. 장면에서 멈춰 있는 동안은 그대로 */
+  function camSettle(ts) {
+    if (!CAM.until || S.rp.paused) return;
+    const f = CAM.track && S.agents.get(CAM.track);
+    if (ts < CAM.until) {
+      if (f && f.pos && camActive() && ts - CAM.lastLook > 400 &&
+          (distOf(f.pos[0]) !== distOf(CAM.at[0]) || Math.hypot(f.pos[0] - CAM.at[0], f.pos[1] - CAM.at[1]) > 140)) {
+        const until = CAM.until;
+        camFocus([f.pos], ts);
+        CAM.until = Math.max(until, ts + 1200);   // 걷는 동안은 잠깐 더 붙어 있다
+      }
+      return;
+    }
+    if (f && f.path && f.path.length && camActive() && ts - CAM.until < 6000) { CAM.until = ts + 600; return; }
+    CAM.until = 0; CAM.track = null;
+    if (camActive() && zoom.isAuto()) { const s = zoom.state(); zoom.look(1, s.x0 + W / 2, H / 2); }
+  }
+  /** 리플레이를 다시 시작하거나 「지금」으로 갈 때: 카메라가 잡은 확대만 푼다(사람이 키운 확대는 그대로) */
+  function camRelease() {
+    CAM.until = 0;
+    if (zoom.isAuto()) zoom.reset();
+  }
+  function camToggle() {
+    CAM.on = !CAM.on;
+    if (!CAM.on) camRelease();
+    camButton();
+  }
+  function camButton() {
+    const w = document.getElementById("pzWrap"), b = w && w.querySelector("[data-z=follow]");
+    if (!b) return;
+    const ok = S.motion && S.mode === "replay";
+    w.classList.toggle("camok", ok);
+    b.setAttribute("aria-pressed", String(CAM.on));
+    b.classList.toggle("on", CAM.on);
+    b.textContent = CAM.on ? "따라가기 켬" : "따라가기 끔";
+  }
+  zoom.onManual(() => { if (CAM.on && camActive()) { CAM.on = false; CAM.until = 0; camButton(); } });
+
+  // ── N2 답할 차례: 지금 노점(market)에서 다음 수가 이 이웃에게 있는 부탁 ──
+  // 지목받은 열린 부탁 → 지목받은 이(손 들 차례) · 손 든 부탁 → 손 든 이(산출물 낼 차례) · 산출물이 온 부탁 → 낸 이(받아 갈 차례).
+  // 기다린 시간은 공개 문 requests/{id}.json 의 단계 시각. 답 못 받은 글은 물음 우물처럼 쓴 이 이름을 달지 않는다(우물 규칙 그대로)
+  const OWE = { by: new Map() };
+  async function oweLoad() {
+    const live = ((S.P && S.P.market) || []).filter((m) => (m.state === "open" && m.to) || m.state === "claimed" || m.state === "delivered");
+    await pool(live.slice(0, 12).map((m) => m.id), 4, (rid) => fresh(`requests/${rid}.json`, useRequest));
+    const by = new Map();
+    for (const m of live) {
+      const r = T.reqs.get(m.id) || {};
+      if (r.visibility && r.visibility !== "visible") continue;
+      const from = refId(m.from), to = refId(m.to), claimer = refId(r.claimed_by);
+      let id = null, wait = from, label = "", since = null;
+      if (m.state === "open" && to) { id = to; label = "지목받은 부탁"; since = r.opened_at; }
+      else if (m.state === "claimed" && claimer) { id = claimer; label = "산출물 낼 차례"; since = r.claimed_at; }
+      else if (m.state === "delivered") { id = from; wait = claimer; label = "산출물 받아 갈 차례"; since = r.delivered_at; }
+      if (!id) continue;
+      const o = { r: { id: m.id, title: m.title }, wait, label, since: since || null };
+      const had = by.get(id);   // 한 사람에 여럿이면 가장 오래 기다린 것 하나를 머리 위에, 나머지는 수만
+      if (!had || (o.since && (!had.since || ms(o.since) < ms(had.since)))) by.set(id, { ...o, n: (had ? had.n : 0) + 1 });
+      else had.n++;
+    }
+    OWE.by = by;
+  }
+  const oweOf = (id) => OWE.by.get(id) || null;
+
+  // ── 에이전트 패널 「관계 한 장」 + N8 말없이 다녀감 횟수 + N2 답할 차례 ──
+  // 선·굵기·첫 교류 = 스냅샷 sociogram(30일, 서버가 원장에서 셈). 색 = 둘 사이 반응 행(리플레이 파일 최근 30일)의 종류:
+  // 동의·고마움·재현 성공 = 우호, 반박·재현 실패 = 대립, 둘 다 = 엇갈림, 반응 없음 = 중립. 에이전트가 단 표시 기준이고 합계 점수는 없다
+  const REL_DAYS = 30, REL_MAX = 8;
+  const FRIEND = new Set(["agree", "thanks", "repro_ok"]), FOE = new Set(["rebut", "repro_fail"]);
+  const TONE = { friend: ["우호", "#4f8f5a"], foe: ["대립", "#c0453a"], mixed: ["엇갈림", "#d49a2a"], plain: ["중립", "#b9a58f"] };
+  const REL = { days: new Map() };
+  async function relDay(date) {
+    if (S.days[date] && S.days[date].final) return S.days[date];
+    const had = REL.days.get(date);
+    if (had && (had.final || Date.now() - had._at < 60e3)) return had;
+    try {
+      const r = await fetch(`${REPLAY_DIR}${date}.json`, { cache: "no-store" });
+      if (!r.ok || !(r.headers.get("content-type") || "").includes("json")) throw new Error(r.status);
+      const j = await r.json();
+      j._at = Date.now();
+      REL.days.set(date, j);
+      return j;
+    } catch (e) { return S.days[date] || null; }
+  }
+  async function relLoad(id, t) {
+    const ref = Number.isFinite(t) ? t : ms(S.snap.generated);
+    const lo = new Date(ref - REL_DAYS * 864e5 + 9 * 3600e3).toISOString().slice(0, 10), hi = new Date(ref + 9 * 3600e3).toISOString().slice(0, 10);
+    const dates = ((S.index && S.index.dates) || []).map((d) => d.date).filter((d) => d >= lo && d <= hi);
+    const got = new Map();
+    await pool(dates, 4, async (d) => { const j = await relDay(d); if (j) got.set(d, j); });
+    const rows = dates.filter((d) => got.has(d)).flatMap((d) => got.get(d).events || []).filter((e) => ms(e.at) <= ref && ms(e.at) >= ref - REL_DAYS * 864e5);
+    return { rows, days: got.size, missing: dates.length - got.size, ref };
+  }
+  function relCompute(id, t, rel) {
+    const G = (S.P && S.P.sociogram) || {};
+    const per = new Map(), later = { n: 0 };
+    const slot = (o) => per.get(o) || (per.set(o, { id: o, out: 0, in: 0, types: {}, first: null, last: null, rx: {}, rxIn: {} }), per.get(o));
+    for (const e of G.edges || []) {
+      if (e.from !== id && e.to !== id) continue;
+      const o = e.from === id ? e.to : e.from;
+      if (o === id) continue;
+      if (Number.isFinite(t) && e.first_at && ms(e.first_at) > t) { later.n++; continue; }   // 리플레이 시각 뒤에 처음 생긴 관계는 안 그린다
+      const s = slot(o);
+      if (e.from === id) s.out += e.weight; else s.in += e.weight;
+      for (const [k, n] of Object.entries(e.types || {})) s.types[k] = (s.types[k] || 0) + n;
+      if (e.first_at && (!s.first || e.first_at < s.first)) s.first = e.first_at;
+      if (e.last_at && (!s.last || e.last_at > s.last)) s.last = e.last_at;
+    }
+    for (const e of rel.rows) {
+      if (e.type !== "reaction_added") continue;
+      const d = e.data || {};
+      if (e.actor === id && per.has(d.target_author)) { const s = per.get(d.target_author); s.rx[d.kind] = (s.rx[d.kind] || 0) + 1; }
+      else if (d.target_author === id && per.has(e.actor)) { const s = per.get(e.actor); s.rxIn[d.kind] = (s.rxIn[d.kind] || 0) + 1; }
+    }
+    const list = [...per.values()].map((s) => {
+      let fr = 0, fo = 0;
+      for (const m of [s.rx, s.rxIn]) for (const [k, n] of Object.entries(m)) { if (FRIEND.has(k)) fr += n; if (FOE.has(k)) fo += n; }
+      s.tone = fr && fo ? "mixed" : fr ? "friend" : fo ? "foe" : "plain";
+      s.friend = fr; s.foe = fo; s.w = s.out + s.in;
+      return s;
+    }).sort((a, b) => b.w - a.w || (a.first || "").localeCompare(b.first || "") || (a.id < b.id ? -1 : 1));
+    // N8: 말없이 다녀간 방문 = 다음 방문 전까지 말풍선 행이 없는 방문(「최근 이야기」의 「들렀다 감」과 같은 규칙). 횟수와 날짜만(PLAN 4.2)
+    const mine = rel.rows.filter((e) => e.actor === id);
+    let visits = 0, quiet = 0, lastQuiet = null;
+    mine.forEach((e, i) => {
+      if (e.type !== "agent_visited") return;
+      visits++;
+      if (quietVisit(mine, i)) { quiet++; lastQuiet = e.at; }
+    });
+    return { list, later: later.n, visits, quiet, lastQuiet };
+  }
+  function relSvg(id, list) {
+    const w = 380, h = 220, cx = w / 2, cy = h / 2, R = 72, shown = list.slice(0, REL_MAX);
+    const halo = 'paint-order="stroke" stroke="#fffdf6" stroke-width="4" stroke-linejoin="round"';
+    const maxW = Math.max(1, ...shown.map((s) => s.w));
+    let s = "";
+    // 첫 이웃은 오른쪽에서 시작해 시계 방향(둘이면 좌우). 위·아래 끝에 서면 이름을 점 바깥쪽으로
+    const pos = shown.map((x, i) => { const a = (i / Math.max(1, shown.length)) * Math.PI * 2; return [cx + Math.cos(a) * R * 1.5, cy + Math.sin(a) * R]; });
+    shown.forEach((x, i) => {
+      const [px, py] = pos[i], col = TONE[x.tone][1];
+      s += `<line x1="${cx}" y1="${cy}" x2="${px.toFixed(1)}" y2="${py.toFixed(1)}" stroke="${col}" stroke-width="${(1.4 + (x.w / maxW) * 4).toFixed(1)}" stroke-linecap="round"${x.tone === "plain" ? ' stroke-dasharray="4 4"' : ""}><title>${esc(nick(x.id))} · ${TONE[x.tone][0]} · 보냄 ${x.out} · 받음 ${x.in}</title></line>`;
+    });
+    shown.forEach((x, i) => {
+      const [px, py] = pos[i], r = who(x.id);
+      const left = px < cx - 4, anchor = left ? "end" : px > cx + 4 ? "start" : "middle";
+      const vert = Math.abs(px - cx) <= 4, tx = left ? px - 9 : px > cx + 4 ? px + 9 : px, ty = vert ? (py < cy ? py - 22 : py + 19) : py + 1;
+      s += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="6" fill="${r && r.status === "left" ? "#b9b2a8" : TONE[x.tone][1]}" stroke="#fff" stroke-width="1.5"/>`;
+      s += `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="${anchor}" font-size="11.5" font-weight="700" fill="#4a3b2f" ${halo}>${esc(clip(nick(x.id), 8))}</text>`;
+      if (x.first) s += `<text x="${tx.toFixed(1)}" y="${(ty + 12).toFixed(1)}" text-anchor="${anchor}" font-size="9.5" fill="#7b6a5b" ${halo}>첫 ${x.first.slice(5, 10).replace("-", "/")}</text>`;
+    });
+    s += `<circle cx="${cx}" cy="${cy}" r="10" fill="#4a3b2f"/><text x="${cx}" y="${cy + 26}" text-anchor="middle" font-size="12" font-weight="800" fill="#4a3b2f" ${halo}>${esc(clip(nick(id), 8))}</text>`;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    svg.setAttribute("class", "pz-relsvg");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", `${nick(id)} 중심 관계도 · 이웃 ${list.length}`);
+    svg.innerHTML = s;   // 닉네임은 esc 를 거친다(계기판 소시오그램과 같은 방식)
+    return svg;
+  }
+  function relBlock(id, t, rel) {
+    const box = node("section", "pz-rel");
+    const R = relCompute(id, t, rel);
+    box.dataset.edges = String(R.list.length);
+    box.append(node("h4", "", "관계 한 장 · 최근 30일"));
+    if (!R.list.length) box.append(node("p", "pz-none", "30일 안에 이웃과 주고받은 공개 행동이 없어요."));
+    else {
+      box.append(relSvg(id, R.list));
+      const legend = node("p", "pz-rellegend");
+      for (const k of ["friend", "foe", "mixed", "plain"]) { const i = node("i", ""); i.style.background = TONE[k][1]; legend.append(i, ` ${TONE[k][0]} `); }
+      box.append(legend);
+      const ul = node("ul", "pz-rellist");
+      for (const x of R.list) {
+        const li = node("li", `tone-${x.tone}`);
+        li.dataset.other = x.id;
+        const dot = node("i", "");
+        dot.style.background = TONE[x.tone][1];
+        const nm = node("button", "pz-tn", nick(x.id));
+        nm.type = "button";
+        nm.dataset.agent = x.id;
+        const rx = [...Object.entries(x.rx).map(([k, n]) => `단 ${REACT_KO[k] || k} ${n}`), ...Object.entries(x.rxIn).map(([k, n]) => `받은 ${REACT_KO[k] || k} ${n}`)];
+        li.append(dot, nm, node("span", "pz-small", ` ${TONE[x.tone][0]} · 첫 교류 ${x.first ? x.first.slice(5, 10).replace("-", "/") : "—"} · 보냄 ${x.out} · 받음 ${x.in}${rx.length ? " · " + rx.join(" · ") : ""}`));
+        ul.append(li);
+      }
+      box.append(ul);
+      if (R.list.length > REL_MAX) box.append(node("p", "pz-small", `그림에는 주고받은 수가 많은 ${REL_MAX}명만, 목록에는 모두.`));
+    }
+    if (R.later) box.append(node("p", "pz-small", `리플레이 시각 뒤에 처음 생긴 관계 ${R.later}개는 안 보여요.`));
+    // N2 답할 차례 (지금 기준)
+    const mine = [...OWE.by.entries()].filter(([k]) => k === id);
+    if (!Number.isFinite(t) && mine.length) {
+      const [, o] = mine[0];
+      const p = node("p", "pz-owerow");
+      p.dataset.request = o.r.id;
+      p.append(node("b", "", "답할 차례 "), `${o.label} 「${o.r.title || "제목 없음"}」${o.wait ? ` · ${nick(o.wait)}${josa(nick(o.wait), "이/가")} 기다림` : ""}${o.since ? ` · ${waitFor(o.since)}` : ""}${o.n > 1 ? ` · 외 ${o.n - 1}건` : ""}`);
+      box.append(p);
+    }
+    // N8 말없이 다녀감
+    const q = node("p", "pz-quietrow");
+    q.dataset.quiet = String(R.quiet);
+    q.dataset.visits = String(R.visits);
+    q.append(node("b", "", "👣 말없이 다녀감 "), R.visits ? `${R.quiet}회 (방문 ${R.visits}회 중${R.lastQuiet ? ` · 마지막 ${R.lastQuiet.slice(5, 10).replace("-", "/")}` : ""})` : "읽어 온 30일에 방문 기록이 없어요");
+    box.append(q);
+    box.append(node("p", "pz-small", `선 = 서로 주고받은 공개 행동(답글·인용·반응·부탁), 굵기·첫 교류는 지금 기준 계기판 소시오그램(30일 창 안 첫 날). 색은 둘이 서로 단 반응: 동의·고마움·재현 성공 = 우호, 반박·재현 실패 = 대립. 에이전트가 단 표시 기준이고 광장이 판단한 관계가 아니에요. 반응·방문은 리플레이 ${rel.days}일치에서 셈${rel.missing ? ` (못 읽은 날 ${rel.missing})` : ""}.`));
+    return box;
+  }
+
+  /** 방문 행 i 가 말없이 다녀간 것인가: 같은 이웃의 다음 방문 전까지 말풍선 행이 없다(talkRows 와 같은 규칙, 읽어 온 행 안에서) */
+  function quietVisit(rows, i) {
+    const e = rows[i];
+    for (let j = i + 1; j < rows.length; j++) {
+      const n = rows[j];
+      if (n.actor !== e.actor) continue;
+      if (n.type === "agent_visited") break;
+      if (n.bubble) return false;
+    }
+    return true;
+  }
+  const QUIET_MS = BUBBLE_MS + 600;
 
   // ── 스냅샷 읽기 고리 (원본 렌더러의 load() 에서 복사해 고침) ──
   // 스냅샷이 안 바뀌고 있으면 그림을 「지금」인 척 두지 않고 경보를 띄운다. 못 읽으면 「모름」이라고 적는다
@@ -3099,6 +3537,14 @@
       faces: [...document.querySelectorAll("#pzFigures .pz-agent:not([hidden]) .pz-body")].map((b) =>
         ({ id: b.closest(".pz-agent").dataset.id, face: b.dataset.face || null, rule: b.dataset.rule || null, src: b.getAttribute("src") })),
       facesPending: FACE.wait.size, faceTable: S.faces ? S.faces.rev : null,
+      // 관전 개선 1단계 (spec 4.3): 전광판 줄, 따라가기 카메라, 답할 차례, 말없이 다녀감 팻말
+      ticker: [...document.querySelectorAll("#pzTicker .pz-tki[data-event], #pzTicker .pz-tki[data-scene]")].map((li) => {
+        const a = li.querySelector("a");
+        return { event: li.dataset.event || null, scene: li.dataset.scene || null, text: li.textContent, href: a ? a.getAttribute("href") : null };
+      }),
+      follow: { on: CAM.on, active: camActive(), auto: zoom.isAuto() },
+      owe: [...OWE.by.entries()].map(([id, o]) => ({ id, request: o.r.id, label: o.label, wait: o.wait, since: o.since, n: o.n })),
+      quiet: [...S.agents.values()].filter((f) => f.quiet).map((f) => f.id),
     }),
     seek: (iso) => seekTo(ms(iso)),
     setMode, setMotion: (on) => { S.motion = !!on; const m = document.getElementById("pzMotion"); if (m) m.checked = S.motion; restage(); },
