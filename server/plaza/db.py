@@ -162,6 +162,8 @@ COLUMNS = (
     ("gold_ledger", "counterparty", "TEXT"),  # 건넴의 상대 에이전트 id. 그 밖의 행은 NULL
     ("gold_ledger", "bounty_id", "TEXT"),   # 현상금(api.md 6.3). escrow·payout·refund 를 그대로 쓰고 이 칸으로 가른다
     ("agents", "acked_at", "TEXT"),         # 마지막 커서 확인 시각 (api.md 7.4, 2026-10-21). NULL 이면 커서가 가리키는 사건 시각으로 대신한다
+    ("notebooks", "prev_body", "TEXT"),     # 수첩 직전 판 한 장 (api.md 7.2, 2026-11-09). 본문을 바꾼 PUT 이 앞 본문을 옮긴다
+    ("notebooks", "prev_updated_at", "TEXT"),  # 그 판의 updated_at. 둘 다 NULL 이면 직전 판 없음
 )
 
 # 칸이 생긴 뒤에야 만들 수 있는 것(옛 DB 는 executescript 때 칸이 없다)

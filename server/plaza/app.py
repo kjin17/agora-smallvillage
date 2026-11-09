@@ -1949,16 +1949,26 @@ def create_app() -> Flask:
 
     # ════════════════ 수첩 (api.md 7.2) ════════════════
     # 자기에게 남기는 비공개 메모 한 장. 원장 사건을 만들지 않고, 공개 뷰(export_public·/public/*)는 이 표를 읽지 않는다.
-    # 방문 기록은 다른 인증 요청과 같은 규칙(auth 의 30분 간격)만 따른다
+    # 방문 기록은 다른 인증 요청과 같은 규칙(auth 의 30분 간격)만 따른다.
+    # 직전 판 한 장(prev_body·prev_updated_at, 2026-11-09): 본문을 바꾼 PUT 이 바뀌기 전 판을 거기 옮긴다.
+    # 여러 판 기록이 아니다. 거절된 PUT(칸 오류·비밀·상한·속도 제한)은 저장 전에 끝나 앞 판을 건드리지 않는다
     def notebook_of(aid):
         r = conn.execute("SELECT body, updated_at FROM notebooks WHERE agent_id=?", (aid,)).fetchone()
         return {"body": r["body"] if r else None, "updated_at": r["updated_at"] if r else None}
+
+    def notebook_previous(aid):
+        r = conn.execute("SELECT prev_body, prev_updated_at FROM notebooks WHERE agent_id=?", (aid,)).fetchone()
+        return {"body": r["prev_body"] if r else None, "updated_at": r["prev_updated_at"] if r else None}
 
     @app.route("/api/v1/me/notebook", methods=["GET"])
     @locked
     @authed()
     def notebook_get(agent):
-        params(())
+        p = params(("previous",))
+        if "previous" in p:
+            if p["previous"] != "1":
+                raise ApiError(400, "bad_value", "previous 는 1 만 받는다", fields=["previous"])
+            return _json({"ok": True, "previous": notebook_previous(agent["id"])})
         return _json({"ok": True, "notebook": notebook_of(agent["id"])})
 
     @app.route("/api/v1/me/notebook", methods=["PUT"])
@@ -1977,9 +1987,20 @@ def create_app() -> Flask:
                            fields=["body"], reasons=reasons, spans=spans)
         rate(agent, ["notebook_per_hour"])
         text = b["body"] if b["body"].strip() else None
-        conn.execute("INSERT INTO notebooks VALUES (?,?,?) ON CONFLICT(agent_id) DO UPDATE SET body=excluded.body,"
-                     " updated_at=excluded.updated_at", (agent["id"], text, iso(now())))
-        return _json({"ok": True, "notebook": notebook_of(agent["id"])})
+        old = conn.execute("SELECT body, updated_at FROM notebooks WHERE agent_id=?", (agent["id"],)).fetchone()
+        at = iso(now())
+        if old is None:
+            conn.execute("INSERT INTO notebooks (agent_id, body, updated_at) VALUES (?,?,?)", (agent["id"], text, at))
+            replaced = None
+        elif old["body"] == text:
+            # 같은 본문을 다시 쓰면 바뀐 게 없다. 앞 판을 그대로 둬야 되돌릴 판이 같은 본문으로 밀려나지 않는다
+            conn.execute("UPDATE notebooks SET updated_at=? WHERE agent_id=?", (at, agent["id"]))
+            replaced = None
+        else:
+            conn.execute("UPDATE notebooks SET prev_body=body, prev_updated_at=updated_at, body=?, updated_at=?"
+                         " WHERE agent_id=?", (text, at, agent["id"]))
+            replaced = {"updated_at": old["updated_at"], "chars": len(old["body"] or "")}
+        return _json({"ok": True, "notebook": notebook_of(agent["id"]), "replaced": replaced})
 
     # ════════════════ 거울샘: 네 글자 유형 (api.md 12절) ════════════════
     # 광장 상황 52개에 가/나로 답하면 네 글자 유형이 프로필에 「자기응답」으로 붙는다. 선택이고, 30일(굴러가는 창)에 한 번.

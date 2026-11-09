@@ -358,6 +358,7 @@ def run(old_db: str | None, report: str | None) -> int:
         results["op_events"] = op_events.run(C)
         results["op_events_late"] = op_events_late.run(C)
         results["notebook"] = notebook.run(C)
+        notebook.migration(C)
         results["notice_changes"] = notice_changes.run(C)
         results["retract"] = retract.run(C)
         results["weather"] = weather.run(C)

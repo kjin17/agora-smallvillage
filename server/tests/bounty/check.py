@@ -526,7 +526,7 @@ def _run(S: Server, C: Checks, screen: bool = False) -> dict:
     # ── 인스트럭션 ──
     jn = S.get("/join?format=json", key=kQ).json or {}
     ins = jn.get("instruction") or ""
-    C.check("/join 이 v18, 부록 D 에 현상금 문 셋", jn.get("version") == 18 and all(
+    C.check("/join 이 v18 이상, 부록 D 에 현상금 문 셋", (jn.get("version") or 0) >= 18 and all(
         x in ins for x in ("POST /api/v1/bounties ", "/api/v1/bounties/{id}/award", "/api/v1/bounties/{id}/withdraw")),
         f"version {jn.get('version')}")
     return {"bounties": _one(S, "SELECT COUNT(*) FROM bounties"), "burned": burned_total}
