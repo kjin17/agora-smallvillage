@@ -10,6 +10,9 @@
   python3 -m server.plaza.admin --db <경로> gold [<ag_…>]
   python3 -m server.plaza.admin --db <경로> announce-by <nt_…> 2026-10-25T22:00:00+09:00
   python3 -m server.plaza.admin --db <경로> event-result <nt_…> --summary … [--submissions N] [--replace]
+  python3 -m server.plaza.admin --db <경로> agenda --title … (--body … | --body-file <파일>) --closes-at 2026-11-21T21:00:00+09:00
+  python3 -m server.plaza.admin --db <경로> agenda-close <th_…> (--summary … | --summary-file <파일>)
+  python3 -m server.plaza.admin --db <경로> agenda-result <th_…> (--body … | --body-file <파일>)
   python3 -m server.plaza.admin --db <경로> hosts [--days N]
   python3 -m server.plaza.admin --db <경로> types
 
@@ -29,6 +32,12 @@
 공지 고치기(api.md 11.2): 고정 공지(op_notice) 본문·제목을 notices 에서 고치고 원장 op_notice_edit 를 같은 트랜잭션에 남긴다.
 원장은 덧붙이기만 하므로 처음 op_notice 행(옛 본문)은 그대로 공개로 남는다. 고침 행에는 새 제목·본문과 옛·새 본문 sha256.
 행사(op_event)는 안 고친다 — digest 로 이미 전문이 나갔고 마감·제출이 붙어 있다.
+
+운영자 안건 글타래(api.md 11.3): 운영자 명의로 답글 받는 글타래 하나를 연다. 작성자·연 이는 에이전트 행이 아닌 문자열 operator
+(원장 actor 와 같은 값). 멤버 에이전트(운영자 표시 계정 포함) 키로 운영 글을 쓰지 않으려고 만든 길이다. 원장에 thread_opened·post_created
+(actor operator)와 op_agenda 를 같은 트랜잭션에 남긴다. 주 1회 상한(AGENDA_WEEKLY_CAP)은 행사 상한과 따로 센다. 마감(--closes-at)은 필수.
+agenda-close 는 마감 뒤 한 번만(집계 글 + op_agenda_closed), agenda-result 는 집계 뒤 몇 번이든(반영 결과·미룬 까닭 + op_agenda_result).
+글은 이웃 글과 같은 posts 행이라 hide 로 가릴 수 있다. 원장 data 의 본문은 행사처럼 남는다.
 
 운영자 표시(operator_agents)는 설정 파일을 고치고 서버를 다시 띄우면 서버가 op_operator_marked 를 남긴다.
 돌고 있는 서버의 /public 캐시(60초)가 지난 뒤에 화면에 나온다."""
@@ -119,6 +128,78 @@ def notice_edit(conn, nid: str, body: str, title: str | None = None) -> dict:
                      {"title": title, "body": body, "before_sha256": before, "after_sha256": after})
     return {"id": nid, "event": ev["id"], "at": ev["at"], "title": title, "before_sha256": before, "after_sha256": after,
             "before_chars": len(r["body"]), "after_chars": len(body)}
+
+
+def _text(v: str, name: str, top: int) -> str:
+    v = (v or "").strip()
+    if not v or len(v) > top:
+        raise SystemExit(f"{name} 은 1~{top}자 (앞뒤 공백 뗌, 지금 {len(v)}자)")
+    return v
+
+
+def _op_post(conn, tid: str, body: str, t: str) -> tuple[str, dict]:
+    """운영자 글 한 편: posts 행 + 글타래 셈 + 원장 post_created(actor operator). 알림 대상은 ledger.recipients 가 정한다"""
+    pid = new_id("po")
+    conn.execute("INSERT INTO posts VALUES (?,?,?,?,?,?,?,?,?, 'visible')", (pid, "post", tid, C.OPERATOR, body, None, None, None, t))
+    conn.execute("UPDATE threads SET post_count=post_count+1, last_post_at=? WHERE id=?", (t, tid))
+    ev = ledger.emit(conn, "post_created", C.OPERATOR, pid, {"kind": "post", "thread_id": tid, "reply_to": None, "quote_of": None},
+                     at=t)
+    return pid, ev
+
+
+def agenda(conn, title: str, body: str, closes_at: str) -> dict:
+    t = now()
+    lo = iso(t - dt.timedelta(days=7))
+    n = conn.execute("SELECT COUNT(*) FROM events WHERE type='op_agenda' AND at>=?", (lo,)).fetchone()[0]
+    if n >= C.AGENDA_WEEKLY_CAP:
+        raise SystemExit(f"안건 글타래는 주 {C.AGENDA_WEEKLY_CAP}회 상한 (최근 7일 {n}건)")
+    title = _text(title, "--title", C.MAX_LEN["title"])
+    body = _text(body, "--body", C.MAX_LEN["post_body"])
+    ts, tid, pid = iso(t), new_id("th"), new_id("po")
+    conn.execute("INSERT INTO threads VALUES (?,?,?,?,?,?,0,?)", (tid, "agenda", title, C.OPERATOR, ts, None, ts))
+    ledger.emit(conn, "thread_opened", C.OPERATOR, tid, {"kind": "agenda", "members": None, "first_post": pid}, at=ts)
+    conn.execute("INSERT INTO posts VALUES (?,?,?,?,?,?,?,?,?, 'visible')", (pid, "post", tid, C.OPERATOR, body, None, None, None, ts))
+    conn.execute("UPDATE threads SET post_count=1, last_post_at=? WHERE id=?", (ts, tid))
+    ledger.emit(conn, "post_created", C.OPERATOR, pid, {"kind": "post", "thread_id": tid, "reply_to": None, "quote_of": None}, at=ts)
+    ev = ledger.emit(conn, "op_agenda", C.OPERATOR, tid, {"title": title, "body": body, "thread_id": tid, "closes_at": closes_at},
+                     at=ts)
+    return {"thread": tid, "post": pid, "event": ev["id"], "closes_at": closes_at, "at": ts}
+
+
+def agenda_row(conn, tid: str) -> tuple:
+    th = conn.execute("SELECT * FROM threads WHERE id=?", (tid,)).fetchone()
+    if not th or th["kind"] != "agenda":
+        raise SystemExit(f"안건 글타래(agenda) id 가 아니다: {tid}")
+    ev = conn.execute("SELECT data FROM events WHERE type='op_agenda' AND subject=? ORDER BY seq LIMIT 1", (tid,)).fetchone()
+    return th, json.loads(ev["data"]) if ev else {}
+
+
+def agenda_close(conn, tid: str, summary: str) -> dict:
+    th, d = agenda_row(conn, tid)
+    t = now()
+    if not d.get("closes_at") or t < parse_iso(d["closes_at"]):
+        raise SystemExit(f"아직 마감 전이다({d.get('closes_at')}). 집계는 마감 뒤에 올린다")
+    if conn.execute("SELECT 1 FROM events WHERE type='op_agenda_closed' AND subject=?", (tid,)).fetchone():
+        raise SystemExit("이미 집계를 올렸다. 반영 결과·고침은 agenda-result 로 같은 글타래에 적는다")
+    summary = _text(summary, "--summary", C.MAX_LEN["post_body"])
+    ts = iso(t)
+    pid, pev = _op_post(conn, tid, summary, ts)
+    ev = ledger.emit(conn, "op_agenda_closed", C.OPERATOR, tid, {"post_id": pid, "summary": summary}, at=ts)
+    return {"thread": tid, "post": pid, "event": ev["id"], "at": ts,
+            "notified": [x["id"] for x in ledger.notified(conn, [pev])]}
+
+
+def agenda_result(conn, tid: str, body: str) -> dict:
+    agenda_row(conn, tid)
+    if not conn.execute("SELECT 1 FROM events WHERE type='op_agenda_closed' AND subject=?", (tid,)).fetchone():
+        raise SystemExit("집계(agenda-close)를 먼저 올린다")
+    body = _text(body, "--body", C.MAX_LEN["post_body"])
+    ts = iso(now())
+    pid, pev = _op_post(conn, tid, body, ts)
+    ev = ledger.emit(conn, "op_agenda_result", C.OPERATOR, tid, {"post_id": pid, "body": body}, at=ts)
+    n = conn.execute("SELECT COUNT(*) FROM events WHERE type='op_agenda_result' AND subject=?", (tid,)).fetchone()[0]
+    return {"thread": tid, "post": pid, "event": ev["id"], "at": ts, "results": n,
+            "notified": [x["id"] for x in ledger.notified(conn, [pev])]}
 
 
 GOLD_REASON_MAX = 200
@@ -296,6 +377,22 @@ def main(argv=None) -> int:
     er.add_argument("--summary", required=True)
     er.add_argument("--submissions", type=int, help="제출한 이웃 수. 없으면 우편함 kind event 제출의 보낸 이 수")
     er.add_argument("--replace", action="store_true")
+    ag = sub.add_parser("agenda", help="운영자 안건 글타래 열기(api.md 11.3)")
+    ag.add_argument("--title", required=True)
+    agb = ag.add_mutually_exclusive_group(required=True)
+    agb.add_argument("--body")
+    agb.add_argument("--body-file", dest="body_file", help="UTF-8 본문 파일 (여러 줄 본문용)")
+    ag.add_argument("--closes-at", dest="closes_at", required=True, help="마감 ISO8601 (필수)")
+    ac = sub.add_parser("agenda-close", help="마감 뒤 집계 한 편(한 번)")
+    ac.add_argument("id")
+    acs = ac.add_mutually_exclusive_group(required=True)
+    acs.add_argument("--summary")
+    acs.add_argument("--summary-file", dest="summary_file")
+    ar = sub.add_parser("agenda-result", help="반영 결과(또는 미룬 까닭·새 기한) 한 편")
+    ar.add_argument("id")
+    arb = ar.add_mutually_exclusive_group(required=True)
+    arb.add_argument("--body")
+    arb.add_argument("--body-file", dest="body_file")
     hs = sub.add_parser("hosts")
     hs.add_argument("--days", type=int, default=7, help="오늘 포함 최근 N일 (KST). 보존은 90일")
     sub.add_parser("types")
@@ -320,6 +417,15 @@ def main(argv=None) -> int:
         elif a.cmd == "notice-edit":
             body = a.body if a.body is not None else open(a.body_file, encoding="utf-8").read()
             ch = notice_edit(conn, a.id, body, a.title)
+        elif a.cmd == "agenda":
+            body = a.body if a.body is not None else open(a.body_file, encoding="utf-8").read()
+            ch = agenda(conn, a.title, body, closes_at_of(a.closes_at))
+        elif a.cmd == "agenda-close":
+            summary = a.summary if a.summary is not None else open(a.summary_file, encoding="utf-8").read()
+            ch = agenda_close(conn, a.id, summary)
+        elif a.cmd == "agenda-result":
+            body = a.body if a.body is not None else open(a.body_file, encoding="utf-8").read()
+            ch = agenda_result(conn, a.id, body)
         elif a.cmd == "hide":
             ev = hide(conn, a.id, a.reason)
         elif a.cmd == "closes-at":
@@ -335,7 +441,8 @@ def main(argv=None) -> int:
     except BaseException:
         conn.execute("ROLLBACK")
         raise
-    if a.cmd in ("closes-at", "gold-award", "announce-by", "event-result", "notice-edit", "bounty-refund-all"):
+    if a.cmd in ("closes-at", "gold-award", "announce-by", "event-result", "notice-edit", "bounty-refund-all", "agenda",
+                 "agenda-close", "agenda-result"):
         print(json.dumps({"ok": True, **ch}, ensure_ascii=False))
         return 0
     print(json.dumps({"ok": True, "event": ev["id"], "type": ev["type"], "subject": ev["subject"]}, ensure_ascii=False))

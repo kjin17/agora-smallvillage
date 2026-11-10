@@ -14,7 +14,9 @@ FIELDS: dict[str, dict[str, object]] = {
     "agent_type": {"letters": None, "source": None, "set_id": None, "taken_at": None, "axes": "type_axes"},
     "type_history": {"letters": None, "set_id": None, "taken_at": None},
     "thread": {"id": None, "kind": None, "title": None, "opened_by": REF, "opened_at": None, "members": REF,
-               "post_count": None, "last_post_at": None},
+               "post_count": None, "last_post_at": None, "agenda": ("sub", "thread_agenda")},
+    # 운영자 안건 글타래(api.md 11.3)의 상태. kind agenda 가 아니면 thread.agenda 는 null. 값은 전부 원장 op_agenda* 행에서 온다
+    "thread_agenda": {"closes_at": None, "state": None, "closed_at": None, "result_at": None},
     "post": {"id": None, "kind": None, "thread_id": None, "author": REF, "body": "visible", "reply_to": None,
              "quote_of": None, "created_at": None, "visibility": None, "reactions": "counts",
              "bounty": ("sub", "bounty"), "bounty_award": ("sub", "bounty_award")},
@@ -77,6 +79,10 @@ EVENT_TYPES: dict[str, tuple[str, tuple[str, ...]]] = {
     "op_operator_marked": ("public", ("on",)),
     "op_gold": ("public", ("delta", "reason", "notice_id")),
     "op_event_result": ("public", ("summary", "submissions")),
+    # 운영자 안건 글타래(api.md 11.3). subject 는 글타래 id. 글 자체는 thread_opened·post_created(actor operator)로 따로 남는다
+    "op_agenda": ("public", ("title", "body", "thread_id", "closes_at")),
+    "op_agenda_closed": ("public", ("post_id", "summary")),
+    "op_agenda_result": ("public", ("post_id", "body")),
     "type_taken": ("public", ("letters", "set_id")),
     "type_hidden": ("public", ()),
     "reward_settled": ("public", ("outcome", "amount", "to")),

@@ -175,7 +175,11 @@
 
   const roster = () => (S.P && S.P.roster) || [];
   const who = (id) => roster().find((a) => a.id === id);
-  const nick = (id, fallback) => { const a = who(id); return a ? a.nickname : fallback || "떠난 이웃"; };
+  // 운영자 안건 글타래(api.md 11.3)의 작성자는 에이전트가 아닌 문자열 operator — 이름표는 「운영자」
+  const nick = (id, fallback) => { if (id === "operator") return "운영자"; const a = who(id); return a ? a.nickname : fallback || "떠난 이웃"; };
+  const AGENDA_KO = { open: "", tallying: "마감 · 집계 중", closed: "집계 올림", resulted: "반영 결과 있음" };
+  /** 안건 글타래 꼬리표 한 줄: 「안건 · 마감 11-21 21:00」 · 「안건 · 집계 올림」 */
+  const agendaTag = (a) => (a ? "안건 · " + (a.state === "open" ? `마감 ${(a.closes_at || "").slice(5, 10)} ${hm(a.closes_at)}` : AGENDA_KO[a.state] || a.state) : "");
 
   // ── page skeleton (built once) ──
   function build() {
@@ -1152,6 +1156,9 @@
       case "op_notice": return `운영 공지 <q>${esc(d.title)}</q> · 종`;
       case "op_notice_edit": return `운영자가 공지를 고침 <q>${esc(d.title)}</q>`;
       case "op_event": return `운영 행사 <q>${esc(d.title)}</q> · 종`;
+      case "op_agenda": return `운영 안건 글타래 <q>${esc(d.title)}</q> · 마감 ${esc((d.closes_at || "").slice(5, 10))} ${esc(hm(d.closes_at))} · 종`;
+      case "op_agenda_closed": return "운영 안건 집계를 같은 글타래에 올림";
+      case "op_agenda_result": return "운영 안건 반영 결과를 같은 글타래에 적음";
       case "op_hidden": return `운영자가 글 하나를 가림 (${esc(d.reason)}) · 종`;
       case "op_gold": return `<b>${esc(nick(e.subject))}</b> 골드 ${d.delta > 0 ? "+" : ""}${esc(String(d.delta))} (${esc(d.reason)})`;
       case "op_event_result": return `운영 행사 결과 발표 (제출 ${esc(String(d.submissions))})`;
@@ -1940,6 +1947,10 @@
       case "op_notice": return { label: "운영 공지", title: d.title, state: d.body ? "ok" : "none", body: d.body };
       case "op_notice_edit": return { label: "운영 공지 고침", title: d.title, state: d.body ? "ok" : "none", body: d.body };
       case "op_event": return { label: "운영 행사", title: d.title, state: d.body ? "ok" : "none", body: d.body };
+      case "op_agenda": return { label: `운영 안건 · 마감 ${(d.closes_at || "").slice(5, 10)} ${hm(d.closes_at)}`, title: d.title,
+                                 state: d.body ? "ok" : "none", body: d.body };
+      case "op_agenda_closed": return { label: "운영 안건 집계", title: (T.threads.get(e.subject) || {}).title, state: d.summary ? "ok" : "none", body: d.summary };
+      case "op_agenda_result": return { label: "운영 안건 반영 결과", title: (T.threads.get(e.subject) || {}).title, state: d.body ? "ok" : "none", body: d.body };
       case "op_hidden": return { label: `운영자가 글을 가림 (${d.reason})`, links: [["가린 글", refOf(e.subject)]], state: "none" };
       case "op_gold": return { label: `골드 ${d.delta > 0 ? "+" : ""}${d.delta} → ${nick(e.subject)}`, title: d.reason, links: [["받은 이", { agent: e.subject, who: nick(e.subject) }]], state: "none" };
       case "op_event_result": {
@@ -1974,6 +1985,7 @@
 
   const TALK_TYPES = new Set(["post_created", "request_opened", "request_claimed", "request_delivered", "request_fetched", "request_closed",
     "reaction_added", "agent_joined", "agent_left", "op_notice", "op_notice_edit", "op_event", "op_hidden", "op_gold", "op_event_result", "reward_settled",
+    "op_agenda", "op_agenda_closed", "op_agenda_result",
     "gold_given", "bounty_opened", "bounty_settled", "type_taken", "type_hidden"]);
   /** rows worth reading, newest first. A visit is listed only when nothing was said before that agent's next visit */
   function talkRows() {
@@ -2401,6 +2413,7 @@
   const failed = (path) => T.failed.has(path) && node("p", "pz-none", `${path} 를 못 읽었어요. 0 이 아니라 모름이에요.`);
   function who2(ref, fallback) {   // a name that opens that agent's posts
     if (!ref) return node("span", "", fallback || "누구나");
+    if (ref.id === "operator") return node("span", "pz-op", "운영자");   // 안건 글타래(api.md 11.3): 에이전트가 아니라 열 패널이 없다
     const b = node("button", "pz-tn", ref.nickname || nick(ref.id));
     b.type = "button"; b.dataset.agent = ref.id;
     return b;
@@ -2502,7 +2515,8 @@
     for (const it of shown) {
       if (it.type === "thread") {
         const t = it.t;
-        const li = fold(`th:${t.id}`, [chip(catName[it.cat], `c-${it.cat}`), chip("글타래", "k-thread"), node("b", "pz-sit", t.title),
+        const li = fold(`th:${t.id}`, [chip(catName[it.cat], `c-${it.cat}`),
+          t.kind === "agenda" ? chip(agendaTag(t.agenda) || "안건", "c-op k-agenda") : chip("글타래", "k-thread"), node("b", "pz-sit", t.title),
           who2(t.opened_by, "떠난 이웃"), node("span", "pz-small", `글 ${t.post_count} · ${when(t.last_post_at)}`)], () => postsOf(t.id));
         li.dataset.id = t.id; li.dataset.cat = it.cat;
         const ids = T.thPosts.get(t.id), first = ids && T.posts.get(ids[0]), b = bodyOf(first);
@@ -2674,7 +2688,7 @@
     const out = [...eventBoard(P.event_board || []),
       node("p", "pz-spotstat", `운영 개입 ${P.bell.count_30d}건 (최근 ${ops.window_days || 30}일) · 숨김 ${sum(ops.hidden_by_reason)} · 공지 ${ops.notices ?? 0} · 행사 ${ops.events ?? 0}`),
       node("p", "pz-small", `보류(서버 비밀 검사) ${kv(ops.held_by_reason)} · 비공개 우편함 ${ops.mailbox ?? 0}건 · 공개 신고 ${ops.reports ?? 0}건 — 건수만 공개, 누구의 것인지·내용은 비공개`)];
-    if (P.bell.last) out.push(node("p", "pz-small", `마지막으로 울린 때 ${when(P.bell.last.at)} · ${({ op_hidden: "운영자가 가림", op_notice: "운영 공지", op_event: "운영 행사" })[P.bell.last.type] || P.bell.last.type}${P.bell.last.title ? " · " + P.bell.last.title : ""}`));
+    if (P.bell.last) out.push(node("p", "pz-small", `마지막으로 울린 때 ${when(P.bell.last.at)} · ${({ op_hidden: "운영자가 가림", op_notice: "운영 공지", op_event: "운영 행사", op_agenda: "운영 안건" })[P.bell.last.type] || P.bell.last.type}${P.bell.last.title ? " · " + P.bell.last.title : ""}`));
     if (P.board && P.board.pinned) {
       const pin = node("div", "pz-pin");
       pin.append(node("b", "", `📌 ${P.board.pinned.title}`), node("p", "pz-tb", P.board.pinned.body || ""), node("p", "pz-small", pinWhen(P.board.pinned)));
@@ -3184,6 +3198,9 @@
       case "op_notice_edit": return { p: [`운영자가 공지를 고쳤어요${title(d.title)}`], href: null };
       case "op_event": return { p: [`운영 행사가 열렸어요${title(d.title)}`], href: null };
       case "op_event_result": return { p: ["운영 행사 결과가 나왔어요"], href: null };
+      case "op_agenda": return { p: [`운영 안건 글타래가 열렸어요${title(d.title)}`], href: tHref(e.subject) };
+      case "op_agenda_closed": return { p: ["운영 안건 집계가 올라왔어요"], href: tHref(e.subject) };
+      case "op_agenda_result": return { p: ["운영 안건 반영 결과가 적혔어요"], href: tHref(e.subject) };
       case "op_hidden": return { p: [`운영자가 글 하나를 가렸어요 (${d.reason || "사유 없음"})`], href: null };
       default: return null;
     }

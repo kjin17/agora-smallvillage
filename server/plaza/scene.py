@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 
 from . import metrics as M
-from .consts import EVENT_BOARD_MAX, OWNER_UNVERIFIED, TYPE_DIST_MIN, TYPE_WINDOW_DAYS
+from .consts import EVENT_BOARD_MAX, OPERATOR, OWNER_UNVERIFIED, TYPE_DIST_MIN, TYPE_WINDOW_DAYS
 from .util import iso, parse_iso
 
 SNAPSHOT_FORMAT = "ai-smallvillage/plaza"
@@ -21,8 +21,11 @@ class InvariantError(Exception):
 
 
 def zone_bubble(L: M.Ledger, e: dict) -> tuple[str | None, str | None]:
-    """사건 하나의 구역과 말풍선 아이콘. 말풍선은 말풍선 종류(metrics 1.1)에만."""
+    """사건 하나의 구역과 말풍선 아이콘. 말풍선은 말풍선 종류(metrics 1.1)에만.
+    운영자 손(안건 글타래의 글·글타래 열기, api.md 11.3)은 말풍선이 아니라 종 자리다 — 운영 개입이고 그릴 사람이 없다"""
     t, d = e["type"], e["data"]
+    if e.get("actor") == OPERATOR:
+        return "bell", None
     if t == "post_created":
         kind = d.get("kind")
         zone = {"post": "board", "remark": "fountain", "sitting": "cafe"}.get(kind, "board")
@@ -87,7 +90,7 @@ def build_replay(L: M.Ledger, date: str, bubble_rows: int, final: bool, generate
         if e["_t"].strftime("%Y-%m-%d") != date:
             continue
         zone, bubble = zone_bubble(L, e)
-        if e["type"] not in M.BUBBLE_TYPES:
+        if e["type"] not in M.BUBBLE_TYPES or e["actor"] == OPERATOR:
             bubble = None
         row = {k: v for k, v in e.items() if not k.startswith("_")}
         row.update(nickname=L.nick(e["actor"]) if e["actor"] in L.agents else None, zone=zone, bubble=bubble)
@@ -173,7 +176,7 @@ def build_snapshot(L: M.Ledger, generated: str, batch_ran: bool = True) -> dict:
             stage.append({"artifact_id": r["artifact_id"], "request_id": r["id"],
                           "author": art["author"] if art else None, "fetched_by": r["from"],
                           "fetched_at": r["fetched_at"]})
-    bell_evs = [e for e in L.events if e["type"] in ("op_hidden", "op_event", "op_notice")]
+    bell_evs = [e for e in L.events if e["type"] == "op_hidden" or e["type"] in M.BELL_TYPES]
     last_bell = bell_evs[-1] if bell_evs else None
     plaza = {
         "schema": 1, "labels": LABELS, "weather": M.weather(L),
@@ -185,7 +188,8 @@ def build_snapshot(L: M.Ledger, generated: str, batch_ran: bool = True) -> dict:
                    for a in sorted(L.agents.values(), key=lambda a: (a["joined_at"], a["id"]))],
         "board": {"pinned": pinned, "threads": [{"id": t["id"], "kind": t["kind"], "title": t["title"],
                                                  "opened_by": t["opened_by"], "post_count": t["post_count"],
-                                                 "last_post_at": t["last_post_at"]} for t in threads]},
+                                                 "last_post_at": t["last_post_at"], "agenda": t.get("agenda")}
+                                                for t in threads]},
         "market": market, "stage": stage, "steles": M.steles(L)[:12],
         "bell": {"count_30d": dash["ops"]["bell"],
                  "last": ({"type": last_bell["type"], "title": last_bell["data"].get("title"), "at": last_bell["at"]}

@@ -35,6 +35,7 @@ from .question_well import check as question_well
 from .gold_give import check as gold_give
 from .bounty import check as bounty
 from .notice_edit import check as notice_edit
+from .agenda import check as agenda
 
 OLD_DB_TITLE = "옛 DB 사본으로 지표 계산 완주"
 
@@ -67,7 +68,7 @@ def replay_counts(S: Server) -> dict:
 def db_bubble_rows(S: Server) -> dict:
     """원장 표에서 날짜별 말풍선 종류 행 수 (서버를 거치지 않고 시험 DB 를 직접 센다)."""
     conn = sqlite3.connect(f"file:{S.db}?mode=ro", uri=True)
-    q = "SELECT substr(at,1,10), COUNT(*) FROM events WHERE type IN (%s) GROUP BY 1" % ",".join("?" * 5)
+    q = "SELECT substr(at,1,10), COUNT(*) FROM events WHERE actor<>'operator' AND type IN (%s) GROUP BY 1" % ",".join("?" * 5)
     out = dict(conn.execute(q, M.BUBBLE_TYPES).fetchall())
     conn.close()
     return out
@@ -373,6 +374,7 @@ def run(old_db: str | None, report: str | None) -> int:
         results["route_hints"] = route_hints.run(C)
         results["conversation_operator"] = conversation_operator.run(C)
         results["notice_edit"] = notice_edit.run(C)
+        results["agenda"] = agenda.run(C)
         results["event_board"] = event_board.run(C)
         results["agent_hosts"] = agent_hosts.run(C)
         results["spring"] = spring.run(C)

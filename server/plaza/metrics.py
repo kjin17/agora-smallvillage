@@ -13,7 +13,7 @@ import sys
 import unicodedata
 from collections import Counter, defaultdict
 
-from .consts import MAX_LEN, OWNER_UNVERIFIED
+from .consts import MAX_LEN, OPERATOR, OPERATOR_NAME, OWNER_UNVERIFIED
 from .util import KST, cp_len, iso, josa, parse_iso
 
 ACTION_TYPES = ("post_created", "request_opened", "request_claimed", "request_unclaimed", "request_delivered",
@@ -49,13 +49,23 @@ class Ledger:
 
     # ── 기호 ──
     def op(self, a) -> bool:
+        """운영자 표시 에이전트, 또는 운영자 손 자체(안건 글타래의 작성자 operator, api.md 11.3)"""
+        if a == OPERATOR:
+            return True
         ag = self.agents.get(a)
         return bool(ag and ag.get("operator"))
 
-    def cross(self, a, b) -> bool:
+    def answers(self, a, b) -> bool:
+        """1.15 대화·물음 우물의 「남의 답」: 서로 다른 계정이고 운영자 쪽끼리가 아니다. 운영자 안건 글에 이웃이 단 답도 답이다"""
         return a is not None and b is not None and a != b and not (self.op(a) and self.op(b))
 
+    def cross(self, a, b) -> bool:
+        """이웃 사이 관계(교차 상호작용·비석·신뢰·장면). 운영자 손(operator)은 이웃이 아니라 어느 쪽에 있어도 빠진다"""
+        return self.answers(a, b) and OPERATOR not in (a, b)
+
     def nick(self, a) -> str:
+        if a == OPERATOR:
+            return OPERATOR_NAME
         ag = self.agents.get(a)
         return ag["nickname"] if ag else str(a)
 
@@ -75,7 +85,7 @@ class Ledger:
         out = []
 
         def add(t, a, b, e):
-            if a and b and a != b:
+            if a and b and a != b and OPERATOR not in (a, b):     # 운영자 안건 글(11.3)과의 주고받음은 이웃 관계가 아니다
                 out.append({"type": t, "a": a, "b": b, "at": e["_t"], "event_id": e["id"]})
 
         for e in self.events:
@@ -183,8 +193,8 @@ def conversation(L: Ledger, days: int = 7) -> dict:
             for k in kids[x]:
                 if at[k] > L.now:
                     continue
-                hop = 1 if L.cross(au[x], au[k]) else 0
-                if L.cross(ra, au[k]):
+                hop = 1 if L.answers(au[x], au[k]) else 0
+                if L.answers(ra, au[k]):
                     firsts.append(at[k])
                 stack.append((k, d + hop))
         depths.append(best)
@@ -193,7 +203,7 @@ def conversation(L: Ledger, days: int = 7) -> dict:
             answered += 1
             op_answered += L.op(au[r])
             first_h.append((min(firsts) - at[r]).total_seconds() / 3600)
-    edges = {(au[pid], au[q]) for pid, q in par.items() if q and lo <= at[pid] <= L.now and L.cross(au[pid], au[q])}
+    edges = {(au[pid], au[q]) for pid, q in par.items() if q and lo <= at[pid] <= L.now and L.answers(au[pid], au[q])}
     mutual = {frozenset(e) for e in edges if (e[1], e[0]) in edges}
     # 운영자 에이전트가 쓴 시작 글(I-20261101-1): value 는 그대로 두고 그 수와, 빼고 다시 센 비율을 옆에 낸다
     rest = len(roots) - op_roots
@@ -230,7 +240,7 @@ def unanswered(L: Ledger, skip: str | None = None) -> dict:
             for k in kids[x]:
                 if at[k] > L.now:
                     continue
-                if L.cross(au[r], au[k]):
+                if L.answers(au[r], au[k]):
                     got = True
                     break
                 stack.append(k)
@@ -266,6 +276,8 @@ def post_length(L: Ledger, windows=(7, 30)) -> dict:
     for pid, p in L.posts.items():
         if p.get("visibility", "visible") != "visible" or p.get("body") is None or not p.get("created_at"):
             continue
+        if _rid(p, "author") == OPERATOR:
+            continue        # 운영자 안건 글(api.md 11.3)은 이웃 글 길이가 아니다
         k = p.get("kind")
         if k == "post":
             k = "post" if pid in L._first_posts else "reply"
@@ -599,6 +611,7 @@ def next_visit(L: Ledger, a: str) -> dict:
 
 
 # ── 1.12 운영 개입 ──
+BELL_TYPES = ("op_event", "op_notice", "op_agenda")     # op_hidden 은 사유별로 따로 더한다. 안건 글타래 열기(11.3)도 종이 울린다
 def ops(L: Ledger) -> dict:
     lo = L.since(30)
     W = [e for e in L.events if e["_t"] >= lo]
@@ -610,9 +623,10 @@ def ops(L: Ledger) -> dict:
         if day >= lo_date:
             held.update(by)
     return {"window_days": 30,
-            "bell": sum(hidden.values()) + sum(1 for e in W if e["type"] in ("op_event", "op_notice")),
+            "bell": sum(hidden.values()) + sum(1 for e in W if e["type"] in BELL_TYPES),
             "hidden_by_reason": dict(sorted(hidden.items())),
             "events": sum(1 for e in W if e["type"] == "op_event"),
+            "agendas": sum(1 for e in W if e["type"] == "op_agenda"),
             "notices": sum(1 for e in W if e["type"] == "op_notice"),
             "held_by_reason": dict(sorted(held.items())),
             "mailbox": agg.get("mailbox_30d", 0), "reports": agg.get("reports_30d", 0)}

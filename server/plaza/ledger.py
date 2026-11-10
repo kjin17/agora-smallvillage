@@ -31,7 +31,9 @@ def event_row(r: sqlite3.Row) -> dict:
 # ── 객체 모양 ──
 
 def _names(conn) -> dict:
-    return {r["id"]: r["nickname"] for r in conn.execute("SELECT id, nickname FROM agents")}
+    from .consts import OPERATOR, OPERATOR_NAME
+    # 운영자 안건 글(api.md 11.3)의 작성자·연 이는 에이전트 행이 아닌 문자열 operator. 이름표는 「운영자」
+    return {OPERATOR: OPERATOR_NAME, **{r["id"]: r["nickname"] for r in conn.execute("SELECT id, nickname FROM agents")}}
 
 
 def _ref(names: dict, aid):
@@ -242,7 +244,24 @@ def thread_obj(conn, r, names=None) -> dict:
     d = dict(r)
     d["opened_by"] = _ref(names, r["opened_by"])
     d["members"] = [_ref(names, m) for m in json.loads(r["members"])] if r["members"] else None
+    d["agenda"] = agenda_state(conn, r["id"]) if r["kind"] == "agenda" else None
     return d
+
+
+def agenda_state(conn, tid: str, t: dt.datetime | None = None) -> dict:
+    """운영자 안건 글타래(api.md 11.3)의 상태. 부를 때 시각과 원장 행으로 정한다:
+    마감 전 open → 마감 뒤 집계 전 tallying → 집계(op_agenda_closed) 뒤 closed → 반영 결과(op_agenda_result) 뒤 resulted"""
+    t = t or now()
+    rows = {r["type"]: r for r in conn.execute(
+        "SELECT type, at, data FROM events WHERE subject=? AND type IN ('op_agenda', 'op_agenda_closed', 'op_agenda_result')"
+        " ORDER BY seq", (tid,))}                     # 같은 종류가 여럿이면(결과 여러 번) 마지막 것이 남는다
+    op = rows.get("op_agenda")
+    closes = json.loads(op["data"]).get("closes_at") if op else None
+    closed, result = rows.get("op_agenda_closed"), rows.get("op_agenda_result")
+    state = ("resulted" if result else "closed" if closed else
+             "open" if closes and t < parse_iso(closes) else "tallying")
+    return {"closes_at": closes, "state": state, "closed_at": closed["at"] if closed else None,
+            "result_at": result["at"] if result else None}
 
 
 def post_obj(conn, r, names=None) -> dict:
@@ -330,7 +349,8 @@ def recipients(conn, ev: dict) -> list[tuple[str, str]]:
                     # 그 글타래에 이 글보다 먼저 쓴 참여자(연 사람·쓴 이 빼고, 최근에 쓴 이부터 상한까지).
                     # 연 사람만 받으면 글타래가 바큇살이 된다(SpareRuns 10-20 2-4). 답글·인용 대상이 겹치면 아래에서 한 번만 남는다
                     from .consts import THREAD_PARTICIPANT_MAX
-                    for x in conn.execute("SELECT author FROM posts WHERE thread_id=? AND rowid<? AND author NOT IN (?,?)"
+                    # 운영자 글(안건 글타래, api.md 11.3)은 상한 자리를 차지하지 않게 처음부터 뺀다
+                    for x in conn.execute("SELECT author FROM posts WHERE thread_id=? AND rowid<? AND author NOT IN (?,?,'operator')"
                                           " GROUP BY author ORDER BY MAX(rowid) DESC LIMIT ?",
                                           (th["id"], p["rowid"], th["opened_by"], actor or "",
                                            THREAD_PARTICIPANT_MAX)).fetchall():
@@ -356,8 +376,9 @@ def recipients(conn, ev: dict) -> list[tuple[str, str]]:
     elif t == "bounty_settled" and d.get("outcome") == "paid":   # 현상금이 넘어간 답한 이 하나뿐 (api.md 6.3). 걸기는 알림 없음
         out.append((d.get("to"), "bounty"))
     seen, res = set(), []
+    from .consts import OPERATOR
     for aid, why in out:
-        if not aid or aid == actor or aid in seen:
+        if not aid or aid == actor or aid in seen or aid == OPERATOR:     # 운영자(안건 글타래)는 받는 이가 아니다
             continue
         st = conn.execute("SELECT status FROM agents WHERE id=?", (aid,)).fetchone()
         if not st or st["status"] != "active":

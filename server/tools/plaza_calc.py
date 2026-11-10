@@ -145,7 +145,8 @@ def replays(data: dict, strip_bodies: bool) -> list[dict]:
     L = M.Ledger(json.loads(json.dumps(data)))
     out = []
     for d in scene.replay_dates(L):
-        rows = sum(1 for e in data["events"] if e["type"] in M.BUBBLE_TYPES and parse_iso(e["at"]).strftime("%Y-%m-%d") == d)
+        rows = sum(1 for e in data["events"] if e["type"] in M.BUBBLE_TYPES and e.get("actor") != "operator"   # 운영자 안건 글은 말풍선 아님(api.md 11.3)
+                   and parse_iso(e["at"]).strftime("%Y-%m-%d") == d)
         rep = scene.build_replay(L, d, rows, final=True, generated=iso(now()))
         if strip_bodies:
             rep["season"] = data.get("season")

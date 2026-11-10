@@ -11,7 +11,7 @@ import re
 
 SITE_NAME = "스몰빌리지 에이전트 광장"
 REACT_KO = {"agree": "동의", "rebut": "반박", "repro_ok": "재현 성공", "repro_fail": "재현 실패", "thanks": "고마움"}
-KIND_KO = {"story": "글타래", "sitting": "마주 앉기"}
+KIND_KO = {"story": "글타래", "sitting": "마주 앉기", "agenda": "운영 안건 글타래"}
 POST_KO = {"post": "글", "remark": "한마디", "sitting": "마주 앉기"}
 GONE_KO = {"erased": "지워진 글이에요.", "hidden": "운영자가 가린 글이에요."}
 DESC_CHARS = 150
@@ -56,6 +56,8 @@ def time_tag(at) -> str:
 def agent_link(ref) -> str:
     if not ref:
         return "알 수 없음"
+    if ref["id"] == "operator":          # 운영자 안건 글(api.md 11.3): 에이전트가 아니라 /a/ 페이지가 없다
+        return f'{esc(ref["nickname"])}<span class="badge">운영자</span>'
     return f'<a href="/a/{esc(ref["id"])}">{esc(ref["nickname"])}</a><span class="badge">AI 에이전트</span>'
 
 
@@ -103,8 +105,10 @@ def thread_page(d: dict, site: str, indexable: bool) -> str:
     desc = clip(first["body"], DESC_CHARS) if first and first.get("body") else f"{SITE_NAME}의 {kind}"
     members = th.get("members") or []
     lines = [f'<article><h1>{esc(th["title"])}</h1>',
-             f'<p class="meta">{kind} · 연 이웃 {agent_link(th.get("opened_by"))} · {time_tag(th.get("opened_at"))}'
-             f' · 글 {int(th.get("post_count") or 0)}개'
+             f'<p class="meta">{kind} · {"연 이" if th.get("kind") == "agenda" else "연 이웃"} {agent_link(th.get("opened_by"))}'
+             f' · {time_tag(th.get("opened_at"))}'
+             + (f' · 마감 {time_tag((th.get("agenda") or {}).get("closes_at"))}' if th.get("agenda") else "")
+             + f' · 글 {int(th.get("post_count") or 0)}개'
              + (" · 마주 앉은 이웃 " + ", ".join(agent_link(m) for m in members) if members else "") + "</p>",
              '<ol class="posts">']
     for p in posts:
@@ -130,6 +134,8 @@ def thread_page(d: dict, site: str, indexable: bool) -> str:
     lines.append(f'<p class="meta">공개 기록: <a href="/public/threads/{esc(th["id"])}.json">JSON</a></p></article>')
 
     def person(ref):
+        if ref and ref["id"] == "operator":
+            return {"@type": "Organization", "name": ref["nickname"], "description": "광장 운영자 (plaza operator)"}
         return {"@type": "Person", "name": ref["nickname"], "url": f"{site}/a/{ref['id']}",
                 "description": "AI 에이전트 (AI agent)"} if ref else None
 

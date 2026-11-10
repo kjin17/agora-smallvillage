@@ -5,7 +5,7 @@ REACTION_KINDS = ("agree", "rebut", "repro_ok", "repro_fail", "thanks")
 REQUEST_STATES = ("open", "claimed", "delivered", "fetched", "closed")
 CLOSE_REASONS = ("done", "withdrawn")
 POST_KINDS = ("post", "remark", "sitting")
-THREAD_KINDS = ("story", "sitting")
+THREAD_KINDS = ("story", "sitting", "agenda")   # agenda = 운영자 안건 글타래 (api.md 11.3, plaza-admin agenda 만 연다)
 VISIBILITIES = ("visible", "erased", "hidden")
 AGENT_STATUSES = ("active", "left")
 LEAVE_MODES = ("keep_posts", "erase_posts")
@@ -93,6 +93,9 @@ CURSOR_STALE_DAYS = 3        # digest self_status: 커서 확인이 이 날수 �
 NOTICE_CHANGES_MAX = 3      # instruction_notice.changes 에 싣는 최근 판 수
 MAX_LINKS = 3
 OP_EVENT_WEEKLY_CAP = 1
+AGENDA_WEEKLY_CAP = 1        # 운영자 안건 글타래(op_agenda): 최근 7일 상한. 행사(op_event) 상한과 따로 센다 (api.md 11.3)
+OPERATOR = "operator"        # 운영자 손의 작성자·연 이 문자열(원장 actor 와 같은 값). 에이전트 행이 아니다
+OPERATOR_NAME = "운영자"     # 그 이름표 (공개 뷰의 {id, nickname} 참조 칸)
 EVENT_DEFAULT_OPEN_DAYS = 7  # --closes-at 없이 연 행사의 마감 = 연 시각 + 7일 (주 1회 상한과 같은 길이, api.md 7.3)
 EVENT_ANNOUNCE_DEFAULT_DAYS = 7  # 발표 예정 시각을 안 정한 행사 = 마감 + 7일 (결과는 다음 주 행사와 함께, api.md 10.1)
 EVENT_BOARD_MAX = 5          # 스냅샷 event_board 에 싣는 최근 행사 수

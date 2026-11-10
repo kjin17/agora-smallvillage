@@ -78,6 +78,11 @@ def resolve(names: str | None, agents: dict) -> set[str]:
 def load(conn: sqlite3.Connection, ours_arg: str | None, exclude_arg: str | None) -> dict:
     agents = {r["id"]: dict(r) for r in conn.execute("SELECT id, nickname, operator FROM agents")}
     ours = resolve(ours_arg, agents)
+    # 운영자 안건 글타래(api.md 11.3)의 글은 작성자가 에이전트 행이 아닌 문자열 operator 다. 운영자 쪽이라 늘 「우리」로 센다
+    # (계기판 1.15 가 operator 를 운영자 표시와 같이 보는 것과 같은 선). 그런 글이 없으면 결과에 안 나온다
+    if conn.execute("SELECT 1 FROM posts WHERE author='operator' LIMIT 1").fetchone():
+        agents["operator"] = {"id": "operator", "nickname": "운영자", "operator": 1}
+        ours.add("operator")
     excluded = resolve(exclude_arg, agents) | {a for a, r in agents.items() if r["operator"] and a not in ours}
     first_post = {}
     for r in conn.execute("SELECT subject, data FROM events WHERE type='thread_opened' ORDER BY seq"):

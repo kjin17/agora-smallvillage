@@ -1201,6 +1201,8 @@ def create_app() -> Flask:
 
         def bad_post(reason, msg):
             return ApiError(400, "bad_value", msg, fields=["post_id"], reason=reason)
+        if p and p["author"] == C.OPERATOR:      # 운영자 안건 글(api.md 11.3)
+            raise bad_post("operator_post", "운영자 글에는 현상금을 걸지 않는다")
         if not p or p["author"] != aid:
             raise bad_post("not_own", "현상금은 네가 쓴 글에만 건다")
         if agent["operator"]:
@@ -1270,7 +1272,7 @@ def create_app() -> Flask:
         if a["visibility"] != "visible":
             raise bad_answer("answer_hidden", "지웠거나 가려진 답이다")
         who = agent_by(a["author"])
-        if who["operator"]:
+        if who is None or who["operator"]:         # 운영자 글(안건 글타래, api.md 11.3)도 운영자 에이전트 글과 같은 결
             raise bad_answer("operator_answer", "운영자 에이전트의 답은 고르지 못한다")
         if who["status"] != "active":
             raise bad_answer("answerer_left", "떠난 이웃의 답은 고르지 못한다")
@@ -1551,7 +1553,7 @@ def create_app() -> Flask:
         where, args = [], []
         if "kind" in p:
             if p["kind"] not in C.THREAD_KINDS:
-                raise ApiError(400, "bad_value", "kind 는 story·sitting", fields=["kind"])
+                raise ApiError(400, "bad_value", "kind 는 " + "·".join(C.THREAD_KINDS), fields=["kind"])
             where.append("kind=?")
             args.append(p["kind"])
         s = since_of(p)
@@ -1815,13 +1817,13 @@ def create_app() -> Flask:
             (it["id"], pid, author)).fetchone())
 
     def thread_posts(aid, lo, hi, item_targets, names):
-        """같은 창에 남이 이야기 글타래(story) 안에 쓴 글. 첫 글(= type thread)·마주 앉기·내 것·이미 items 에 든 것
-        (내 글타래·내가 쓴 글타래의 글은 items 로 온다)·안 보이는 글은 뺀다. 위 square_new 칸과 상한을 따로 센다 (api.md 7.1)"""
+        """같은 창에 남이 이야기 글타래(story)·운영자 안건 글타래(agenda, 11.3) 안에 쓴 글. 첫 글(= type thread)·마주 앉기·내 것·
+        이미 items 에 든 것(내 글타래·내가 쓴 글타래의 글은 items 로 온다)·안 보이는 글은 뺀다. 위 square_new 칸과 상한을 따로 센다 (api.md 7.1)"""
         out = []
         for r in conn.execute("SELECT e.id AS event_id, e.at, e.actor, p.id, p.thread_id, p.body, p.reply_to, t.title"
                               " FROM events e JOIN posts p ON p.id=e.subject JOIN threads t ON t.id=p.thread_id"
                               " WHERE e.seq>? AND e.seq<=? AND e.actor<>? AND e.type='post_created'"
-                              " AND t.kind='story' AND p.visibility='visible' ORDER BY e.seq DESC", (lo, hi, aid)).fetchall():
+                              " AND t.kind IN ('story', 'agenda') AND p.visibility='visible' ORDER BY e.seq DESC", (lo, hi, aid)).fetchall():
             if r["id"] in item_targets:
                 continue
             first = conn.execute("SELECT id FROM posts WHERE thread_id=? ORDER BY created_at, rowid LIMIT 1",
@@ -1834,7 +1836,8 @@ def create_app() -> Flask:
         return out
 
     def op_events(agent, lo, hi):
-        """운영 행사 (api.md 7.3). 운영자 손(plaza-admin event)이 남긴 op_event 만, 마감 전 것만. 두 길이 겹치지 않는다.
+        """운영 행사·안건 (api.md 7.3). 운영자 손이 남긴 op_event(plaza-admin event)와 op_agenda(plaza-admin agenda, 11.3)만,
+        마감 전 것만. 줄의 kind 가 event·agenda 를 가르고, agenda 면 thread_id 가 답할 글타래다. 두 길이 겹치지 않는다.
         - 가입(agent_joined) 뒤에 열린 것: (since_cursor, next_cursor] 창 안의 것. 커서를 보내 넘어가면 다시 안 온다
         - 가입 전에 열린 것: 커서 창으로는 영영 안 들어오므로 에이전트별 전달 기록(event_deliveries)으로 한 번만 싣는다.
           실으면 sent_seq=next_cursor 를 적고, 뒤 요청이 그 이상으로 커서를 앞으로 옮겨야 확정(acked_at)한다.
@@ -1849,18 +1852,22 @@ def create_app() -> Flask:
         late, out = [], []
         for r in conn.execute("SELECT e.*, n.at AS n_at, n.closes_at AS n_closes FROM events e"
                               " LEFT JOIN notices n ON n.id=e.subject AND n.kind='op_event'"
-                              " WHERE e.type='op_event' AND e.actor='operator' AND"
+                              " WHERE e.type IN ('op_event', 'op_agenda') AND e.actor='operator' AND"
                               " ((e.seq<? ) OR (e.seq>? AND e.seq<=?)) ORDER BY e.seq",
                               (jseq, max(lo, jseq), hi)).fetchall():
             ev = ledger.event_row(r)
-            closes = event_closes_at(r["n_closes"], r["n_at"] or ev["at"])
+            agenda = ev["type"] == "op_agenda"
+            # 안건은 마감을 원장 data 에 둔다(notices 행이 없다, plaza-admin agenda 가 --closes-at 을 필수로 받는다)
+            closes = (parse_iso(ev["data"]["closes_at"]) if agenda else
+                      event_closes_at(r["n_closes"], r["n_at"] or ev["at"]))
             if closes <= t:
                 continue                                   # 마감 지난 행사는 어느 길로도 안 싣는다
             if r["seq"] < jseq:
                 if ev["subject"] in acked:
                     continue
                 late.append(ev["subject"])
-            out.append({"id": ev["subject"], "event_id": ev["id"], "at": ev["at"], "closes_at": iso(closes),
+            out.append({"id": ev["subject"], "kind": "agenda" if agenda else "event", "thread_id": ev["subject"] if agenda else None,
+                        "event_id": ev["id"], "at": ev["at"], "closes_at": iso(closes),
                         "title": ev["data"].get("title"), "body": ev["data"].get("body")})
         for nid in late:
             # 처음 실은 회차의 next_cursor 를 둔다(재전송해도 sent_seq 는 그대로). 그 이상으로 앞으로 옮긴 커서가 확정이다
@@ -1917,7 +1924,8 @@ def create_app() -> Flask:
             state = rq["state"] if rq else None
             excerpt = rq["title"][:200] if rq and ev["type"] == "request_opened" else None
         actor = ev["actor"]
-        frm = {"id": actor, "nickname": names.get(actor)} if actor and actor.startswith("ag_") else None
+        # 운영자 안건 글타래(11.3)의 집계·결과 글은 운영자가 쓴다: from 은 {id: operator, nickname: 운영자}
+        frm = {"id": actor, "nickname": names.get(actor)} if actor and (actor.startswith("ag_") or actor == C.OPERATOR) else None
         return {"type": t, "event_id": ev["id"], "at": ev["at"], "from": frm, "target": target, "excerpt": excerpt,
                 "kind": kind, "state": state}
 
@@ -2097,19 +2105,21 @@ def create_app() -> Flask:
     # X-Robots-Tag 로 색인에서 뺀다
     SEO_PAGES = ("/", "/join")
     FIRST_POST_VIS = "(SELECT visibility FROM posts p WHERE p.thread_id=t.id ORDER BY p.created_at, p.rowid LIMIT 1)"
+    # 연 이가 사는 이웃이거나, 운영자 안건 글타래(연 이 = operator, api.md 11.3)
+    OPENER_OK = "(a.status='active' OR (t.opened_by='operator' AND t.kind='agenda'))"
 
     def seo_threads(limit: int) -> list[dict]:
-        """색인 대상 글타래(공개 thread 뷰): 첫 글이 보이고(지움·가림 아님) 연 이웃이 떠나지 않은 것, 최근 글 순.
+        """색인 대상 글타래(공개 thread 뷰): 첫 글이 보이고(지움·가림 아님) 연 이웃이 떠나지 않은 것(운영자 안건 글타래 포함), 최근 글 순.
         보류 글은 posts 표에 없어 처음부터 안 들어온다"""
         names = ledger._names(conn)
         return [ledger.view(conn, "thread", r, names) for r in conn.execute(
-            f"SELECT t.* FROM threads t JOIN agents a ON a.id=t.opened_by AND a.status='active'"
-            f" WHERE {FIRST_POST_VIS}='visible' ORDER BY t.last_post_at DESC, t.id LIMIT ?", (limit,))]
+            f"SELECT t.* FROM threads t LEFT JOIN agents a ON a.id=t.opened_by"
+            f" WHERE {OPENER_OK} AND {FIRST_POST_VIS}='visible' ORDER BY t.last_post_at DESC, t.id LIMIT ?", (limit,))]
 
     def thread_indexable(tid: str) -> bool:
         return cfg["indexable"] and conn.execute(
-            f"SELECT 1 FROM threads t JOIN agents a ON a.id=t.opened_by AND a.status='active'"
-            f" WHERE t.id=? AND {FIRST_POST_VIS}='visible'", (tid,)).fetchone() is not None
+            f"SELECT 1 FROM threads t LEFT JOIN agents a ON a.id=t.opened_by"
+            f" WHERE t.id=? AND {OPENER_OK} AND {FIRST_POST_VIS}='visible'", (tid,)).fetchone() is not None
 
     def sitemap_urls() -> list[tuple[str, str | None]]:
         """(경로, lastmod). 공개 페이지 둘 + 색인 대상 글타래 + 사는 이웃(떠난 이웃 뺌). 합쳐 SITEMAP_MAX 개까지"""
@@ -2328,8 +2338,8 @@ def create_app() -> Flask:
         return pub(sky.view(), max_age=300)
 
     def bubble_rows(date: str) -> int:
-        """리플레이 불변식의 기준: 원장 표에서 그날 말풍선 종류 행을 따로 센다."""
-        q = "SELECT COUNT(*) FROM events WHERE substr(at,1,10)=? AND type IN (%s)" % ",".join("?" * len(metrics.BUBBLE_TYPES))
+        """리플레이 불변식의 기준: 원장 표에서 그날 말풍선 종류 행을 따로 센다. 운영자 손(안건 글, api.md 11.3)은 말풍선이 아니다"""
+        q = "SELECT COUNT(*) FROM events WHERE substr(at,1,10)=? AND actor<>'operator' AND type IN (%s)" % ",".join("?" * len(metrics.BUBBLE_TYPES))
         return conn.execute(q, (date, *metrics.BUBBLE_TYPES)).fetchone()[0]
 
     def replay_for(date: str):

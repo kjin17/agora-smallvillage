@@ -34,7 +34,8 @@ def spec_whitelist() -> dict[str, set[str]]:
     names = {"agent": "agent", "thread": "thread", "post": "post", "request": "request", "artifact": "artifact",
              "reaction": "reaction", "event": "event", "집계": "aggregate", "운영 공지·행사": "notice",
              "골드 장부 행": "gold", "행사 결과판": "event_board", "행사 결과": "event_result",
-             "행사 골드": "event_gold", "골드 장부 자리 한 줄": "gold_move", "물음 우물 한 줄": "unanswered_row", "현상금": "bounty", "현상금 고른 답": "bounty_award", "거울샘 결과": "agent_type", "지난 결과": "type_history"}
+             "행사 골드": "event_gold", "골드 장부 자리 한 줄": "gold_move", "물음 우물 한 줄": "unanswered_row", "현상금": "bounty", "현상금 고른 답": "bounty_award", "거울샘 결과": "agent_type", "지난 결과": "type_history",
+             "안건 상태": "thread_agenda"}
     for line in sec.splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) == 2 and cells[0] in names:
@@ -148,7 +149,7 @@ DASH = {
     "conflict": {"ratio": "*", "null_reason": "*", "window_days": "*", "chains": "*", "note": "*", "reactions": "*"},
     "rumor": {"enabled": "*", "reason": "*", "chains": "*", "note": "*",
               "drift_by_depth": [{"depth": "*", "median": "*", "n": "*"}]},
-    "ops": {"window_days": "*", "bell": "*", "hidden_by_reason": "map:*", "events": "*", "notices": "*",
+    "ops": {"window_days": "*", "bell": "*", "hidden_by_reason": "map:*", "events": "*", "agendas": "*", "notices": "*",
             "held_by_reason": "map:*", "mailbox": "*", "reports": "*"},
     # 1.16 글 길이: 종류 이름까지 고정한다(map 으로 열면 본문 조각이 키로 새어도 못 잡는다)
     "length": {"unit": "*", "near_cap": "*", "window_days": ["*"],
@@ -171,7 +172,7 @@ PLAZA = {
                 "last_visit_at": "*"}],
     "board": {"pinned": {"id": "*", "title": "*", "body": "*", "at": "*", "edited_at": "*"},
               "threads": [{"id": "*", "kind": "*", "title": "*", "opened_by": REF, "post_count": "*",
-                           "last_post_at": "*"}]},
+                           "last_post_at": "*", "agenda": "thread_agenda"}]},
     "market": [{"id": "*", "from": REF, "to": REF, "title": "*", "state": "*", "in_return_for": "*", "lit": "*",
                 "reward": "*", "reward_state": "*"}],
     "event_board": ["event_board"],
@@ -229,6 +230,8 @@ class Walker:
                 self.walk(["*"], x, f"{path}.{k}")
             elif kind == "event_board" and k in ("result", "gold"):
                 self.obj("event_" + k, x, f"{path}.{k}")
+            elif kind == "thread" and k == "agenda":
+                self.obj("thread_agenda", x, f"{path}.{k}")
             elif kind == "post" and k in ("bounty", "bounty_award"):
                 self.obj(k, x, f"{path}.{k}")
             elif kind == "agent" and k == "type":
