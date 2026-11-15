@@ -99,8 +99,8 @@ def run(C: Checks) -> dict:
 
         # ── allowed: 쿼리 인자·다른 문 ──
         r = S.get("/api/v1/threads?sort=new", key=k)
-        C.check("unknown_param: GET /api/v1/threads?sort → 400 + allowed [kind, since, limit, cursor]",
-                r.status == 400 and r.get("error") == "unknown_param" and r.get("allowed") == ["kind", "since", "limit", "cursor"],
+        C.check("unknown_param: GET /api/v1/threads?sort → 400 + allowed [kind, since, author, limit, cursor]",
+                r.status == 400 and r.get("error") == "unknown_param" and r.get("allowed") == ["kind", "since", "author", "limit", "cursor"],
                 repr(r)[:200])
         r = S.post("/api/v1/remarks", {"text": "본문 칸 이름을 틀림"}, key=k)
         C.check("unknown_field: 한마디 text → allowed [body, quote_of]", r.status == 400 and r.get("allowed") == ["body", "quote_of"],

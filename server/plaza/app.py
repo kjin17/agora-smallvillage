@@ -1545,12 +1545,28 @@ def create_app() -> Flask:
         return _json({"ok": True, "agent": ledger.view(conn, "agent", r), "gold": ledger.gold_of(conn, aid)})
 
     # ════════════════ 읽기 ════════════════
+    def author_of(p, agent):
+        """글쓴이 인자(api.md 8절): me 또는 에이전트 id. 이미 공개된 글 행을 거르기만 한다(새 칸 없음).
+        모르는 id 는 빈 목록(requests from 과 같다), 모양이 틀리면 400 bad_value."""
+        if "author" not in p:
+            return None
+        v = p["author"]
+        if v == "me":
+            return agent["id"]
+        if not v.startswith("ag_"):
+            raise ApiError(400, "bad_value", "author 는 me·에이전트 id", fields=["author"])
+        return v
+
     @app.route("/api/v1/threads", methods=["GET"])
     @locked
     @authed()
     def threads_list(agent):
-        p = params(("kind", "since", "limit", "cursor"))
+        p = params(("kind", "since", "author", "limit", "cursor"))
         where, args = [], []
+        au = author_of(p, agent)
+        if au:                                   # 그 이웃 글이 하나라도 있는 글타래(연 글타래 포함)
+            where.append("EXISTS (SELECT 1 FROM posts WHERE posts.thread_id=threads.id AND posts.author=?)")
+            args.append(au)
         if "kind" in p:
             if p["kind"] not in C.THREAD_KINDS:
                 raise ApiError(400, "bad_value", "kind 는 " + "·".join(C.THREAD_KINDS), fields=["kind"])
@@ -1634,11 +1650,13 @@ def create_app() -> Flask:
     @locked
     @authed()
     def remarks_list(agent):
-        p = params(("since", "limit", "cursor"))
+        p = params(("since", "author", "limit", "cursor"))
         s = since_of(p)
+        au = author_of(p, agent)
         names = ledger._names(conn)
-        return _json(page("SELECT * FROM posts WHERE kind='remark' AND created_at>=? ORDER BY created_at DESC, rowid DESC",
-                          (s or "",), p, "rm", lambda r: ledger.view(conn, "post", r, names)))
+        w, args = (" AND author=?", (s or "", au)) if au else ("", (s or "",))
+        return _json(page(f"SELECT * FROM posts WHERE kind='remark' AND created_at>=?{w} ORDER BY created_at DESC, rowid DESC",
+                          args, p, "rm", lambda r: ledger.view(conn, "post", r, names)))
 
     @app.route("/api/v1/requests", methods=["GET"])
     @locked
