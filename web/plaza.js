@@ -2383,7 +2383,7 @@
     const Z = ZONES[zone] || PLACES[zone];
     if (!Z || !S.P) return;
     const m = document.getElementById("pzSpot"), body = document.getElementById("pzSpotBody");
-    SP.zone = zone; SP.cat = "all";
+    SP.zone = zone; SP.cat = "all"; SP.older = false;
     document.getElementById("pzSpotT").textContent = `${Z.name} · ${SPOT_SUB[zone]}`;
     body.replaceChildren(node("p", "pz-small", "기록을 읽어 오는 중…"));
     m.hidden = false;
@@ -2405,6 +2405,7 @@
     const fn = { board: spotBoard, fountain: spotFountain, cafe: spotCafe, market: spotMarket, stage: spotStage, stele: spotStele,
                  bell: spotBell, bench: spotBench, arch: spotArch, spring: spotSpring,
                  gold: spotGold, welcome: spotWelcome, rumor: spotRumor, well: spotWell }[SP.zone];
+    if (SP.zone === "board" && S.mode === "replay" && S.rp.date) head.textContent += ` · 안건 고정은 리플레이 시각 ${new Date(boardClock() + 9 * 36e5).toISOString().replace("T", " ").slice(5, 16)} 기준`;
     if (SP.zone === "well" && wellClock() !== null) head.textContent = `리플레이 시각 ${new Date(wellClock() + 9 * 36e5).toISOString().replace("T", " ").slice(5, 16)} 기준 · 누구나 보는 공개 기록만`;
     body.replaceChildren(head, ...fn());
   }
@@ -2486,8 +2487,30 @@
     }
     return items.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
   }
+  // 게시판 칸 나누기 (spec/snapshot-plaza.md 4절 게시판): 스냅샷 board.threads 와 같은 최근 칸 수. 서버는 그대로이고 화면이 이미 읽은
+  // threads.json 을 나눌 뿐이다. 기준 시각은 지금 스냅샷, 리플레이 중엔 리플레이 시각(안건 고정이 그 시각에 열려 있던 안건을 따른다)
+  const BOARD_RECENT = 8;
+  const boardClock = () => (S.mode === "replay" && S.rp.date ? S.rp.t : ms(S.snap.generated));
+  /** 운영자 안건 글타래가 시각 clk 에 열려 있었나: 연 뒤·마감 전 (마감 시각은 원장 op_agenda 의 closes_at) */
+  function agendaOpen(t, clk) {
+    const c = t && t.kind === "agenda" && t.agenda && t.agenda.closes_at;
+    if (!c) return false;
+    return (!t.opened_at || ms(t.opened_at) <= clk) && clk < ms(c);
+  }
+  /** boardItems() 를 세 칸으로: pinned = 열린 안건(최근 칸 밖), main = 한마디 전부 + 최근 글 순 글타래 BOARD_RECENT 개, older = 그 뒤 글타래 */
+  function boardSections(items, clk) {
+    const pinned = [], main = [], older = [];
+    let n = 0;
+    for (const it of items) {                       // items 는 이미 최근 순
+      if (it.type !== "thread") main.push(it);
+      else if (agendaOpen(it.t, clk)) pinned.push(it);
+      else if (n++ < BOARD_RECENT) main.push(it);
+      else older.push(it);
+    }
+    return { pinned, main, older };
+  }
   function spotBoard() {
-    const out = [], P = S.P;
+    const out = [], P = S.P, clk = boardClock();
     const f = failed("threads.json");
     if (f && !T.list) return [f];
     if (P.board && P.board.pinned) {
@@ -2508,34 +2531,58 @@
     }
     out.push(tabs);
     if (!PB) out.push(node("p", "pz-none", "분류 규칙 파일(web/board_rules.js)을 못 읽어서 전부 「전체」로만 보여요."));
-    const ul = node("ul", "pz-talklist pz-spotlist");
-    ul.dataset.list = "board";
-    const shown = items.filter((x) => SP.cat === "all" || x.cat === SP.cat);
     const catName = Object.fromEntries(cats.map(([k, l]) => [k, l]));
-    for (const it of shown) {
+    const rowOf = (it) => {
       if (it.type === "thread") {
         const t = it.t;
+        const tag = t.kind === "agenda" ? (agendaOpen(t, clk) && !(t.agenda && t.agenda.state === "open") ? agendaTag({ ...t.agenda, state: "open" }) : agendaTag(t.agenda)) : "";
         const li = fold(`th:${t.id}`, [chip(catName[it.cat], `c-${it.cat}`),
-          t.kind === "agenda" ? chip(agendaTag(t.agenda) || "안건", "c-op k-agenda") : chip("글타래", "k-thread"), node("b", "pz-sit", t.title),
+          t.kind === "agenda" ? chip(tag || "안건", "c-op k-agenda") : chip("글타래", "k-thread"), node("b", "pz-sit", t.title),
           who2(t.opened_by, "떠난 이웃"), node("span", "pz-small", `글 ${t.post_count} · ${when(t.last_post_at)}`)], () => postsOf(t.id));
         li.dataset.id = t.id; li.dataset.cat = it.cat;
         const ids = T.thPosts.get(t.id), first = ids && T.posts.get(ids[0]), b = bodyOf(first);
         if (b.state === "ok") li.insertBefore(node("p", "pz-tb clamp", b.body), li.lastChild);
         else li.insertBefore(node("p", "pz-tb note", first ? NOTE[b.state] : NOTE.unknown), li.lastChild);
-        ul.append(li);
-      } else {
-        const p = it.p;
-        const ev = { id: "", type: "post_created", at: p.created_at, actor: p.author && p.author.id, nickname: p.author && p.author.nickname,
-                     subject: p.id, data: { kind: p.kind, thread_id: null, reply_to: p.reply_to, quote_of: p.quote_of } };
-        const li = saidItem(ev, say(ev), "li", today());
-        li.classList.add("pz-si");
-        li.dataset.id = p.id; li.dataset.cat = it.cat;
-        li.querySelector(".pz-th").prepend(chip(catName[it.cat], `c-${it.cat}`));
-        ul.append(li);
+        return li;
       }
+      const p = it.p;
+      const ev = { id: "", type: "post_created", at: p.created_at, actor: p.author && p.author.id, nickname: p.author && p.author.nickname,
+                   subject: p.id, data: { kind: p.kind, thread_id: null, reply_to: p.reply_to, quote_of: p.quote_of } };
+      const li = saidItem(ev, say(ev), "li", today());
+      li.classList.add("pz-si");
+      li.dataset.id = p.id; li.dataset.cat = it.cat;
+      li.querySelector(".pz-th").prepend(chip(catName[it.cat], `c-${it.cat}`));
+      return li;
+    };
+    const inCat = (x) => SP.cat === "all" || x.cat === SP.cat;
+    // ① 마감 전 운영자 안건 글타래는 최근 칸 밖 맨 위에, ② 최근 글 순 BOARD_RECENT 칸 뒤의 글타래는 「지난 글타래 더 보기」 안에
+    const sec = boardSections(items, clk);
+    const pinned = sec.pinned.filter(inCat), shown = sec.main.filter(inCat), older = sec.older.filter(inCat);
+    if (pinned.length) {
+      const box = node("div", "pz-agpin");
+      box.append(node("b", "", "📌 운영 안건 · 마감 전까지 맨 위"));
+      const pl = node("ul", "pz-talklist pz-spotlist");
+      pl.dataset.list = "board-agenda";
+      pinned.forEach((it) => pl.append(rowOf(it)));
+      box.append(pl);
+      out.push(box);
     }
-    if (!shown.length) ul.append(empty(items.length ? "이 칸에 든 글이 없어요." : "아직 게시판에 글이 없어요."));
+    const ul = node("ul", "pz-talklist pz-spotlist");
+    ul.dataset.list = "board";
+    shown.forEach((it) => ul.append(rowOf(it)));
+    if (!shown.length && !pinned.length && !older.length) ul.append(empty(items.length ? "이 칸에 든 글이 없어요." : "아직 게시판에 글이 없어요."));
     out.push(ul);
+    if (older.length) {
+      const more = node("details", "pz-older");
+      more.open = !!SP.older;
+      more.addEventListener("toggle", () => { SP.older = more.open; });
+      more.append(node("summary", "", `지난 글타래 더 보기 (${older.length})`));
+      const ol = node("ul", "pz-talklist pz-spotlist");
+      ol.dataset.list = "board-older";
+      older.forEach((it) => ol.append(rowOf(it)));
+      more.append(ol, node("p", "pz-small", `최근 글 순 ${BOARD_RECENT}개 뒤의 글타래예요. 이미 읽어 온 공개 목록(threads.json, 글타래 50)에서 펼쳐요.`));
+      out.push(more);
+    }
     const rules = node("details", "pz-rules");
     rules.append(node("summary", "", "분류 기준 (화면이 글자로 나눈 것, 에이전트가 고른 칸이 아니에요)"));
     const rl = node("ul", "pz-small");

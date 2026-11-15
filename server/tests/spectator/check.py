@@ -15,6 +15,11 @@
  5. 리플레이 말없이 다녀감 팻말: 그 방문 행 때 팻말이 뜨고, 말풍선 수(.pz-bubble)는 그대로
  6. 폰(390×844): 가로 넘침 0, 전광판·패널이 화면 안
  7. 페이지 오류 0
+ 8. 게시판(2026-11-15, I-20261115-2): 녹화 데이터에 글타래를 더한 변형(threads.json·threads/{id}.json)으로 연다. 기대값은 같은 파일에서 다시 센다.
+    마감 전 운영자 안건 글타래(kind agenda)는 「운영 안건」 칸(최근 칸 밖 맨 위) 한 줄, 본 목록 글타래 = 그 밖의 글타래 최근 글 순 8개,
+    「지난 글타래 더 보기 (N)」 = 나머지 글타래 같은 순서(처음엔 접힘). 칸별 수의 합 = 전체 = 세 목록 줄 수(탭마다).
+    마감 지난 안건은 고정 없이 최근 글 순 제자리, 리플레이 중엔 그 시각에 열려 있던 안건이 고정. 부른 주소 = 이미 읽던 공개 문뿐.
+    폰에서 팝업 넘침 0. 같은 안건의 마감만 지난 시각으로 바꾼 사본에선 고정이 사라져야 한다(고정 판정의 자 검사를 겸함)
 자 검사(검사기가 실패를 낼 수 있음을 보인다): 조사를 뒤집은 전광판 글은 「틀림」, 우호·대립을 뒤바꾼 기대값은 「다름」,
 말없이 다녀감 팻말을 .pz-bubble 로 만든 사본은 말풍선 수가 「다름」.
 """
@@ -350,6 +355,8 @@ def run(data: Path, work: Path, capture: Path | None) -> Checks:
                 C.check(G, "자 검사: 팻말을 .pz-bubble 로 만든 사본은 말풍선 수가 다름", n1 != n0, f"{n0} → {n1}")
             ctx.close()
 
+            board_checks(C, browser, p, data, work, when, errs, capture)
+
             # 6. 폰
             G = "폰 390×844"
             phone = {k: v for k, v in p.devices["iPhone 13"].items() if k != "default_browser_type"}
@@ -370,6 +377,167 @@ def run(data: Path, work: Path, capture: Path | None) -> Checks:
     finally:
         srv.shutdown()
     return C
+
+
+BOARD_RECENT = 8
+
+
+def board_site(data: Path, work: Path, name: str, gen: dt.datetime, closes: dt.datetime, opened: dt.datetime) -> tuple[Path, dict]:
+    """녹화 데이터 + 글타래 열둘·안건 글타래 하나를 더한 정적 사본. 안건의 마지막 글은 일부러 오래돼 최근 8칸 밖이다."""
+    th = json.loads((data / "threads.json").read_text(encoding="utf-8"))
+    some = th["threads"][1]["opened_by"]
+    extra = {}
+    for n in range(12):
+        at = (gen - dt.timedelta(hours=5 + n * 7)).isoformat(timespec="seconds")
+        tid = f"th_{0xb0a2d000 + n:016x}"
+        t = {"id": tid, "kind": "story", "title": f"지난 이야기 {n + 1}", "opened_by": some, "opened_at": at, "members": None,
+             "post_count": 1, "last_post_at": at, "agenda": None}
+        extra[tid] = t
+    ag_at = (gen - dt.timedelta(hours=5 + 11 * 7 + 3)).isoformat(timespec="seconds")
+    agenda = {"id": "th_00000000a6e0da01", "kind": "agenda", "title": "이번 주 정할 것 (안건)", "opened_by": {"id": "operator", "nickname": "운영자"},
+              "opened_at": opened.isoformat(timespec="seconds"), "members": None, "post_count": 1, "last_post_at": ag_at,
+              "agenda": {"closes_at": closes.isoformat(timespec="seconds"), "state": "open" if gen < closes else "tallying",
+                         "closed_at": None, "result_at": None}}
+    extra[agenda["id"]] = agenda
+    th = {**th, "threads": sorted(th["threads"] + list(extra.values()), key=lambda x: (x["last_post_at"], x["id"]), reverse=True)}
+    site = plaza_site(work / name, data)
+    (site / "public" / "threads.json").write_text(json.dumps(th, ensure_ascii=False), encoding="utf-8")
+    for tid, t in extra.items():
+        au = t["opened_by"]
+        post = {"id": "po_" + tid[3:], "kind": "post", "thread_id": tid, "author": au, "body": f"{t['title']} 첫 글",
+                "reply_to": None, "quote_of": None, "created_at": t["opened_at"], "visibility": "visible",
+                "reactions": {k: 0 for k in ("agree", "rebut", "repro_ok", "repro_fail", "thanks")}}
+        (site / "public" / "threads" / f"{tid}.json").write_text(json.dumps({"thread": t, "posts": [post], "reactions": []}, ensure_ascii=False), encoding="utf-8")
+    return site, th
+
+
+BOARD_JS = r"""async () => {
+  const wait = (f, ms = 15000) => new Promise((ok, no) => { const t0 = Date.now();
+    (function loop() { if (f()) return ok(); if (Date.now() - t0 > ms) return no(new Error('timeout board')); setTimeout(loop, 30); })(); });
+  Plaza.closeSpot();
+  Plaza.openSpot('board');
+  await wait(() => Plaza.spot().ready);
+  const box = document.getElementById('pzSpot');
+  const ids = (sel) => [...box.querySelectorAll(sel)].map((li) => li.dataset.id);
+  const read = () => ({
+    pinned: ids('[data-list="board-agenda"] > .pz-si'),
+    mainThreads: ids('[data-list="board"] > .pz-si[data-id^="th_"]'),
+    mainRemarks: ids('[data-list="board"] > .pz-si:not([data-id^="th_"])'),
+    older: ids('[data-list="board-older"] > .pz-si'),
+    olderOpen: !!(box.querySelector('.pz-older') || {}).open,
+    summary: ((box.querySelector('.pz-older > summary') || {}).textContent || ''),
+    pinFirst: (() => { const a = box.querySelector('.pz-agpin'), m = box.querySelector('[data-list="board"]');
+                       return !!(a && m && (a.compareDocumentPosition(m) & Node.DOCUMENT_POSITION_FOLLOWING)); })(),
+    pinTag: ((box.querySelector('[data-list="board-agenda"] .k-agenda') || {}).textContent || ''),
+    head: ((box.querySelector('.pz-spothead') || {}).textContent || ''),
+  });
+  const now = read();
+  const cats = {};
+  for (const c of [...box.querySelectorAll('[data-tab]')].map((b) => b.dataset.tab)) {
+    box.querySelector(`[data-tab="${c}"]`).click();
+    const rows = [...box.querySelectorAll('[data-list] > .pz-si')];
+    cats[c] = { n: Number(box.querySelector(`[data-tab="${c}"]`).dataset.n), rows: rows.length, bad: rows.filter((r) => c !== 'all' && r.dataset.cat !== c).length };
+  }
+  box.querySelector('[data-tab="all"]').click();
+  return { ...now, cats };
+}"""
+
+
+def board_want(th: dict, clk: dt.datetime):
+    """화면과 따로 센 기대값: 고정(그 시각에 열린 안건) · 본 목록 글타래 8 · 나머지."""
+    ths = [t for t in th["threads"] if t["kind"] != "sitting"]
+    ths.sort(key=lambda t: t["last_post_at"] or t["opened_at"], reverse=True)
+
+    def is_open(t):
+        a = t.get("agenda") or {}
+        return t["kind"] == "agenda" and a.get("closes_at") and dt.datetime.fromisoformat(t["opened_at"]) <= clk < dt.datetime.fromisoformat(a["closes_at"])
+    pinned = [t["id"] for t in ths if is_open(t)]
+    rest = [t["id"] for t in ths if t["id"] not in pinned]
+    return pinned, rest[:BOARD_RECENT], rest[BOARD_RECENT:]
+
+
+def board_checks(C: Checks, browser, p, data: Path, work: Path, when: dt.datetime, errs: list, capture: Path | None):
+    G = "게시판 안건·지난 글타래"
+    gen = dt.datetime.fromisoformat(json.loads((data / "snapshot.json").read_text(encoding="utf-8"))["generated"])
+    # A: 마감 전 안건 (지금 기준 열림)
+    site, th = board_site(data, work, "site_board_open", gen, gen + dt.timedelta(days=2), gen - dt.timedelta(hours=3))
+    url, srv = serve(site)
+    reqs: list = []
+    try:
+        ctx, pg = open_page(browser, url, "mode=now&motion=0", when, errs)
+        pg.on("request", lambda r: reqs.append((r.method, r.url)))
+        r = pg.evaluate(BOARD_JS)
+        pin, main, older = board_want(th, gen)
+        C.check(G, "마감 전 안건은 「운영 안건」 칸 한 줄, 본 목록보다 위", r["pinned"] == pin == ["th_00000000a6e0da01"] and r["pinFirst"],
+                f"화면 {r['pinned']} · 기대 {pin} · 위 {r['pinFirst']}")
+        C.check(G, "안건 꼬리표 「안건 · 마감 MM-DD HH:MM」", r["pinTag"].startswith("안건 · 마감 "), r["pinTag"])
+        C.check(G, f"본 목록 글타래 = 안건 밖 최근 글 순 {BOARD_RECENT}개 (안건은 8칸을 차지하지 않음)",
+                r["mainThreads"] == main and len(main) == BOARD_RECENT, f"화면 {len(r['mainThreads'])} · 기대 {len(main)}")
+        C.check(G, "「지난 글타래 더 보기 (N)」 = 나머지 글타래 같은 순서, 처음엔 접힘",
+                r["older"] == older and len(older) > 0 and r["summary"] == f"지난 글타래 더 보기 ({len(older)})" and not r["olderOpen"],
+                f"화면 {len(r['older'])} · 기대 {len(older)} · {r['summary']!r} · 열림 {r['olderOpen']}")
+        C.check(G, "한마디는 전부 본 목록에 (거르지 않음)", len(r["mainRemarks"]) == len(th["remarks"]), f"{len(r['mainRemarks'])} / {len(th['remarks'])}")
+        bad = {k: v for k, v in r["cats"].items() if v["rows"] != v["n"] or v["bad"]}
+        tot = sum(v["n"] for k, v in r["cats"].items() if k != "all")
+        C.check(G, "칸별 수의 합 = 전체 = 세 목록 줄 수, 탭마다 그 칸 줄만", not bad and tot == r["cats"]["all"]["n"] ==
+                len(r["pinned"]) + len(r["mainThreads"]) + len(r["mainRemarks"]) + len(r["older"]), f"어긋남 {bad} · 합 {tot}")
+        pg.evaluate("(() => { const s = document.querySelector('#pzSpot .pz-older > summary'); if (s) s.click(); })()")
+        pg.evaluate("document.querySelector('#pzSpot [data-tab=\"all\"]').click()")
+        still = pg.evaluate("!!(document.querySelector('#pzSpot .pz-older') || {}).open")
+        C.check(G, "펼친 「지난 글타래」는 탭을 바꿔도 펼친 채", still, str(still))
+        bad_req = [(m, u) for m, u in reqs if m != "GET" or not re.match(re.escape(url) + r"/(web/|img/|public/(threads\.json|threads/th_[0-9a-f]{16}\.json|requests/|agents/|replay/|snapshot\.json|weather\.json|events\.json))", u)]
+        C.check(G, "부른 주소 = 이미 읽던 공개 문의 GET 뿐 (서버 새 문 없음)", not bad_req, bad_req[:3] or f"{len(reqs)}건")
+        if capture:
+            pg.evaluate("document.querySelector('#pzSpot .pz-sheet').scrollTop = 0")
+            pg.screenshot(path=str(capture / "board_desktop_agenda.png"))
+            pg.evaluate("(() => { const o = document.querySelector('#pzSpot .pz-older'); if (o) o.scrollIntoView(); document.querySelector('#pzSpot .pz-sheet').scrollTop -= 130; })()")
+            pg.screenshot(path=str(capture / "board_desktop_older.png"))
+        ctx.close()
+        phone = {k: v for k, v in p.devices["iPhone 13"].items() if k != "default_browser_type"}
+        ctx, pg = open_page(browser, url, "mode=now&motion=0", when, errs, dev=phone)
+        rp = pg.evaluate(BOARD_JS)
+        o = pg.evaluate("""(() => { const s = document.querySelector('#pzSpot .pz-sheet').getBoundingClientRect();
+          const wide = [...document.querySelectorAll('#pzSpot .pz-sheet *')].filter((e) => e.getBoundingClientRect().right > innerWidth + 0.5).length;
+          return { sw: document.documentElement.scrollWidth, vw: innerWidth, l: s.left, r: s.right, wide }; })()""")
+        C.check(G, "폰: 게시판 팝업 넘침 0, 안건 칸·지난 글타래 그대로", o["sw"] <= o["vw"] and o["l"] >= 0 and o["r"] <= o["vw"] + 0.5 and o["wide"] == 0
+                and rp["pinned"] == pin and rp["older"] == older, str(o))
+        if capture:
+            pg.evaluate("document.querySelector('#pzSpot .pz-sheet').scrollTop = 0")
+            pg.screenshot(path=str(capture / "board_phone_agenda.png"))
+            pg.evaluate("(() => { const o = document.querySelector('#pzSpot .pz-older'); if (o) { o.open = true; o.scrollIntoView(); } document.querySelector('#pzSpot .pz-sheet').scrollTop -= 130; })()")
+            pg.screenshot(path=str(capture / "board_phone_older.png"))
+        ctx.close()
+    finally:
+        srv.shutdown()
+
+    # B: 마감 지난 안건 — 지금은 제자리, 리플레이(마감 전 시각)에선 고정
+    dates = sorted(json.loads((data / "replay" / "index.json").read_text(encoding="utf-8"))["dates"], key=lambda d: d["date"])
+    rdate = next(d["date"] for d in dates if d["bubbles"])
+    opened = dt.datetime.fromisoformat(rdate + "T00:00:00+09:00")
+    site, th = board_site(data, work, "site_board_closed", gen, gen - dt.timedelta(hours=1), opened)
+    url, srv = serve(site)
+    try:
+        ctx, pg = open_page(browser, url, "mode=now&motion=0", when, errs)
+        r = pg.evaluate(BOARD_JS)
+        pin, main, older = board_want(th, gen)
+        where = "older" if "th_00000000a6e0da01" in older else "main"
+        C.check(G, "마감 지난 안건은 고정 없이 최근 글 순 제자리", not r["pinned"] and not pin and r["mainThreads"] == main and r["older"] == older
+                and "th_00000000a6e0da01" in (r["older"] if where == "older" else r["mainThreads"]), f"고정 {r['pinned']} · 자리 {where}")
+        ctx.close()
+        ctx, pg = open_page(browser, url, f"view=replay&motion=0&date={rdate}&autopause=0", when, errs)
+        pg.evaluate(f"Plaza.replay({{date: '{rdate}', speed: 60, autopause: false}})")
+        pg.clock.run_for(2000)
+        st = pg.evaluate("Plaza.stats()")
+        clk = dt.datetime.fromtimestamp(st["t"] / 1000, KST) if st.get("t") else gen
+        r = pg.evaluate(BOARD_JS)
+        pin, main, older = board_want(th, clk)
+        C.check(G, "리플레이 중엔 그 시각 기준: 그때 열려 있던 안건이 고정, 머리에 「리플레이 시각 … 기준」",
+                st.get("mode") == "replay" and r["pinned"] == pin == ["th_00000000a6e0da01"] and r["mainThreads"] == main
+                and "안건 고정은 리플레이 시각" in r["head"] and r["pinTag"].startswith("안건 · 마감 "),
+                f"모드 {st.get('mode')} · 시각 {clk.isoformat()} · 고정 {r['pinned']} · 꼬리표 {r['pinTag']!r}")
+        ctx.close()
+    finally:
+        srv.shutdown()
 
 
 def main(argv=None) -> int:

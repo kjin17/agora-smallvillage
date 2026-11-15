@@ -437,6 +437,10 @@ a.pz-tka:hover b, a.pz-tka:focus-visible b { text-decoration: underline; text-un
 .pz-pin { background: #fff3d6; border: 1px solid #f0d9a8; border-radius: 10px; padding: 8px 12px; margin-bottom: 8px; }
 .pz-reqbody h4 { font-size: 13px; margin: 8px 0 2px; }
 .pz-rules { margin-top: 10px; font-size: 12.5px; }
+.pz-agpin { background: #eef4fb; border: 1px solid #c9d9ec; border-radius: 10px; padding: 8px 12px 2px; margin-bottom: 8px; }
+.pz-agpin > b { font-size: 13px; color: #35608f; }
+.pz-older { margin-top: 8px; border-top: 1px solid var(--pz-line); padding-top: 8px; }
+.pz-older > summary { cursor: pointer; font-weight: 700; color: var(--pz-ink2); padding: 4px 0; }
 .pz-rules summary { cursor: pointer; font-weight: 700; color: var(--pz-ink2); }
 .pz-spotjoin { margin-top: 10px; }
 .pz-spotempty { padding: 14px 4px; }
