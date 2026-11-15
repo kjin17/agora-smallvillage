@@ -20,6 +20,10 @@
     「지난 글타래 더 보기 (N)」 = 나머지 글타래 같은 순서(처음엔 접힘). 칸별 수의 합 = 전체 = 세 목록 줄 수(탭마다).
     마감 지난 안건은 고정 없이 최근 글 순 제자리, 리플레이 중엔 그 시각에 열려 있던 안건이 고정. 부른 주소 = 이미 읽던 공개 문뿐.
     폰에서 팝업 넘침 0. 같은 안건의 마감만 지난 시각으로 바꾼 사본에선 고정이 사라져야 한다(고정 판정의 자 검사를 겸함)
+ 9. 골드 장부 합계(2026-11-15): gold_moves 를 넣은 스냅샷 변형으로 연다. 팝업 맨 위 첫 줄 = 「지금까지 나눠 준 골드 N · 지금 광장에 있는 골드 S
+    · 사라진 골드 B」, S = supply + 노점 맡김(market held) + bounty_held, B = burned_total, N = S + B (기대값은 스냅샷에서 다시 셈).
+    burned_total 이 없는 옛 스냅샷이면 사라진 칸 없이 N = S. 맨 아래 작은 줄에 같은 숫자(「광장 전체 S골드」)를 되풀이하지 않음.
+    리플레이 중엔 합계를 숨기고 그 사실을 적은 한 줄만(리플레이 시각 뒤 값을 그리지 않는 규칙). 폰에서 팝업 넘침 0
 자 검사(검사기가 실패를 낼 수 있음을 보인다): 조사를 뒤집은 전광판 글은 「틀림」, 우호·대립을 뒤바꾼 기대값은 「다름」,
 말없이 다녀감 팻말을 .pz-bubble 로 만든 사본은 말풍선 수가 「다름」.
 """
@@ -356,6 +360,7 @@ def run(data: Path, work: Path, capture: Path | None) -> Checks:
             ctx.close()
 
             board_checks(C, browser, p, data, work, when, errs, capture)
+            gold_checks(C, browser, p, data, work, when, errs, capture)
 
             # 6. 폰
             G = "폰 390×844"
@@ -538,6 +543,100 @@ def board_checks(C: Checks, browser, p, data: Path, work: Path, when: dt.datetim
         ctx.close()
     finally:
         srv.shutdown()
+
+
+GOLD_JS = r"""async () => {
+  const wait = (f, ms = 15000) => new Promise((ok, no) => { const t0 = Date.now();
+    (function loop() { if (f()) return ok(); if (Date.now() - t0 > ms) return no(new Error('timeout gold')); setTimeout(loop, 30); })(); });
+  Plaza.closeSpot();
+  Plaza.openSpot('gold');
+  await wait(() => Plaza.spot().ready);
+  const b = document.getElementById('pzSpotBody');
+  const top = b.querySelector('.pz-goldtotal'), off = b.querySelector('.pz-goldtotal-off');
+  const kids = [...b.children].filter((e) => !e.classList.contains('pz-spothead'));
+  const cells = top ? [...top.querySelectorAll('.pz-gt')].map((c) => [c.dataset.k, c.querySelector('.pz-gtl').textContent, c.querySelector('.pz-gtv').textContent]) : [];
+  return { first: kids[0] ? kids[0].className : null, cells, note: top && top.querySelector('.pz-gtnote') ? top.querySelector('.pz-gtnote').textContent : null,
+           off: off ? off.textContent : null, smalls: [...b.querySelectorAll(':scope > p.pz-small:not(.pz-spothead)')].map((x) => x.textContent),
+           text: b.textContent, fs: top ? parseFloat(getComputedStyle(top.querySelector('.pz-gtv')).fontSize) : 0 };
+}"""
+GOLD_LABELS = {"issued": "지금까지 나눠 준 골드", "here": "지금 광장에 있는 골드", "burned": "사라진 골드"}
+
+
+def gold_want(snap: dict) -> list:
+    """기대 합계 칸 [(키, 라벨, 값)] — 화면 코드가 아니라 스냅샷에서 다시 센다(api.md 6.3 불변식: 장부 합 + 맡김 + 사라진 = 운영 지급 합)"""
+    gm, market = snap["plaza"]["gold_moves"], snap["plaza"].get("market") or []
+    held = sum(m["reward"] for m in market if m.get("reward") and m.get("reward_state") == "held")
+    here = gm["supply"] + held + (gm.get("bounty_held") or 0)
+    out = [("issued", here + (gm.get("burned_total") or 0)), ("here", here)]
+    if gm.get("burned_total") is not None:
+        out.append(("burned", gm["burned_total"]))
+    return [[k, GOLD_LABELS[k], str(v)] for k, v in out]
+
+
+def gold_snap(data: Path, gm: dict, held: int = 0) -> dict:
+    snap = json.loads((data / "snapshot.json").read_text(encoding="utf-8"))
+    snap["plaza"]["gold_moves"] = dict({"window_days": 7, "count": 0, "received": 0, "given": 0, "rows": []}, **gm)
+    if held:
+        m = next(m for m in snap["plaza"]["market"] if m["state"] == "open")
+        m["reward"], m["reward_state"] = held, "held"
+    return snap
+
+
+def gold_checks(C: Checks, browser, p, data: Path, work: Path, when: dt.datetime, errs: list, capture: Path | None):
+    G = "골드 장부 합계"
+    cases = [("지금(공개 실데이터 모양 supply 129·burned_total 1)", "now", {"supply": 129, "burned": 1, "burned_total": 1, "bounty_held": 0}, 0),
+             ("burned_total 이 null 인 옛 스냅샷", "old", {"supply": 120, "burned": None, "burned_total": None}, 0),
+             ("노점 맡김 5 · 걸린 현상금 3", "parked", {"supply": 121, "burned": 1, "burned_total": 1, "bounty_held": 3}, 5)]
+    phone = {k: v for k, v in p.devices["iPhone 13"].items() if k != "default_browser_type"}
+    for label, key, gm, held in cases:
+        snap = gold_snap(data, gm, held)
+        want = gold_want(snap)
+        url, srv = serve(plaza_site(work / f"site_gold_{key}", data, snap))
+        try:
+            ctx, pg = open_page(browser, url, "mode=now&motion=0", when, errs)
+            r = pg.evaluate(GOLD_JS)
+            C.check(G, f"{label}: 맨 위 첫 줄 = {' · '.join(f'{w[1]} {w[2]}' for w in want)}",
+                    r["first"] == "pz-goldtotal" and r["cells"] == want and r["fs"] >= 18, f"첫 줄 {r['first']} · 화면 {r['cells']} · 글자 {r['fs']}px")
+            if key == "now":
+                C.check(G, "맨 아래 작은 줄은 합계 숫자를 되풀이하지 않음(「광장 전체 N골드」·「지금까지 사라진 골드 N」 없음)",
+                        r["smalls"] and not any(re.search(r"광장 전체 \d|지금까지 사라진 골드 \d", t) for t in r["smalls"]), str(r["smalls"])[:200])
+                if capture:
+                    pg.evaluate("document.querySelector('#pzSpot .pz-sheet').scrollTop = 0")
+                    pg.screenshot(path=str(capture / "gold_desktop.png"))
+            if key == "parked":
+                C.check(G, "맡긴 골드가 있으면 「이웃 지갑 + 맡긴」 풀이 한 줄", r["note"] == "광장에 있는 골드 = 이웃 지갑 121 + 노점·현상금에 맡긴 8", str(r["note"]))
+            ctx.close()
+            if key == "now":
+                ctx, pg = open_page(browser, url, "mode=now&motion=0", when, errs, dev=phone)
+                r = pg.evaluate(GOLD_JS)
+                o = pg.evaluate("""(() => { const s = document.querySelector('#pzSpot .pz-sheet').getBoundingClientRect();
+                  const g = document.querySelector('#pzSpot .pz-goldtotal'), t = g ? g.getBoundingClientRect() : { left: -1, right: 1e9 };
+                  const wide = [...document.querySelectorAll('#pzSpot .pz-sheet *')].filter((e) => e.getBoundingClientRect().right > innerWidth + 0.5).length;
+                  return { sw: document.documentElement.scrollWidth, vw: innerWidth, l: s.left, r: s.right, tl: t.left, tr: t.right, wide }; })()""")
+                C.check(G, "폰: 골드 장부 팝업 넘침 0, 합계 줄이 화면 안·값 그대로",
+                        o["sw"] <= o["vw"] and o["l"] >= 0 and o["r"] <= o["vw"] + 0.5 and o["wide"] == 0 and o["tl"] >= 0 and o["tr"] <= o["vw"] + 0.5
+                        and r["cells"] == want, str(o))
+                if capture:
+                    pg.evaluate("document.querySelector('#pzSpot .pz-sheet').scrollTop = 0")
+                    pg.screenshot(path=str(capture / "gold_phone.png"))
+                ctx.close()
+                # 리플레이 중: 스냅샷은 지금 값뿐이라 합계를 숨긴다
+                idx = json.loads((data / "replay" / "index.json").read_text(encoding="utf-8"))
+                rdate = next(d["date"] for d in sorted(idx["dates"], key=lambda d: d["date"]) if d["bubbles"])
+                ctx, pg = open_page(browser, url, f"view=replay&motion=0&date={rdate}&autopause=0", when, errs)
+                pg.evaluate(f"Plaza.replay({{date: '{rdate}', speed: 60, autopause: false}})")
+                pg.clock.run_for(2000)
+                st = pg.evaluate("Plaza.stats()")
+                r = pg.evaluate(GOLD_JS)
+                C.check(G, "리플레이 중엔 합계 숨김: 합계 칸 없음, 맨 위는 「리플레이 중이라 골드 합계는 숨겨요」 한 줄, 지금 합계 숫자 안 그림",
+                        st.get("mode") == "replay" and not r["cells"] and r["first"] == "pz-small pz-goldtotal-off" and (r["off"] or "").startswith("리플레이 중이라 골드 합계는 숨겨요")
+                        and not re.search(r"(나눠 준 골드|광장에 있는 골드)」?\s*\d", r["text"]),
+                        f"모드 {st.get('mode')} · 첫 줄 {r['first']} · {r['off']!r}")
+                if capture:
+                    pg.screenshot(path=str(capture / "gold_desktop_replay.png"))
+                ctx.close()
+        finally:
+            srv.shutdown()
 
 
 def main(argv=None) -> int:

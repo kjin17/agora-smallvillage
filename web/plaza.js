@@ -2856,9 +2856,32 @@
   // 골드 장부: 스냅샷 plaza.gold_moves(최근 7일, 행사 지급은 묶음, 잔액 순위 없음) + 노점에 걸린 골드 + 읽어 온 날짜의 장부 원장 행
   const GOLD_MOVE_KO = { award: "운영 지급", escrow: "보상 맡김", payout: "보상 받음", refund: "돌려받음", event_award: "행사 지급", give: "건넴",
     bounty_held: "현상금 걸어 둠", bounty: "현상금 값어치 했다", bounty_refund: "현상금 돌려받음", bounty_burned: "현상금 기한 지남 · 사라짐" };
+  /** 골드 합계(spec/snapshot-plaza.md 4절 골드 장부): issued = here + burned, burned 는 burned_total 이 없으면 null */
+  function goldTotals(gm, held) {
+    const parked = (held || 0) + (gm.bounty_held || 0);
+    const here = (gm.supply || 0) + parked;
+    const burned = gm.burned_total == null ? null : gm.burned_total;
+    return { here, parked, burned, issued: here + (burned || 0) };
+  }
   function spotGold() {
     const gm = S.P.gold_moves || { window_days: 7, count: 0, received: 0, supply: 0, rows: [] };
     const held = (S.P.market || []).reduce((s, m) => s + (m.reward && m.reward_state === "held" ? m.reward : 0), 0);
+    // 맨 위 합계 줄(2026-11-15): 나눠 준 골드 N = 운영 지급 합 = 지금 있는 골드 S + 사라진 골드 B (api.md 6.3 불변식).
+    // S = 이웃 지갑(supply) + 노점·현상금에 맡긴 골드. burned_total 이 없는 옛 스냅샷이면 사라진 칸 없이 N = S.
+    // 스냅샷은 「지금」 값뿐이라 리플레이 중엔 숨긴다(리플레이 시각 뒤 값을 미리 보이지 않게)
+    const tot = goldTotals(gm, held);
+    let top;
+    if (wellClock() !== null) {
+      top = node("p", "pz-small pz-goldtotal-off", "리플레이 중이라 골드 합계는 숨겨요 — 그 시각의 합계는 공개 기록에 없어요. 리플레이를 끄면 지금 합계가 보여요.");
+      top.dataset.goldtotal = "hidden";
+    } else {
+      top = node("div", "pz-goldtotal");
+      const cell = (label, v, key) => { const c = node("span", "pz-gt"); c.dataset.k = key; c.append(node("span", "pz-gtl", label), node("b", "pz-gtv", String(v))); return c; };
+      top.append(cell("지금까지 나눠 준 골드", tot.issued, "issued"), cell("지금 광장에 있는 골드", tot.here, "here"));
+      if (tot.burned !== null) top.append(cell("사라진 골드", tot.burned, "burned"));
+      top.dataset.goldtotal = "shown";
+      if (tot.parked) top.append(node("span", "pz-gtnote", `광장에 있는 골드 = 이웃 지갑 ${gm.supply} + 노점·현상금에 맡긴 ${tot.parked}`));
+    }
     const stat = node("p", "pz-spotstat", `최근 ${gm.window_days}일 골드 이동 ${gm.count}건 · 지급·보상으로 넘어간 골드 ${gm.received} · 이웃끼리 건넨 골드 ${gm.given || 0} · 지금 노점에 걸린 골드 ${held}` +
       (gm.bounty_held || gm.burned ? ` · 걸린 현상금 ${gm.bounty_held || 0} · 사라진 골드 ${gm.burned || 0}` : ""));
     stat.dataset.count = String(gm.count); stat.dataset.held = String(held);
@@ -2906,9 +2929,9 @@
       const li = saidItem(e, say(e), "li", today()); li.classList.add("pz-si"); ul2.append(li);
     }
     if (!ul2.children.length) ul2.append(empty("읽어 온 날짜에 골드 장부 행이 없어요."));
-    return [stat, ul, node("h4", "", "장부 원장 행 (읽어 온 날짜)"), ul2,
-      node("p", "pz-small", gm.burned_total == null ? `새 골드는 행사 지급으로만 생겨요. 부탁 보상과 이웃끼리 건네기는 옮길 뿐이에요 — 광장 전체 ${gm.supply}골드 = 운영 지급 합.`
-        : `새 골드는 행사 지급으로만 생겨요. 부탁 보상과 이웃끼리 건네기는 옮길 뿐이고, 물음 현상금은 고를 때 30%가, 답이 왔는데 안 고르면 전부가 사라져요 — 광장 전체 ${gm.supply}골드 · 걸린 현상금 ${gm.bounty_held || 0} · 지금까지 사라진 골드 ${gm.burned_total}.`),
+    return [top, stat, ul, node("h4", "", "장부 원장 행 (읽어 온 날짜)"), ul2,
+      node("p", "pz-small", gm.burned_total == null ? "새 골드는 행사 지급으로만 생겨요. 부탁 보상과 이웃끼리 건네기는 옮길 뿐이에요 — 맨 위 「지금까지 나눠 준 골드」가 운영 지급 합이에요."
+        : "새 골드는 행사 지급으로만 생겨요. 부탁 보상과 이웃끼리 건네기는 옮길 뿐이고, 물음 현상금은 고를 때 30%가, 답이 왔는데 안 고르면 전부가 사라져요 — 맨 위 「지금까지 나눠 준 골드」 = 「지금 광장에 있는 골드」 + 「사라진 골드」."),
       node("p", "pz-small", "잔액 순위는 싣지 않아요(같은 소유주의 두 계정이 주고받으면 순위만 부풀어서). 행사 지급은 받은 이 대신 명수만. 이름을 누르면 그 이웃의 장부.")];
   }
 

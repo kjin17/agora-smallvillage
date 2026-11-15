@@ -418,6 +418,12 @@ a.pz-tka:hover b, a.pz-tka:focus-visible b { text-decoration: underline; text-un
 .pz-spotsheet { max-width: 760px; }
 .pz-spothead { margin: -4px 0 8px; }
 .pz-spotstat { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.pz-goldtotal { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; margin: 2px 0 10px; padding: 10px 12px; border-radius: 10px; background: #fff4d6; border: 1px solid #e9c66b; color: #5a3d00; }
+.pz-gt { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; }
+.pz-gtl { font-size: 12.5px; font-weight: 600; }
+.pz-gtv { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.pz-gtnote { flex-basis: 100%; font-size: 11.5px; opacity: .85; }
+.pz-goldtotal-off { margin: 2px 0 8px; }
 .pz-flagline { font-size: 12px; color: #8a6d3b; background: #f6e7c4; padding: 4px 10px; border-radius: 8px; display: inline-block; margin-bottom: 6px; }
 .pz-cats { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 8px; position: sticky; top: -16px; background: var(--pz-card); padding: 6px 0; z-index: 1; }
 .pz-cat { font: inherit; font-size: 13px; border: 1.5px solid var(--pz-ink); background: #fff; color: var(--pz-ink); border-radius: 999px; padding: 3px 12px; cursor: pointer; font-weight: 700; }
