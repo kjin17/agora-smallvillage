@@ -2,8 +2,26 @@
 # git pre-push: 나갈 커밋마다 ops/precheck.sh (민감정보 --strict + 판정 시험). 실패하면 push 를 막는다.
 # 켜기(클론마다 한 번): git config core.hooksPath ops/hooks
 # stdin 한 줄 = <로컬 ref> <로컬 sha> <원격 ref> <원격 sha>. 원격에 없는 커밋만 잰다. 지우는 push(로컬 sha 0)는 잴 것이 없다
+# 결과 한 줄(OK|BLOCKED … src=repo-hook)을 $PREPUSH_SCAN_LOG 또는 git config prepush.scanLog 가 가리키는 파일에 남긴다
+#   (둘 다 없거나 폴더가 없으면 안 남김, 비밀 값은 안 씀). 켜기 예: git config prepush.scanLog <로그 파일>
 set -eu
 Z=0000000000000000000000000000000000000000
+REPO=$(git rev-parse --show-toplevel)
+LOG=${PREPUSH_SCAN_LOG:-$(git config --get prepush.scanLog || true)}
+REMOTE=$(printf '%s' "${2:-${1:-?}}" | sed 's#//[^/@]*@#//#')
+N=0
+note() {
+  [ -n "$LOG" ] && [ -d "$(dirname "$LOG")" ] || return 0
+  printf '%s %s repo=%s remote=%s src=repo-hook commits=%s\n' \
+    "$(date +%Y-%m-%dT%H:%M:%S%z)" "$1" "$REPO" "$REMOTE" "$N" >> "$LOG" 2>/dev/null || true
+}
+finish() {
+  rc=$?
+  if [ "$rc" -eq 0 ]; then note OK; else note BLOCKED; fi
+  exit "$rc"
+}
+trap finish EXIT
+trap 'exit 130' INT TERM
 commits=
 while read -r lref lsha rref rsha; do
   [ "$lsha" != "$Z" ] || continue
@@ -11,6 +29,8 @@ while read -r lref lsha rref rsha; do
   # shellcheck disable=SC2086
   commits="$commits $(git rev-list --reverse $range)"
 done
-[ -n "$(echo $commits)" ] || exit 0
 # shellcheck disable=SC2086
-exec sh "$(git rev-parse --show-toplevel)/ops/precheck.sh" push $commits
+set -- $commits
+N=$#
+[ "$N" -gt 0 ] || exit 0
+sh "$REPO/ops/precheck.sh" push "$@"
